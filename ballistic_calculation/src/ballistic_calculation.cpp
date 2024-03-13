@@ -46,6 +46,26 @@ std::pair<double,double> Ballistic::iteration1(double &thres , double &init_pitc
     
 }
 
+std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitch , double &initT , double& x , double& y)
+{
+    theta = init_pitch;
+    double differ;
+    double t;
+    for(int i = 0 ; i < 100 ; i++){
+
+        double t = static_cast<double>(optimizeTime2(static_cast<double>(initT) , x , y));
+        double hk = bulletV * static_cast<double>(sin(static_cast<double>(theta))) * t - 0.5 * 9.8 * t * t;//子弹击打高度
+        double hr = robotcenter.z + velocity.z*t;//预测高度
+        differ = hk - hr;
+        if(differ < thres){
+            break;
+        }
+        theta = theta + differ*K2;
+    }
+    return std::make_pair(theta , t);
+    
+}
+
 
 
 double Ballistic::optimizeTime1(double initial_guess) {
@@ -72,12 +92,12 @@ double Ballistic::optimizeTime1(double initial_guess) {
 }
 
 
-double Ballistic::optimizeTime2(double initial_guess) {
+double Ballistic::optimizeTime2(double initial_guess , double& x , double& y) {
     double t = initial_guess; // Initial guess for time t
 
     ceres::Problem problem;
     problem.AddResidualBlock(
-        new ceres::AutoDiffCostFunction<Ballistic::CostFunctor2, 1, 1>(new Ballistic::CostFunctor2(*this)),
+        new ceres::AutoDiffCostFunction<Ballistic::CostFunctor2, 1, 1>(new Ballistic::CostFunctor2(*this, x , y)),
         nullptr,
         &t
     );
