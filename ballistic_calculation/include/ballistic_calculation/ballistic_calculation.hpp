@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 #include<cmath>
 
 #include "auto_aim_interfaces/msg/target.hpp"
@@ -22,7 +23,8 @@ using target = auto_aim_interfaces::msg::Target;
 class Ballistic
 {
 public:
-Ballistic(double bulletV , target target_msg , double k = 0.1 , double K1 = 0.1 , double K2 = 0.05); //构造函数
+
+Ballistic( target target_msg , double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 30); //构造函数
 
 target target_msg;
 geometry_msgs::msg::Point robotcenter = target_msg.position;
@@ -33,12 +35,20 @@ double K2;//第一次大迭代时的步长，需要parameter_declare来调整参
 double k; //空气阻力系数，需要parameter_declare来调整参数
 double theta;//计算t时变动的临时参数    
 
-//iteration
-std::pair<double,double> iteration1(double &thres , double &init_pitch , double &initT ); //迭代,返回pitch和T，传入T和pitch的初始值
+// 迭代中心,返回pitch和T，传入T和pitch的初始值
+std::pair<double,double> iteration1(double &thres , double &init_pitch , double &initT );
 
-std::pair<double,double> iteration2(double &thres , double &init_pitch , double &initT , double& x , double& y); //迭代,返回pitch和T，传入T和pitch的初始值
-//figure out best armor,express the final distance's function of T,using the result to iteration
-std::vector<double> predictBestArmor(double T); //找出最佳装甲板,返回该装甲板的预测中心坐标
+// 找出步兵的最佳装甲板,返回该装甲板的预测中心坐标
+std::vector<double> predictInfantryBestArmor(double T); 
+
+//找出平衡步兵的最佳装甲板
+std::vector<double> predictBalanceBestArmor(double T); 
+
+// 迭代装甲板,返回pitch和T，传入T和pitch的初始值
+std::pair<double,double> iteration2(double &thres , double &init_pitch , double &initT , double& yaw , double& z , double& r); 
+
+//ceres计算出一个T后进入该函数，去迭代出一个对准固定T预测的装甲板(固定dist)的theta和T
+std::pair<double , double> fixTiteratPitch(double& horizon_dis , double& height);
 
 double magnitude(const std::vector<double>& v);//计算向量的模
 
@@ -54,7 +64,8 @@ struct CostFunctor1 {
         T futurex = ballistic_ref.robotcenter.x + ballistic_ref.velocity.x * (*t);
         T futurey = ballistic_ref.robotcenter.y + ballistic_ref.velocity.y * (*t);
         
-        residual[0] = T(1 / ballistic_ref.k)*ceres::log(T(ballistic_ref.k)*v0 * (*t) + T(1.0)) - T(ceres::sqrt(futurex * futurex + futurey * futurey)) ;
+        residual[0] = T(1 / ballistic_ref.k)*ceres::log(T(ballistic_ref.k)*ceres::cos(ballistic_ref.theta)*v0 * (*t) + T(1.0)) - T(ceres::sqrt(futurex * futurex + futurey * futurey)) ;
+        
         return true;
     }
 };
@@ -73,11 +84,10 @@ struct CostFunctor2 {
         
         T x_aim = T(x);
         T y_aim = T(y);
-        residual[0] =T(1 / ballistic_ref.k)*ceres::log(T(ballistic_ref.k)*v0 * (*t) + T(1.0)) - T(ceres::sqrt(x_aim * x_aim + y_aim * y_aim)) ;
+        residual[0] =T(1 / ballistic_ref.k)*ceres::log(T(ballistic_ref.k)*ceres::cos(ballistic_ref.theta)*v0 * (*t) + T(1.0)) - T(ceres::sqrt(x_aim * x_aim + y_aim * y_aim)) ;
         return true;
         }
 };
-
 
 struct HitAim{
 
@@ -90,15 +100,11 @@ double optimizeTime1(double initial_guess);
 
 double optimizeTime2(double initial_guess , double& x , double& y);
 
-
 double dotProduct(const std::vector<double>& v1, const std::vector<double>& v2);
-
-
 
 double angleBetweenVectors(const std::vector<double>& v1, const std::vector<double>& v2);
 
 double sortFourdoubles(double a, double b, double c, double d);
-
 
 
 };

@@ -40,8 +40,8 @@ void targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg);
     double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
     double K; //空气阻力系数，需要parameter_declare来调整参数
     double BULLET_V;//子弹出膛速度，需要parameter_declare来调整参数
-    double THRES1 = 0.05;//第一次迭代的阈值，需要parameter_declare来调整参数
-    double THRES2 = 0.01;//第二次迭代的阈值，需要parameter_declare来调整参数
+    double THRES1 = 0.01;//第一次迭代的阈值，需要parameter_declare来调整参数
+    double THRES2 = 0.005;//第二次迭代的阈值，需要parameter_declare来调整参数
 
 };
 

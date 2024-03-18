@@ -25,6 +25,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
 : Node("ballistic_calculate", options)
 {
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
+
     subscription_ = this->create_subscription<auto_aim_interfaces::msg::Target>(
       "/tracker/target", 10, std::bind(&BallisticCalculateNode::targetCallback, this, std::placeholders::_1));
     
@@ -37,32 +38,40 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
   
 }
 
-void BallisticCalculateNode::targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg)
+void BallisticCalculateNode::targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr target_msg)
 {
     RCLCPP_INFO(this->get_logger(),"Receive target ID");
 
-    calculator = std::make_unique<Ballistic>(BULLET_V , *msg , K , K1 , K2);
-
+    calculator = std::make_unique<rm_auto_aim::Ballistic>(*target_msg);
+    
     //进入第一次大迭代
-    double init_t = std::sqrt(msg->position.z * 2 / 9.8);
-    double init_pitch = 0.0;
-
+    double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
+    double init_t = std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y) / (cos(init_pitch) * calculator->bulletV);
+    
+  
     std::pair<double,double> first_iteration_result = calculator->iteration1(THRES1 , init_pitch , init_t);
-
+    
     //预测并选择合适击打的装甲板
     double temp_theta = first_iteration_result.first;
     double temp_t = first_iteration_result.second;
-    std::vector<double>hit_aim = calculator->predictBestArmor(temp_t);
-    double x = hit_aim[0];
-    double y = hit_aim[1];
+    //预测步兵的最佳装甲板
+    
+
+    std::vector<double>hit_aim = calculator->predictBalanceBestArmor(temp_t);
+    
+    double chosen_yaw = hit_aim[0];
+    double z = hit_aim[1];
+    double r = hit_aim[2];
+    
 
     //进入第二次大迭代
-    std::pair<double,double> final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , x , y);
-    
+    std::pair<double,double> final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
     //发布消息
     firemsg fire_msg;
+
+    
     fire_msg.pitch = final_result.first;
-    fire_msg.yaw = std::atan2(y , x);
+    fire_msg.yaw = final_result.second;
     publisher_->publish(fire_msg);
     
 }
