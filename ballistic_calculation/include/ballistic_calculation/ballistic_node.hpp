@@ -33,8 +33,10 @@ void targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg);
     rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr subscription_;
     rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;
     std::unique_ptr<Ballistic>calculator;
+    auto_aim_interfaces::msg::Target::SharedPtr target_msg;
+    rclcpp::TimerBase::SharedPtr timer_;
 
-
+void timerCallback();
 
     double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
     double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
@@ -42,6 +44,9 @@ void targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg);
     double BULLET_V;//子弹出膛速度，需要parameter_declare来调整参数
     double THRES1 = 0.01;//第一次迭代的阈值，需要parameter_declare来调整参数
     double THRES2 = 0.005;//第二次迭代的阈值，需要parameter_declare来调整参数
+
+    bool ifstart = false;
+    int rate = 1000;
 
 };
 
