@@ -29,7 +29,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
     //创建订阅者
     subscription_ = this->create_subscription<auto_aim_interfaces::msg::Target>(
-      "/tracker/target", 10, std::bind(&BallisticCalculateNode::targetCallback, this, std::placeholders::_1));
+      "/tracker/target",rclcpp::SensorDataQoS() , std::bind(&BallisticCalculateNode::targetCallback, this, std::placeholders::_1));
     //创建发布者
     publisher_ = this->create_publisher<auto_aim_interfaces::msg::Firecontrol>("/firecontrol", 10);
     //设置时间callback
