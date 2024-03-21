@@ -123,6 +123,7 @@ void BallisticCalculateNode::timerCallback()
     
     //发布消息
     firemsg fire_msg;
+    fire_msg.header = target_msg->header;
     fire_msg.pitch = final_result.first;
     fire_msg.yaw = final_result.second;
     fire_msg.tracking = target_msg->tracking;
