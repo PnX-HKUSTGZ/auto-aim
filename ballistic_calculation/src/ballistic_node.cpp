@@ -51,7 +51,8 @@ void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::S
   RCLCPP_INFO(this->get_logger(),"Receive target ID");
   
   this->target_msg = std::move(target_msg);
-  ifstart = true;
+  ifstart = this->target_msg->tracking;
+
 }
 
 
@@ -63,13 +64,13 @@ void BallisticCalculateNode::timerCallback()
     
 
     if(!ifstart){
-      RCLCPP_INFO(this->get_logger(),"No target ID received");
+      
       return;
     }
   
     RCLCPP_INFO(this->get_logger(),"hey");
 
-    rclcpp::Time now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+    rclcpp::Time now = this->now();
     rclcpp::Time msg_time = target_msg->header.stamp;
     rclcpp::Duration duration = now - msg_time;
 
