@@ -92,7 +92,11 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
         }
 
     }
-    return std::make_pair( updateTmpThetaT.first , updateTmpThetaT.second);
+    double newyaw = yaw + target_msg.v_yaw * updateTmpThetaT.second;
+    double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
+    double fy = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
+    double predyaw = atan2(fy , fx);
+    return std::make_pair( updateTmpThetaT.first , predyaw);
     
     
 }
