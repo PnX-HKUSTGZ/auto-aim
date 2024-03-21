@@ -48,7 +48,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
 void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::SharedPtr target_msg)
 {
 
-  RCLCPP_INFO(this->get_logger(),"Receive target ID");
+  
   
   this->target_msg = std::move(target_msg);
   ifstart = this->target_msg->tracking;
@@ -68,7 +68,7 @@ void BallisticCalculateNode::timerCallback()
       return;
     }
   
-    RCLCPP_INFO(this->get_logger(),"hey");
+    
 
     rclcpp::Time now = this->now();
     rclcpp::Time msg_time = target_msg->header.stamp;
