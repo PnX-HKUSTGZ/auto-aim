@@ -109,6 +109,7 @@ bool Detector::isLight(const Light & light)//findlights中用于判断是否为�
   light_data.ratio = ratio;
   light_data.angle = light.tilt_angle;
   light_data.is_light = is_light;
+
   this->debug_lights.data.emplace_back(light_data);
 
   return is_light;
@@ -225,7 +226,7 @@ void Detector::drawResults(cv::Mat & img)
     cv::circle(img, light.top, 3, cv::Scalar(255, 255, 255), 1);
     cv::circle(img, light.bottom, 3, cv::Scalar(255, 255, 255), 1);
     auto line_color = light.color == RED ? cv::Scalar(255, 255, 0) : cv::Scalar(255, 0, 255);
-    cv::line(img, light.top, light.bottom, line_color, 1);
+    cv::line(img, light.top, light.bottom, line_color, 5);
   }
 
   // Draw armors

@@ -38,19 +38,20 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K1  = this->declare_parameter("iteration_coeffcient_first",0.1);
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
-    BULLET_V = this->declare_parameter("bullet_speed",50.0);
+    BULLET_V = this->declare_parameter("bullet_speed",24.8);
   
 }
 
 
 
 
-void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::SharedPtr target_msg)
+void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::SharedPtr _target_msg)
 {
 
   
   
-  this->target_msg = std::move(target_msg);
+  this->target_msg = std::move(_target_msg);
+
   ifstart = this->target_msg->tracking;
 
 }
@@ -67,6 +68,7 @@ void BallisticCalculateNode::timerCallback()
       
       return;
     }
+
   
     
 
@@ -104,7 +106,9 @@ void BallisticCalculateNode::timerCallback()
       z = hit_aim[1];
       r = hit_aim[2];
     }
-    else if (target_msg->armors_num == 4){
+    
+    //else 
+    if (target_msg->armors_num == 4){
       std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t);
         
       chosen_yaw = hit_aim[0];
@@ -133,10 +137,6 @@ void BallisticCalculateNode::timerCallback()
     
     //新图像数据未到来，进行预测
 
-
-
-    
-    
   
 }
 

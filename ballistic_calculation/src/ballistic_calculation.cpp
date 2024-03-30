@@ -75,7 +75,7 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
         t = optimizeTime2(initT , x , y);
         double newyaw = yaw + target_msg.v_yaw * t;
         double fx = target_msg.position.x + target_msg.velocity.x * t + r * cos(newyaw);
-        double fy = target_msg.position.x + target_msg.velocity.x * t + r * cos(newyaw);
+        double fy = target_msg.position.y + target_msg.velocity.y * t + r * sin(newyaw);
         
         double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
@@ -94,7 +94,7 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
     }
     double newyaw = yaw + target_msg.v_yaw * updateTmpThetaT.second;
     double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
-    double fy = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
+    double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second + r * sin(newyaw);
     double predyaw = atan2(fy , fx);
     return std::make_pair( updateTmpThetaT.first , predyaw);
     

@@ -165,7 +165,7 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
   param_desc.integer_range[0].step = 1;
   param_desc.integer_range[0].from_value = 0;
   param_desc.integer_range[0].to_value = 255;
-  int binary_thres = declare_parameter("binary_thres", 160, param_desc);
+  int binary_thres = declare_parameter("binary_thres", 80, param_desc);
   //设置需要探测的颜色
   param_desc.description = "0-RED, 1-BLUE";
   param_desc.integer_range[0].from_value = 0;

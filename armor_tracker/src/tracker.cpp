@@ -18,9 +18,9 @@
 namespace rm_auto_aim
 
 
-//利用扩展卡尔曼滤波器（EKF）来推算出当前目标装甲板所在的机器人的速度、角速度（偏航速度）等状态信息
+// 利用扩展卡尔曼滤波器（EKF）来推算出当前目标装甲板所在的机器人的速度、角速度（偏航速度）等状态信息
 {
-//构造追踪器为空的状态
+// 构造追踪器为空的状态
 Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
 : tracker_state(LOST),
   tracked_id(std::string("")),
@@ -217,6 +217,7 @@ void Tracker::handleArmorJump(const Armor & current_armor)
   }
 
   ekf.setState(target_state);
+  
 }
 
 double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q)//将四元数转换为偏航角
