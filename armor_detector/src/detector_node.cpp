@@ -173,9 +173,10 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
   auto detect_color = declare_parameter("detect_color", RED, param_desc);
   //填充light和armor类所需要的参数
   Detector::LightParams l_params = {
+    
     .min_ratio = declare_parameter("light.min_ratio", 0.1),
     .max_ratio = declare_parameter("light.max_ratio", 0.4),
-    .max_angle = declare_parameter("light.max_angle", 40.0)};//
+    .max_angle = declare_parameter("light.max_angle", 40.0)};
   
   Detector::ArmorParams a_params = {
     .min_light_ratio = declare_parameter("armor.min_light_ratio", 0.7),
@@ -197,6 +198,11 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
     
   detector->classifier =
     std::make_unique<NumberClassifier>(model_path, label_path, threshold, ignore_classes);
+  
+  //动态调参
+  param_callback_handle_ = this->add_on_set_parameters_callback(
+    std::bind(&Detector::onParamChange, this, std::placeholders::_1)
+  )
 
   return detector;
 }
@@ -254,6 +260,69 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
 
   return armors;
 }
+//动态调参
+ rcl_interfaces::msg::SetParametersResult onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
+ {
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+
+  for(const auto & param : parameters)
+  {
+    if(param.get_name() == "binary_thres")
+    {
+      detector_->binary_thres = param.as_int();
+    }
+    else if(param.get_name() = "light.min_ratio")
+    {
+      detector_->light_params.min_ratio = param.as_double();
+    }
+    else if(param.get_name() == "light.max_ratio")
+    {
+      detector_->light_params.max_ratio = param.as_double();
+    }
+    else if(param.get_name() == "light.max_angle")
+    {
+      detector_->light_params.max_angle = param.as_double();
+    }
+    else if(param.get_name() == "armor.min_light_ratio")
+    {
+      detector_->armor_params.min_light_ratio = param.as_double();
+    }
+
+
+    else if(param.get_name() == "armor.min_small_center_distance")
+    {
+      detector_->armor_params.min_small_center_distance = param.as_double();
+    }
+    else if(param.get_name() == "armor.max_small_center_distance")
+    {
+      detector_->armor_params.max_small_center_distance = param.as_double();
+    }
+    else if(param.get_name() == "armor.min_large_center_distance")
+    {
+      detector_->armor_params.min_large_center_distance = param.as_double();
+    }
+    else if(param.get_name() == "armor.max_large_center_distance")
+    {
+      detector_->armor_params.max_large_center_distance = param.as_double();
+    }
+    else if(param.get_name() == "armor.max_angle")
+    {
+      detector_->armor_params.max_angle = param.as_double();
+    }
+    
+    else if(param.get_name() == "classifier_threshold")
+    {
+      detector_->classifier->threshold = param.as_double();
+    }
+    else
+    {
+      result.successful = false;
+      result.reason = "Unknown parameter: " + param.get_name();
+    }
+  }
+  return result;
+ }
 
 void ArmorDetectorNode::createDebugPublishers()
 {

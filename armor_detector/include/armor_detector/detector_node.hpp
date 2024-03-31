@@ -43,6 +43,10 @@ private:
 
   void publishMarkers();
 
+  //dynamic parameter
+  OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
+  rcl_interfaces::msg::SetParametersResult onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
+  
   // Armor Detector
   std::unique_ptr<Detector> detector_;
 

@@ -166,10 +166,12 @@ ArmorType Detector::isArmor(const Light & light_1, const Light & light_2)//应�
   // Ratio of the length of 2 lights (short side / long side)
   float light_length_ratio = light_1.length < light_2.length ? light_1.length / light_2.length
                                                              : light_2.length / light_1.length;
+  //判断两个灯条的长度差异是否在合理范围内
   bool light_ratio_ok = light_length_ratio > a.min_light_ratio;
 
   // Distance between the center of 2 lights (unit : light length)
   float avg_light_length = (light_1.length + light_2.length) / 2;
+  //两灯条之间的距离和灯条长度的比值是否合理
   float center_distance = cv::norm(light_1.center - light_2.center) / avg_light_length;
   bool center_distance_ok = (a.min_small_center_distance <= center_distance &&
                              center_distance < a.max_small_center_distance) ||
