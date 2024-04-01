@@ -199,10 +199,7 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
   detector->classifier =
     std::make_unique<NumberClassifier>(model_path, label_path, threshold, ignore_classes);
   
-  //动态调参
-  param_callback_handle_ = this->add_on_set_parameters_callback(
-    std::bind(&Detector::onParamChange, this, std::placeholders::_1)
-  )
+
 
   return detector;
 }
@@ -217,6 +214,11 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
   detector_->binary_thres = get_parameter("binary_thres").as_int();
   detector_->detect_color = get_parameter("detect_color").as_int();
   detector_->classifier->threshold = get_parameter("classifier_threshold").as_double();
+  
+    //动态调参
+  param_callback_handle_ = this->add_on_set_parameters_callback(
+    std::bind(&ArmorDetectorNode::onParameterChanged, this, std::placeholders::_1)
+  );
 
   auto armors = detector_->detect(img);
   //计算延迟
@@ -261,7 +263,7 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
   return armors;
 }
 //动态调参
- rcl_interfaces::msg::SetParametersResult onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
+ rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
  {
   rcl_interfaces::msg::SetParametersResult result;
   result.successful = true;
@@ -272,43 +274,42 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
     {
       detector_->binary_thres = param.as_int();
     }
-    else if(param.get_name() = "light.min_ratio")
+    else if(param.get_name() == "light.min_ratio")
     {
-      detector_->light_params.min_ratio = param.as_double();
+      detector_->l.min_ratio = param.as_double();
     }
     else if(param.get_name() == "light.max_ratio")
     {
-      detector_->light_params.max_ratio = param.as_double();
+      detector_->l.max_ratio = param.as_double();
     }
     else if(param.get_name() == "light.max_angle")
     {
-      detector_->light_params.max_angle = param.as_double();
+      detector_->l.max_angle = param.as_double();
     }
+
     else if(param.get_name() == "armor.min_light_ratio")
     {
-      detector_->armor_params.min_light_ratio = param.as_double();
+      detector_->a.min_light_ratio = param.as_double();
     }
-
-
     else if(param.get_name() == "armor.min_small_center_distance")
     {
-      detector_->armor_params.min_small_center_distance = param.as_double();
+      detector_->a.min_small_center_distance = param.as_double();
     }
     else if(param.get_name() == "armor.max_small_center_distance")
     {
-      detector_->armor_params.max_small_center_distance = param.as_double();
+      detector_->a.max_small_center_distance = param.as_double();
     }
     else if(param.get_name() == "armor.min_large_center_distance")
     {
-      detector_->armor_params.min_large_center_distance = param.as_double();
+      detector_->a.min_large_center_distance = param.as_double();
     }
     else if(param.get_name() == "armor.max_large_center_distance")
     {
-      detector_->armor_params.max_large_center_distance = param.as_double();
+      detector_->a.max_large_center_distance = param.as_double();
     }
     else if(param.get_name() == "armor.max_angle")
     {
-      detector_->armor_params.max_angle = param.as_double();
+      detector_->a.max_angle = param.as_double();
     }
     
     else if(param.get_name() == "classifier_threshold")
