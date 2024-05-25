@@ -1,18 +1,22 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>ballistic_calculation</name>
+  <name>ballistic</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="yxie667@connect.hkust-gz.edu.cn">xyz</maintainer>
-  <license>Apache-2.0</license>
+  <maintainer email="neo@todo.todo">neo</maintainer>
+  <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
-  <depend>auto_aim_interfaces</depend> <!-- Added dependency -->
-  <depend>eigen</depend> <!-- Added dependency -->
-
+  <depend>Ceres</depend>
+  <depend>Eigen3</depend>
+  <depend>angles</depend>
+  <depend>visualization_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>auto_aim_interfaces</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
