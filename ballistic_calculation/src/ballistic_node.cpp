@@ -9,6 +9,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/subscription.hpp>
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
+
 #include <auto_aim_interfaces/msg/target.hpp>
 #include <auto_aim_interfaces/msg/firecontrol.hpp>
 
@@ -27,6 +30,13 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
 : Node("ballistic_calculate", options)
 {
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
+    
+    //创建监听器，监听云台位姿
+
+    tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tfListener = std::make_shared<tf2_ros::TransformListener>(*tfBuffer,this);
+    t = tfBuffer->lookupTransform("gimbal_link","odom",tf2::TimePointZero);
+
     //创建订阅者
     subscription_ = this->create_subscription<auto_aim_interfaces::msg::Target>(
       "/tracker/target",rclcpp::SensorDataQoS() , std::bind(&BallisticCalculateNode::targetCallback, this, std::placeholders::_1));
@@ -39,6 +49,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
     BULLET_V = this->declare_parameter("bullet_speed",24.8);
+    ifFireK = this->declare_parameter("ifFireK",0.05);
   
 }
 
@@ -57,7 +68,23 @@ void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::S
 }
 
 
-
+bool BallisticCalculateNode::ifFire(double prepitch, double preyaw)
+    {
+        //获取当前云台位姿
+        t = tfBuffer->lookupTransform("gimbal_link","odom",tf2::TimePointZero);
+        tf2::Quaternion q(
+        t.transform.rotation.x,
+        t.transform.rotation.y,
+        t.transform.rotation.z,
+        t.transform.rotation.w);
+        double roll, pitch, yaw;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Roll: %.2f, Pitch: %.2f, Yaw: %.2f", roll, pitch, yaw);
+        
+        //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
+        return std::abs(pitch - prepitch) < ifFireK && std::abs(yaw - preyaw) < ifFireK;
+    
+    }
 
 
 void BallisticCalculateNode::timerCallback()
@@ -125,6 +152,9 @@ void BallisticCalculateNode::timerCallback()
     std::pair<double,double> final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
     
     
+    
+    
+
     //发布消息
     firemsg fire_msg;
     fire_msg.header = target_msg->header;
@@ -132,6 +162,7 @@ void BallisticCalculateNode::timerCallback()
     fire_msg.yaw = final_result.second;
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
+    fire_msg.iffire = ifFire(final_result.first,final_result.second);
     publisher_->publish(fire_msg);
     
     

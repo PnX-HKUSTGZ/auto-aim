@@ -6,12 +6,15 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/subscription.hpp>
+
 #include <auto_aim_interfaces/msg/target.hpp>
 #include <auto_aim_interfaces/msg/firecontrol.hpp>
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
 // STD
 #include <memory> 
 #include <string>
-#include <vector>
+
 
 #include "ballistic_calculation.hpp"
 
@@ -28,7 +31,12 @@ public:
 
 
 private:
+//接收串口的云台位姿，当云台位姿和枪口预测位置相差小于某一个阈值时，返回true
+bool ifFire(double prepitch , double preyaw);
+
 void targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg);
+
+void timerCallback();
 
     rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr subscription_;
     rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;
@@ -36,7 +44,11 @@ void targetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg);
     auto_aim_interfaces::msg::Target::SharedPtr target_msg;
     rclcpp::TimerBase::SharedPtr timer_;
 
-void timerCallback();
+//tf2
+    std::shared_ptr<tf2_ros::Buffer> tfBuffer;
+    std::shared_ptr<tf2_ros::TransformListener> tfListener;
+    geometry_msgs::msg::TransformStamped t;
+    std::string target_frame_;
 
     double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
     double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
@@ -44,9 +56,14 @@ void timerCallback();
     double BULLET_V;//子弹出膛速度，需要parameter_declare来调整参数
     double THRES1 = 0.01;//第一次迭代的阈值，需要parameter_declare来调整参数
     double THRES2 = 0.005;//第二次迭代的阈值，需要parameter_declare来调整参数
+    double ifFireK;//判断是否开火的阈值，需要parameter_declare来调整参数
 
     bool ifstart = false;
     int rate = 1000;
+
+
+
+
 
 };
 

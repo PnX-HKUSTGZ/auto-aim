@@ -8,13 +8,12 @@
 #include <ceres/jet.h>
 
 //STD
-#include <memory>
-#include <string>
+
 #include <vector>
 #include <utility>
-#include<cmath>
 
-#include "auto_aim_interfaces/msg/target.hpp"
+
+
 
 namespace rm_auto_aim
 {
@@ -49,6 +48,8 @@ std::pair<double,double> iteration2(double &thres , double &init_pitch , double 
 
 //ceres计算出一个T后进入该函数，去迭代出一个对准固定T预测的装甲板(固定dist)的theta和T
 std::pair<double , double> fixTiteratPitch(double& horizon_dis , double& height);
+
+
 
 double magnitude(const std::vector<double>& v);//计算向量的模
 

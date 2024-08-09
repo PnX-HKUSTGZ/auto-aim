@@ -16,12 +16,15 @@ endif()
 # Find packages
 find_package(ament_cmake_auto REQUIRED)
 find_package(Ceres REQUIRED)
+find_package(tf2 REQUIRED)
+
 
 ament_auto_find_build_dependencies()
 # Include directories
 include_directories(
   include
   ${CERES_INCLUDE_DIRS}
+  ${tf2_INCLUDE_DIRS}
 )
 
 ament_auto_add_library(${PROJECT_NAME} SHARED

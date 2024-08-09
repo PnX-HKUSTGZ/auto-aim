@@ -32,6 +32,8 @@ Eigen::MatrixXd ExtendedKalmanFilter::predict()
 
   // handle the case when there will be no measurement before the next predict
   x_post = x_pri;
+  //如果没有观测值（后验状态），就把先验状态作为后验状态（预测值当作真实值）去计算下一个时刻的状态
+  //如果有观测值，x_post就会被覆盖
   P_post = P_pri;
 
   return x_pri;
