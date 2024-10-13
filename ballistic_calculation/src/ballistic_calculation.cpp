@@ -16,16 +16,12 @@ namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;
 
-Ballistic::Ballistic( target target_msg ,double k , double K1 , double K2 , double bulletV)    
+Ballistic::Ballistic(double k , double K1 , double K2 , double bulletV)    
 {
-    this->target_msg = target_msg;
-    robotcenter = target_msg.position;
-    velocity = target_msg.velocity;
     this->bulletV = bulletV;
     this->K1 = K1;
     this->K2 = K2;
     this->k = k;
-    
     
 }
 

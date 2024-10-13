@@ -44,7 +44,7 @@ bool PnPSolver::solvePnP(const Armor & armor, cv::Mat & rvec, cv::Mat & tvec)
   image_armor_points.emplace_back(leftpoint);
   image_armor_points.emplace_back(bottompoint);
   image_armor_points.emplace_back(rightpoint);
-
+  
   // Solve pnp
   auto object_points = armor.type == ArmorType::SMALL ? small_armor_points_ : large_armor_points_;
   return cv::solvePnP(

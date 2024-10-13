@@ -9,6 +9,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/subscription.hpp>
+#include "ballistic_calculation/ballistic_calculation.hpp"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/buffer.h"
 
@@ -30,9 +31,15 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
 : Node("ballistic_calculate", options)
 {
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
-    
-    //创建监听器，监听云台位姿
+    K1  = this->declare_parameter("iteration_coeffcient_first",0.1);
+    K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
+    K   = this->declare_parameter("air_resistence",0.1);
+    BULLET_V = this->declare_parameter("bullet_speed",24.8);
+    ifFireK = this->declare_parameter("ifFireK",0.05);
 
+    calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V);
+    
+    //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     tfListener = std::make_shared<tf2_ros::TransformListener>(*tfBuffer,this);
     t = tfBuffer->lookupTransform("gimbal_link","odom",tf2::TimePointZero);
@@ -45,30 +52,23 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     //设置时间callback
     timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&BallisticCalculateNode::timerCallback, this));
     
-    K1  = this->declare_parameter("iteration_coeffcient_first",0.1);
-    K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
-    K   = this->declare_parameter("air_resistence",0.1);
-    BULLET_V = this->declare_parameter("bullet_speed",24.8);
-    ifFireK = this->declare_parameter("ifFireK",0.05);
+    
   
 }
 
-
-
-
 void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::SharedPtr _target_msg)
 {
-
+  
   
   
   this->target_msg = std::move(_target_msg);
 
   ifstart = this->target_msg->tracking;
-
+  
 }
 
 
-bool BallisticCalculateNode::ifFire(double prepitch, double preyaw)
+bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
     {
         //获取当前云台位姿
         t = tfBuffer->lookupTransform("gimbal_link","odom",tf2::TimePointZero);
@@ -82,7 +82,7 @@ bool BallisticCalculateNode::ifFire(double prepitch, double preyaw)
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Roll: %.2f, Pitch: %.2f, Yaw: %.2f", roll, pitch, yaw);
         
         //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-        return std::abs(pitch - prepitch) < ifFireK && std::abs(yaw - preyaw) < ifFireK;
+        return std::abs(pitch - targetpitch) < ifFireK && std::abs(yaw - targetyaw) < ifFireK;
     
     }
 
@@ -90,25 +90,35 @@ bool BallisticCalculateNode::ifFire(double prepitch, double preyaw)
 void BallisticCalculateNode::timerCallback()
 {
     
-
     if(!ifstart){
       
       return;
     }
 
   
-    
-
+    //use linear interpolation to update the target_msg when the image not arriving
     rclcpp::Time now = this->now();
     rclcpp::Time msg_time = target_msg->header.stamp;
     rclcpp::Duration duration = now - msg_time;
-
+    
     target_msg->position.x = target_msg->position.x + target_msg->velocity.x * duration.seconds();
     target_msg->position.y = target_msg->position.y + target_msg->velocity.y * duration.seconds();
     target_msg->position.z = target_msg->position.z + target_msg->velocity.z * duration.seconds();
     target_msg->yaw = target_msg->yaw + target_msg->v_yaw*  duration.seconds();
-
-    calculator = std::make_unique<rm_auto_aim::Ballistic>(*target_msg);
+    //add duration to update targetmsg.stamp
+    target_msg->header.stamp = now;
+    
+    calculator->target_msg.header = target_msg->header;
+    calculator->target_msg.tracking = target_msg->tracking;
+    calculator->target_msg.id = target_msg->id;
+    calculator->target_msg.armors_num = target_msg->armors_num;
+    calculator->target_msg.position = target_msg->position;
+    calculator->target_msg.velocity = target_msg->velocity;
+    calculator->target_msg.yaw = target_msg->yaw;
+    calculator->target_msg.v_yaw = target_msg->v_yaw;
+    calculator->target_msg.radius_1 = target_msg->radius_1;
+    calculator->target_msg.radius_2 = target_msg->radius_2;
+    calculator->target_msg.dz = target_msg->dz;
     
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));

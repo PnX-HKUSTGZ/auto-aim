@@ -23,7 +23,7 @@ class Ballistic
 {
 public:
 
-Ballistic( target target_msg , double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 30); //构造函数
+Ballistic(double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 30); //构造函数
 
 target target_msg;
 geometry_msgs::msg::Point robotcenter = target_msg.position;

@@ -43,10 +43,10 @@ cv::Mat Detector::preprocessImage(const cv::Mat & rgb_img)//生成二值化后�
 {
   cv::Mat gray_img;
   cv::cvtColor(rgb_img, gray_img, cv::COLOR_RGB2GRAY);
-
+  
   cv::Mat binary_img;
   cv::threshold(gray_img, binary_img, binary_thres, 255, cv::THRESH_BINARY);
-
+  
   return binary_img;
 }
 
