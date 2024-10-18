@@ -9,6 +9,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <image_transport/image_transport.hpp>
 #include <opencv2/core.hpp>
+#include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/duration.hpp>
 #include <rclcpp/qos.hpp>
