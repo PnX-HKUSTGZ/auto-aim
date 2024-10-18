@@ -35,7 +35,7 @@ std::vector<Armor> Detector::detect(const cv::Mat & input)//侦测，分类装�
     classifier->extractNumbers(input, armors_);
     classifier->classify(armors_);
   }
-
+  
   return armors_;
 }
 

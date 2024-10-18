@@ -21,6 +21,8 @@
 
 
 
+
+
 namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;
@@ -41,8 +43,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     
     //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+   
     tfListener = std::make_shared<tf2_ros::TransformListener>(*tfBuffer,this);
-    t = tfBuffer->lookupTransform("gimbal_link","odom",tf2::TimePointZero);
 
     //创建订阅者
     subscription_ = this->create_subscription<auto_aim_interfaces::msg::Target>(
@@ -71,7 +73,14 @@ void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::S
 bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
     {
         //获取当前云台位姿
-        t = tfBuffer->lookupTransform("gimbal_link","odom",tf2::TimePointZero);
+        try{
+            t = tfBuffer->lookupTransform("base_link", "camera_link", tf2::TimePointZero);
+        }
+        catch (tf2::TransformException &ex) {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());
+            return false;
+        }
+        
         tf2::Quaternion q(
         t.transform.rotation.x,
         t.transform.rotation.y,
