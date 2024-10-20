@@ -42,8 +42,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V);
     
     //创建监听器，监听云台位姿    
-    tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
-   
+    tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());   
     tfListener = std::make_shared<tf2_ros::TransformListener>(*tfBuffer,this);
 
     //创建订阅者
@@ -75,6 +74,7 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
         //获取当前云台位姿
         try{
             t = tfBuffer->lookupTransform("gimbal_link", "odom", tf2::TimePointZero);
+            
         }
         catch (tf2::TransformException &ex) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());
@@ -88,7 +88,6 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
         t.transform.rotation.w);
         double roll, pitch, yaw;
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Roll: %.2f, Pitch: %.2f, Yaw: %.2f", roll, pitch, yaw);
         
         //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
         return std::abs(pitch - targetpitch) < ifFireK && std::abs(yaw - targetyaw) < ifFireK;
@@ -128,6 +127,8 @@ void BallisticCalculateNode::timerCallback()
     calculator->target_msg.radius_1 = target_msg->radius_1;
     calculator->target_msg.radius_2 = target_msg->radius_2;
     calculator->target_msg.dz = target_msg->dz;
+    calculator->robotcenter = target_msg->position;
+    calculator->velocity = target_msg->velocity;
     
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
