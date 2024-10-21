@@ -217,10 +217,10 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
   detector_->detect_color = get_parameter("detect_color").as_int();
   detector_->classifier->threshold = get_parameter("classifier_threshold").as_double();
   
-    //动态调参
-  param_callback_handle_ = this->add_on_set_parameters_callback(
-    std::bind(&ArmorDetectorNode::onParameterChanged, this, std::placeholders::_1)
-  );
+  //   //动态调参
+  // param_callback_handle_ = this->add_on_set_parameters_callback(
+  //   std::bind(&ArmorDetectorNode::onParameterChanged, this, std::placeholders::_1)
+  // );
 
   auto armors = detector_->detect(img);
   //计算延迟
@@ -264,68 +264,68 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
 
   return armors;
 }
-//动态调参
- rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
- {
-  rcl_interfaces::msg::SetParametersResult result;
-  result.successful = true;
+// //动态调参
+//  rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
+//  {
+//   rcl_interfaces::msg::SetParametersResult result;
+//   result.successful = true;
 
-  for(const auto & param : parameters)
-  {
-    if(param.get_name() == "binary_thres")
-    {
-      detector_->binary_thres = param.as_int();
-    }
-    else if(param.get_name() == "light.min_ratio")
-    {
-      detector_->l.min_ratio = param.as_double();
-    }
-    else if(param.get_name() == "light.max_ratio")
-    {
-      detector_->l.max_ratio = param.as_double();
-    }
-    else if(param.get_name() == "light.max_angle")
-    {
-      detector_->l.max_angle = param.as_double();
-    }
+//   for(const auto & param : parameters)
+//   {
+//     if(param.get_name() == "binary_thres")
+//     {
+//       detector_->binary_thres = param.as_int();
+//     }
+//     else if(param.get_name() == "light.min_ratio")
+//     {
+//       detector_->l.min_ratio = param.as_double();
+//     }
+//     else if(param.get_name() == "light.max_ratio")
+//     {
+//       detector_->l.max_ratio = param.as_double();
+//     }
+//     else if(param.get_name() == "light.max_angle")
+//     {
+//       detector_->l.max_angle = param.as_double();
+//     }
 
-    else if(param.get_name() == "armor.min_light_ratio")
-    {
-      detector_->a.min_light_ratio = param.as_double();
-    }
-    else if(param.get_name() == "armor.min_small_center_distance")
-    {
-      detector_->a.min_small_center_distance = param.as_double();
-    }
-    else if(param.get_name() == "armor.max_small_center_distance")
-    {
-      detector_->a.max_small_center_distance = param.as_double();
-    }
-    else if(param.get_name() == "armor.min_large_center_distance")
-    {
-      detector_->a.min_large_center_distance = param.as_double();
-    }
-    else if(param.get_name() == "armor.max_large_center_distance")
-    {
-      detector_->a.max_large_center_distance = param.as_double();
-    }
-    else if(param.get_name() == "armor.max_angle")
-    {
-      detector_->a.max_angle = param.as_double();
-    }
+//     else if(param.get_name() == "armor.min_light_ratio")
+//     {
+//       detector_->a.min_light_ratio = param.as_double();
+//     }
+//     else if(param.get_name() == "armor.min_small_center_distance")
+//     {
+//       detector_->a.min_small_center_distance = param.as_double();
+//     }
+//     else if(param.get_name() == "armor.max_small_center_distance")
+//     {
+//       detector_->a.max_small_center_distance = param.as_double();
+//     }
+//     else if(param.get_name() == "armor.min_large_center_distance")
+//     {
+//       detector_->a.min_large_center_distance = param.as_double();
+//     }
+//     else if(param.get_name() == "armor.max_large_center_distance")
+//     {
+//       detector_->a.max_large_center_distance = param.as_double();
+//     }
+//     else if(param.get_name() == "armor.max_angle")
+//     {
+//       detector_->a.max_angle = param.as_double();
+//     }
     
-    else if(param.get_name() == "classifier_threshold")
-    {
-      detector_->classifier->threshold = param.as_double();
-    }
-    else
-    {
-      result.successful = false;
-      result.reason = "Unknown parameter: " + param.get_name();
-    }
-  }
-  return result;
- }
+//     else if(param.get_name() == "classifier_threshold")
+//     {
+//       detector_->classifier->threshold = param.as_double();
+//     }
+//     else
+//     {
+//       result.successful = false;
+//       result.reason = "Unknown parameter: " + param.get_name();
+//     }
+//   }
+//   return result;
+//  }
 
 void ArmorDetectorNode::createDebugPublishers()
 {
