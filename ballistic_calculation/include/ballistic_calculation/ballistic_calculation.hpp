@@ -41,7 +41,19 @@ std::pair<double,double> iteration1(double &thres , double &init_pitch , double 
 std::vector<double> predictInfantryBestArmor(double T); 
 
 //找出平衡步兵的最佳装甲板
-std::vector<double> predictBalanceBestArmor(double T); 
+struct armor_info{
+    double x;
+    double y;
+    double z;
+    std::vector<double>vec;
+    std::vector<double>vecto_odom;
+    double yaw;
+    double r;
+};
+std::vector<double> predictBalanceBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ); 
+std::vector<double> stategy_1(double T); 
+std::vector<double> stategy_2(double T, double v_yaw_PTZ);
+std::vector<double> stategy_3(double T);
 
 // 迭代装甲板,返回pitch和T，传入T和pitch的初始值
 std::pair<double,double> iteration2(double &thres , double &init_pitch , double &initT , double& yaw , double& z , double& r); 

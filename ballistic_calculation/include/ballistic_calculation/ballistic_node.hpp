@@ -57,6 +57,8 @@ void timerCallback();
     double THRES1 = 0.01;//第一次迭代的阈值，需要parameter_declare来调整参数
     double THRES2 = 0.005;//第二次迭代的阈值，需要parameter_declare来调整参数
     double ifFireK;//判断是否开火的阈值，需要parameter_declare来调整参数
+    double min_v;//一级策略切换二级策略速度临界，需要parameter_declare来调整参数
+    double max_v;//二级策略切换三级策略速度临界，需要parameter_declare来调整参数
 
     bool ifstart = false;
     int rate = 1000;

@@ -38,6 +38,9 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K   = this->declare_parameter("air_resistence",0.1);
     BULLET_V = this->declare_parameter("bullet_speed",24.8);
     ifFireK = this->declare_parameter("ifFireK",0.05);
+    min_v = this->declare_parameter("swich_stategy_1",30) * M_PI / 30;
+    max_v = this->declare_parameter("swich_stategy_2",120) * M_PI / 30;
+    v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
 
     calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V);
     
@@ -146,24 +149,14 @@ void BallisticCalculateNode::timerCallback()
     double z;
     double r;
 
-    if(target_msg->armors_num == 2){
-      std::vector<double>hit_aim = calculator->predictBalanceBestArmor(temp_t);
-        
-      chosen_yaw = hit_aim[0];
-      z = hit_aim[1];
-      r = hit_aim[2];
-    }
-    
-    //else 
     if (target_msg->armors_num == 4){
-      std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t);
-        
+      std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
       chosen_yaw = hit_aim[0];
-      z = hit_aim[1];
+      z = hit_aim[1];  
       r = hit_aim[2];
     }
     else{
-      RCLCPP_ERROR(this->get_logger(),"The number of armors is not 2 or 4");
+      RCLCPP_ERROR(this->get_logger(),"The number of armors is not 4");
     
     }
     
