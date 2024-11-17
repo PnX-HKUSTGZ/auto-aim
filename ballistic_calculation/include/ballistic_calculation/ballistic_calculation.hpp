@@ -38,9 +38,6 @@ double theta;//计算t时变动的临时参数
 std::pair<double,double> iteration1(double &thres , double &init_pitch , double &initT );
 
 // 找出步兵的最佳装甲板,返回该装甲板的预测中心坐标
-std::vector<double> predictInfantryBestArmor(double T); 
-
-//找出平衡步兵的最佳装甲板
 struct armor_info{
     double x;
     double y;
@@ -50,10 +47,10 @@ struct armor_info{
     double yaw;
     double r;
 };
-std::vector<double> predictBalanceBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ); 
+std::vector<double> predictInfantryBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ); 
 std::vector<double> stategy_1(double T); 
 std::vector<double> stategy_2(double T, double v_yaw_PTZ);
-std::vector<double> stategy_3(double T);
+double findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius); 
 
 // 迭代装甲板,返回pitch和T，传入T和pitch的初始值
 std::pair<double,double> iteration2(double &thres , double &init_pitch , double &initT , double& yaw , double& z , double& r); 

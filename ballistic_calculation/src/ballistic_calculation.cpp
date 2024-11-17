@@ -192,13 +192,13 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
 二级策略：引入放弃角度
 三级策略：高速瞄中心
 */
-std::vector<double> Ballistic::predictBalanceBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ)
+std::vector<double> Ballistic::predictInfantryBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ)
 {
     if(target_msg.v_yaw < min_v){
         return stategy_1(T);
     }
     else if(target_msg.v_yaw > max_v){
-        return stategy_3(T);
+        return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0, -1.0}; 
     }
     else{
         return stategy_2(T, v_yaw_PTZ);
@@ -324,11 +324,7 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
 }
-std::vector<double> Ballistic::stategy_3(double T)
-{
-    return {0.0, target_msg.position.z, 0.0}; 
-}
-double findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius) {
+double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius) {
     // 常量定义
     const double epsilon = 1e-3; // 迭代精度
     const int max_iter = 100;    // 最大迭代次数
@@ -362,71 +358,6 @@ double findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius) {
 
     return yaw;
 }
-
-std::vector<double> Ballistic::predictBalanceBestArmor(double T)
-{
-    const double pi = 3.1415926;
-    struct armor_info{
-        double x;
-        double y;
-        double z;
-        std::vector<double>vec;
-        std::vector<double>vecto_odom;
-        double yaw;
-        double r;
-    };
-
-    armor_info armor1;
-    armor_info armor2;
-   
-
-    armor1.r =armor2.r= target_msg.radius_1;
-    
-    
-    //计算未来T时间的中心位置
-    double newyaw = target_msg.yaw + target_msg.v_yaw * T;
-    double newxc = target_msg.position.x + target_msg.velocity.x * T;
-    double newyc = target_msg.position.y + target_msg.velocity.y * T;
-
-    armor1.x = newxc + target_msg.radius_1 * cos(newyaw);
-    armor1.y = newyc + target_msg.radius_1 * sin(newyaw);
-    
-    //顺时针填入1234装甲板
-    armor2.yaw = newyaw - pi;
-  
-    armor2.x = newxc + target_msg.radius_1 * cos(armor2.yaw);
-    armor2.y = newyc + target_msg.radius_1 * sin(armor2.yaw);
-
-
-
-    armor1.vec = {newxc - armor1.x , newyc - armor1.y};
-    armor2.vec = {newxc - armor2.x , newyc - armor2.y};
-
-
-    armor1.vecto_odom = {armor1.x , armor1.y};
-    armor2.vecto_odom = {armor2.x , armor2.y};
-
-    armor1.z  = armor2.z = target_msg.position.z;
-
-
-    std::map<double,armor_info>armorlist_map;
-
-    double a = angleBetweenVectors(armor1.vec, armor1.vecto_odom);
-    double b = angleBetweenVectors(armor2.vec, armor2.vecto_odom);
-
-
-
-    armorlist_map[a] = armor1;
-    armorlist_map[b] = armor2;
-
-    double chosen = (b < a) ? b : a;
-    
-    armor_info chosen_armor =  armorlist_map[chosen];
-    
-    return {chosen_armor.yaw - target_msg.v_yaw * T , chosen_armor.z, chosen_armor.r};
-}
-
-
 
 // 计算两个向量的点积
 double Ballistic::dotProduct(const std::vector<double>& v1, const std::vector<double>& v2) {

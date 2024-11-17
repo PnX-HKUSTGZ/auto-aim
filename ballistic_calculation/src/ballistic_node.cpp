@@ -73,29 +73,29 @@ void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::S
 
 
 bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
-    {
-        //获取当前云台位姿
-        try{
-            t = tfBuffer->lookupTransform("gimbal_link", "odom", tf2::TimePointZero);
-            
-        }
-        catch (tf2::TransformException &ex) {
-            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());
-            return false;
-        }
+{
+    //获取当前云台位姿
+    try{
+        t = tfBuffer->lookupTransform("gimbal_link", "odom", tf2::TimePointZero);
         
-        tf2::Quaternion q(
-        t.transform.rotation.x,
-        t.transform.rotation.y,
-        t.transform.rotation.z,
-        t.transform.rotation.w);
-        double roll, pitch, yaw;
-        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-        
-        //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-        return std::abs(pitch - targetpitch) < ifFireK && std::abs(yaw - targetyaw) < ifFireK;
-    
     }
+    catch (tf2::TransformException &ex) {
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());
+        return false;
+    }
+    
+    tf2::Quaternion q(
+    t.transform.rotation.x,
+    t.transform.rotation.y,
+    t.transform.rotation.z,
+    t.transform.rotation.w);
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+    
+    //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
+    return std::abs(pitch - targetpitch) < ifFireK && std::abs(yaw - targetyaw) < ifFireK;
+
+}
 
 
 void BallisticCalculateNode::timerCallback()
@@ -148,21 +148,28 @@ void BallisticCalculateNode::timerCallback()
     double chosen_yaw;
     double z;
     double r;
-
+    std::pair<double,double> iffire_result, final_result; 
     if (target_msg->armors_num == 4){
-      std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
-      chosen_yaw = hit_aim[0];
-      z = hit_aim[1];  
-      r = hit_aim[2];
+        std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
+        chosen_yaw = hit_aim[0];
+        z = hit_aim[1];  
+        r = hit_aim[2];
+        if(hit_aim.size()==4){//如果返回的结果是4个，说明是第三种策略
+            std::vector<double>hit_aim_fire = calculator->stategy_1(temp_t);
+            //计算是否开火
+            iffire_result = calculator->iteration2(THRES2 , temp_theta , temp_t , hit_aim_fire[0] , hit_aim_fire[1] , hit_aim_fire[2]);
+            //计算瞄准目标
+            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
+        }
+        else{
+            //进入第二次大迭代
+            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
+            iffire_result = final_result;
+        }
     }
     else{
       RCLCPP_ERROR(this->get_logger(),"The number of armors is not 4");
-    
     }
-    
-
-    //进入第二次大迭代
-    std::pair<double,double> final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
     
     
     
@@ -175,7 +182,7 @@ void BallisticCalculateNode::timerCallback()
     fire_msg.yaw = final_result.second;
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
-    fire_msg.iffire = ifFire(final_result.first,final_result.second);
+    fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
     publisher_->publish(fire_msg);
     
     
