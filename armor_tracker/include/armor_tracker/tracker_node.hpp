@@ -10,10 +10,13 @@
 #include <tf2_ros/message_filter.h>
 #include <tf2_ros/transform_listener.h>
 
+#include <opencv2/core/types.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <image_transport/image_transport.hpp>
 
 // STD
 #include <memory> 
@@ -24,6 +27,10 @@
 #include "auto_aim_interfaces/msg/armors.hpp"
 #include "auto_aim_interfaces/msg/target.hpp"
 #include "auto_aim_interfaces/msg/tracker_info.hpp"
+
+// OpenCV
+#include <opencv2/core.hpp>
+#include <cv_bridge/cv_bridge.h>
 
 namespace rm_auto_aim
 {
@@ -37,6 +44,10 @@ private:
   void armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr);
 
   void publishMarkers(const auto_aim_interfaces::msg::Target & target_msg);
+
+  void publishImg(
+    const auto_aim_interfaces::msg::Target & target_msg,
+    const sensor_msgs::msg::Image & image_msg);
 
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
@@ -73,6 +84,15 @@ private:
   visualization_msgs::msg::Marker angular_v_marker_;
   visualization_msgs::msg::Marker armor_marker_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+
+  // 相机参数
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+  sensor_msgs::msg::CameraInfo cam_info_;
+  cv::Point2f cam_center_;
+
+  // 发布图像
+  image_transport::Publisher tracker_img_pub_;
+  std_msgs::msg::Header_<std::allocator<void>>::_stamp_type last_img_time_; 
 };
 
 }  // namespace rm_auto_aim

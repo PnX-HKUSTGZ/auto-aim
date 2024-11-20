@@ -36,7 +36,8 @@ private:
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
 
   std::unique_ptr<Detector> initDetector();
-  std::vector<Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
+  std::vector<Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img); 
+  void drawResults(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img, const std::vector<Armor> & armors); 
 
   void createDebugPublishers();
   void destroyDebugPublishers();
