@@ -54,63 +54,54 @@ void LightCornerCorrector::correctCorners(Armor &armor, const cv::Mat &gray_img)
 }
 
 // 寻找灯条的对称轴
+// C++
 SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat &gray_img, const Light &light) {
-  constexpr float MAX_BRIGHTNESS = 25;  // 最大亮度值
-  constexpr float scale = 0.07;         // 缩放比例
+    constexpr float MAX_BRIGHTNESS = 25.0f;  // 最大亮度值
+    constexpr float scale = 0.07f;           // 缩放比例
 
-  // 缩放灯条的边界框
-  cv::Rect light_box = light.boundingRect();
-  light_box.x -= light_box.width * scale;
-  light_box.y -= light_box.height * scale;
-  light_box.width += light_box.width * scale * 2;
-  light_box.height += light_box.height * scale * 2;
+    // 缩放灯条的边界框并限制在图像范围内
+    cv::Rect light_box = light.boundingRect();
+    light_box.x -= static_cast<int>(light_box.width * scale);
+    light_box.y -= static_cast<int>(light_box.height * scale);
+    light_box.width += static_cast<int>(light_box.width * scale * 2);
+    light_box.height += static_cast<int>(light_box.height * scale * 2);
+    light_box &= cv::Rect(0, 0, gray_img.cols, gray_img.rows);
 
-  // 检查边界，防止越界
-  light_box.x = std::max(light_box.x, 0);
-  light_box.x = std::min(light_box.x, gray_img.cols - 1);
-  light_box.y = std::max(light_box.y, 0);
-  light_box.y = std::min(light_box.y, gray_img.rows - 1);
-  light_box.width = std::min(light_box.width, gray_img.cols - light_box.x);
-  light_box.height = std::min(light_box.height, gray_img.rows - light_box.y);
+    // 提取并归一化灯条区域
+    cv::Mat roi = gray_img(light_box).clone();
+    float mean_val = cv::mean(roi)[0];  // 计算平均亮度值
+    roi.convertTo(roi, CV_32F);
+    cv::normalize(roi, roi, 0, MAX_BRIGHTNESS, cv::NORM_MINMAX);
 
-  // 获取并归一化灯条的灰度图像
-  cv::Mat roi = gray_img(light_box);
-  float mean_val = cv::mean(roi)[0];  // 计算平均亮度值
-  roi.convertTo(roi, CV_32F);
-  cv::normalize(roi, roi, 0, MAX_BRIGHTNESS, cv::NORM_MINMAX);
+    // 获取非零像素点坐标
+    std::vector<cv::Point2f> points;
+    cv::findNonZero(roi, points);
 
-  // 计算质心（重心）
-  cv::Moments moments = cv::moments(roi, false);
-  cv::Point2f centroid = cv::Point2f(moments.m10 / moments.m00, moments.m01 / moments.m00) +
-                         cv::Point2f(light_box.x, light_box.y);
+    // 计算质心（重心）
+    cv::Moments moments = cv::moments(roi, true);
+    cv::Point2f centroid = cv::Point2f(moments.m10 / moments.m00, moments.m01 / moments.m00) +
+                           cv::Point2f(static_cast<float>(light_box.x), static_cast<float>(light_box.y));
 
-  // 初始化点云数据
-  std::vector<cv::Point2f> points;
-  for (int i = 0; i < roi.rows; i++) {
-    for (int j = 0; j < roi.cols; j++) {
-      for (int k = 0; k < std::round(roi.at<float>(i, j)); k++) {
-        points.emplace_back(cv::Point2f(j, i));
-      }
+    // 进行主成分分析 (PCA)
+    cv::Mat data_pts(static_cast<int>(points.size()), 2, CV_32F);
+    for (size_t i = 0; i < points.size(); i++) {
+        data_pts.at<float>(static_cast<int>(i), 0) = points[i].x;
+        data_pts.at<float>(static_cast<int>(i), 1) = points[i].y;
     }
-  }
-  cv::Mat points_mat = cv::Mat(points).reshape(1);
+    cv::PCA pca(data_pts, cv::Mat(), cv::PCA::DATA_AS_ROW);
 
-  // 进行主成分分析 (PCA)
-  auto pca = cv::PCA(points_mat, cv::Mat(), cv::PCA::DATA_AS_ROW);
+    // 获取第一主成分作为对称轴方向
+    cv::Point2f axis(pca.eigenvectors.at<float>(0, 0), pca.eigenvectors.at<float>(0, 1));
 
-  // 获取第一主成分作为对称轴方向
-  cv::Point2f axis =
-    cv::Point2f(pca.eigenvectors.at<float>(0, 0), pca.eigenvectors.at<float>(0, 1));
+    // 归一化方向向量
+    axis /= cv::norm(axis);
 
-  // 归一化方向向量
-  axis = axis / cv::norm(axis);
+    // 调整方向，确保 y 分量为负方向
+    if (axis.y > 0) {
+        axis = -axis;
+    }
 
-  // 调整方向，确保 y 分量为负方向
-  if (axis.y > 0) {
-    axis = -axis;
-  }
-
-  return SymmetryAxis{.centroid = centroid, .direction = axis, .mean_val = mean_val};
+    return SymmetryAxis{centroid, axis, mean_val};
 }
 
 // 寻找灯条的角点
