@@ -27,7 +27,7 @@ Detector::Detector(
 
 std::vector<Armor> Detector::detect(const cv::Mat & input)//侦测，分类装甲板的主函数
 {
-  binary_img = preprocessImage(input);
+  preprocessImage(input); //生成二值化后的图片
   lights_ = findLights(input, binary_img);
   armors_ = matchLights(lights_);
 
@@ -39,15 +39,12 @@ std::vector<Armor> Detector::detect(const cv::Mat & input)//侦测，分类装�
   return armors_;
 }
 
-cv::Mat Detector::preprocessImage(const cv::Mat & rgb_img)//生成二值化后的图片
+void Detector::preprocessImage(const cv::Mat & rgb_img)//生成二值化后的图片
 {
-  cv::Mat gray_img;
   cv::cvtColor(rgb_img, gray_img, cv::COLOR_RGB2GRAY);
   
-  cv::Mat binary_img;
   cv::threshold(gray_img, binary_img, binary_thres, 255, cv::THRESH_BINARY);
-  
-  return binary_img;
+
 }
 
 std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat & binary_img)//找到灯条

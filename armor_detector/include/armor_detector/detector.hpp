@@ -48,7 +48,7 @@ public:
 
   std::vector<Armor> detect(const cv::Mat & input);
 
-  cv::Mat preprocessImage(const cv::Mat & input);
+  void preprocessImage(const cv::Mat & input);
   std::vector<Light> findLights(const cv::Mat & rbg_img, const cv::Mat & binary_img);
   std::vector<Armor> matchLights(const std::vector<Light> & lights);
 
@@ -64,7 +64,7 @@ public:
   std::unique_ptr<NumberClassifier> classifier;
 
   // Debug msgs
-  cv::Mat binary_img;
+  cv::Mat binary_img, gray_img;
   auto_aim_interfaces::msg::DebugLights debug_lights;
   auto_aim_interfaces::msg::DebugArmors debug_armors;
 

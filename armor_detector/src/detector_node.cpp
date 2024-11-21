@@ -223,6 +223,9 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
   // );
 
   auto armors = detector_->detect(img);
+  for(auto & armor : armors){
+    lcc.correctCorners(armor, detector_->gray_img);
+  }
   //计算延迟
   auto final_time = this->now();
   auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;

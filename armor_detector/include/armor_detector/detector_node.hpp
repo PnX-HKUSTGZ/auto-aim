@@ -21,6 +21,7 @@
 
 #include "armor_detector/detector.hpp"
 #include "armor_detector/number_classifier.hpp"
+#include "armor_detector/light_corner_corrector.hpp"
 #include "armor_detector/pnp_solver.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 
@@ -42,6 +43,9 @@ private:
   void destroyDebugPublishers();
 
   void publishMarkers();
+
+  // Light corner corrector
+  LightCornerCorrector lcc;
 
   //dynamic parameter
   OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
