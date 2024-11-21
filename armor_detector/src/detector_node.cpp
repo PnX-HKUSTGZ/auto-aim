@@ -94,8 +94,9 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
- 
-  auto armors = detectArmors(img_msg);
+  if (debug_)armors_msg_.image = *img_msg;
+  cv::Mat img; 
+  auto armors = detectArmors(img_msg, img);
 
   if (pnp_solver_ != nullptr) {
     armors_msg_.header = armor_marker_.header = text_marker_.header = img_msg->header;
@@ -105,10 +106,11 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     text_marker_.id = 0;
 
     auto_aim_interfaces::msg::Armor armor_msg;
-    for (const auto & armor : armors) {
+    for (auto & armor : armors) {
       cv::Mat rvec, tvec;
       bool success = pnp_solver_->solvePnP(armor, rvec, tvec);//获得两个矩阵
       if (success) {
+
         // Fill basic info
         armor_msg.type = ARMOR_TYPE_STR[static_cast<int>(armor.type)];
         armor_msg.number = armor.number;
@@ -120,6 +122,9 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         // rvec to 3x3 rotation matrix
         cv::Mat rotation_matrix;
         cv::Rodrigues(rvec, rotation_matrix);//将旋转向量转换为旋转矩阵
+        // show yaw pitch
+        armor.yaw = atan2(rotation_matrix.at<double>(1, 0), rotation_matrix.at<double>(0, 0));
+
         // rotation matrix to quaternion
         tf2::Matrix3x3 tf2_rotation_matrix(
           rotation_matrix.at<double>(0, 0), rotation_matrix.at<double>(0, 1),
@@ -149,6 +154,8 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         RCLCPP_WARN(this->get_logger(), "PnP failed!");
       }
     }
+    // draw results
+    drawResults(img_msg, img, armors);
 
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
@@ -207,10 +214,10 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 }
 
 std::vector<Armor> ArmorDetectorNode::detectArmors(
-  const sensor_msgs::msg::Image::ConstSharedPtr & img_msg)
+  const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
 {
   // Convert ROS img to cv::Mat
-  auto img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+  img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
   
   // Update params
   detector_->binary_thres = get_parameter("binary_thres").as_int();
@@ -252,20 +259,34 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
       number_img_pub_.publish(
         *cv_bridge::CvImage(img_msg->header, "mono8", all_num_img).toImageMsg());
     }
-
-    detector_->drawResults(img);
-    // Draw camera center
-    cv::circle(img, cam_center_, 5, cv::Scalar(255, 0, 0), 2);
-    // Draw latency
-    std::stringstream latency_ss;
-    latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-    auto latency_s = latency_ss.str();
-    cv::putText(
-      img, latency_s, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
-    result_img_pub_.publish(cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
   }
-
   return armors;
+}
+void ArmorDetectorNode::drawResults(
+  const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img, const std::vector<Armor> & armors){
+  //计算延迟
+  auto final_time = this->now();
+  auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+  RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
+  if(!debug_){
+    return;
+  }
+  detector_->drawResults(img);
+  // Show yaw
+  for (const auto & armor : armors) {
+    cv::putText(
+      img, std::to_string(armor.yaw), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 15), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      cv::Scalar(0, 255, 255), 2);
+  }
+  // Draw camera center
+  cv::circle(img, cam_center_, 5, cv::Scalar(255, 0, 0), 2);
+  // Draw latency
+  std::stringstream latency_ss;
+  latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+  auto latency_s = latency_ss.str();
+  cv::putText(
+    img, latency_s, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+  result_img_pub_.publish(cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
 }
 // //动态调参
 //  rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)

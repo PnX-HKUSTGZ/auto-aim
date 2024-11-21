@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Armor.msg"
@@ -26,6 +27,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES
     std_msgs
     geometry_msgs
+    sensor_msgs
 )
 
 
