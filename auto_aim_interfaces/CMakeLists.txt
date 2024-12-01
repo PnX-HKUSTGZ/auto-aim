@@ -22,6 +22,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DebugArmor.msg"
   "msg/DebugArmors.msg"
   "msg/TrackerInfo.msg"
+
+  "srv/SetMode.srv"
   
 
   DEPENDENCIES
