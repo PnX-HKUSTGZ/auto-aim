@@ -36,15 +36,11 @@
 #include <rclcpp/time.hpp>
 #include <std_msgs/msg/float32.hpp>
 // project
-#include "rm_interfaces/msg/gimbal_cmd.hpp"
-#include "rm_interfaces/msg/rune_target.hpp"
-#include "rm_utils/logger/log.hpp"
-#include "rm_utils/math/extended_kalman_filter.hpp"
-#include "rm_utils/math/pnp_solver.hpp"
-#include "rm_utils/math/trajectory_compensator.hpp"
-#include "rm_utils/math/manual_compensator.hpp"
+#include "auto_aim_interfaces/msg/rune.hpp"
+#include "auto_aim_interfaces/msg/rune_target.hpp"
+#include "rune_solver/extended_kalman_filter.hpp"
+#include "rune_solver/pnp_solver.hpp"
 #include "rune_solver/curve_fitter.hpp"
-#include "rune_solver/motion_model.hpp"
 #include "rune_solver/motion_model.hpp"
 #include "rune_solver/types.hpp"
 
@@ -75,40 +71,34 @@ public:
   RuneSolver(const RuneSolverParams &sr_params, std::shared_ptr<tf2_ros::Buffer> tf2_buffer);
 
   // Return: initial angle
-  double init(const rm_interfaces::msg::RuneTarget::SharedPtr received_target);
+  double init(const auto_aim_interfaces::msg::Rune::SharedPtr received_target);
 
   // Return: normalized angle
-  double update(const rm_interfaces::msg::RuneTarget::SharedPtr receive_target);
-
-  // Return: normalized predicted angle
-  double predictTarget(Eigen::Vector3d &predicted_position, double timestamp);
+  double update(const auto_aim_interfaces::msg::Rune::SharedPtr receive_target);
 
   // Return: transormation matrix from rune to odom
   // Throws: tf2::TransformException or std::runtime_error
-  Eigen::Matrix4d solvePose(const rm_interfaces::msg::RuneTarget &target);
-
-  rm_interfaces::msg::GimbalCmd solveGimbalCmd(const Eigen::Vector3d &target);
+  Eigen::Matrix4d solvePose(const auto_aim_interfaces::msg::Rune &target);
 
   // Return: 3d position of R tag
   Eigen::Vector3d getCenterPosition() const;
 
   // Param: angle_diff: how much the angle target should prerotate, 0 for no prediction
   // Return: 3d position of target to be aimed at
-  Eigen::Vector3d getTargetPosition(double angle_diff) const;
+  Eigen::Vector3d getTargetPosition(double angle_diff) const; 
+  void pubTargetPosition(auto_aim_interfaces::msg::RuneTarget &rune_target) const;
 
   double getCurAngle() const;
 
   // Solvers
   std::unique_ptr<PnPSolver> pnp_solver;
-  std::unique_ptr<TrajectoryCompensator> trajectory_compensator;
   std::unique_ptr<CurveFitter> curve_fitter;
   std::unique_ptr<RuneCenterEKF> ekf;
-  std::unique_ptr<ManualCompensator> manual_compensator;
 
   RuneSolverParams rune_solver_params;
 
 private:
-  double getNormalAngle(const rm_interfaces::msg::RuneTarget::SharedPtr received_target);
+  double getNormalAngle(const auto_aim_interfaces::msg::Rune::SharedPtr received_target);
 
   double getObservedAngle(double normal_angle);
 
@@ -133,6 +123,30 @@ private:
   Eigen::Vector4d ekf_state_;
 
   std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
+  
+  // Convert euler angles to rotation matrix
+  enum class EulerOrder { XYZ, XZY, YXZ, YZX, ZXY, ZYX };
+  Eigen::Matrix3d eulerToMatrix(const Eigen::Vector3d &euler, EulerOrder order = EulerOrder::XYZ) const {
+    auto r = Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX());
+    auto p = Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY());
+    auto y = Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ());
+    switch (order) {
+      case EulerOrder::XYZ:
+        return (y * p * r).matrix();
+      case EulerOrder::XZY:
+        return (p * y * r).matrix();
+      case EulerOrder::YXZ:
+        return (y * r * p).matrix();
+      case EulerOrder::YZX:
+        return (r * y * p).matrix();
+      case EulerOrder::ZXY:
+        return (p * r * y).matrix();
+      case EulerOrder::ZYX:
+        return (r * p * y).matrix();
+      default:
+        return Eigen::Matrix3d::Identity();
+    }
+  }
 };
 
 }  // namespace rm_auto_aim

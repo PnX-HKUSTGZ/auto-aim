@@ -21,6 +21,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 
 #include <geometry_msgs/msg/point_stamped.hpp>
+#include <rclcpp/logging.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 // std
 #include <memory>
@@ -29,8 +30,6 @@
 
 #include <Eigen/Geometry>
 // project
-#include "rm_utils/logger/log.hpp"
-#include "rm_utils/math/utils.hpp"
 #include "rune_solver/types.hpp"
 
 namespace rm_auto_aim {
@@ -40,36 +39,31 @@ RuneSolver::RuneSolver(const RuneSolverParams &rsp, std::shared_ptr<tf2_ros::Buf
   tracker_state = LOST;
   curve_fitter = std::make_unique<CurveFitter>(MotionType::UNKNOWN);
   curve_fitter->setAutoTypeDetermined(rsp.auto_type_determined);
-  trajectory_compensator = CompensatorFactory::createCompensator(rsp.compensator_type);
-  trajectory_compensator->gravity = rsp.gravity;
-  trajectory_compensator->velocity = rsp.bullet_speed;
-  trajectory_compensator->resistance = 0.01;
   ekf_state_ = Eigen::Vector4d::Zero();
-  manual_compensator = std::make_unique<ManualCompensator>();
 }
 
-double RuneSolver::init(const rm_interfaces::msg::RuneTarget::SharedPtr received_target) {
+double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   if (received_target->is_lost) {
     return 0;
   }
 
-  FYT_INFO("rune_solver", "Init!");
+  RCLCPP_INFO(rclcpp::get_logger("rune_solver"), "Init!");
 
   // Init EKF
   try {
-    Eigen::Matrix4d T_odom_2_rune = solvePose(*received_target);
+    Eigen::Matrix4d t_odom_2_rune = solvePose(*received_target);
 
     // Filter out outliers
-    Eigen::Vector3d t = T_odom_2_rune.block(0, 3, 3, 1);
+    Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
     if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE) {
-      FYT_ERROR("rune_solver", "Rune position is out of range");
+      RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
       return 0;
     }
 
-    ekf_state_ = getStateFromTransform(T_odom_2_rune);
+    ekf_state_ = getStateFromTransform(t_odom_2_rune);
     ekf->setState(ekf_state_);
   } catch (...) {
-    FYT_ERROR("rune_solver", "Init failed");
+    RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "EKF init failed");
     return 0;
   }
 
@@ -87,7 +81,7 @@ double RuneSolver::init(const rm_interfaces::msg::RuneTarget::SharedPtr received
   return observed_angle;
 }
 
-double RuneSolver::update(const rm_interfaces::msg::RuneTarget::SharedPtr received_target) {
+double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   double now_time = rclcpp::Time(received_target->header.stamp).seconds();
   double delta_time = now_time - last_time_;
 
@@ -100,20 +94,20 @@ double RuneSolver::update(const rm_interfaces::msg::RuneTarget::SharedPtr receiv
   if (!received_target->is_lost) {
     // Update EKF
     try {
-      Eigen::Matrix4d T_odom_2_rune = solvePose(*received_target);
+      Eigen::Matrix4d t_odom_2_rune = solvePose(*received_target);
 
       // Filter out outliers
-      Eigen::Vector3d t = T_odom_2_rune.block(0, 3, 3, 1);
+      Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
       if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE) {
-        FYT_ERROR("rune_solver", "Rune position is out of range");
+        RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
         return 0;
       }
 
-      Eigen::Vector4d measurement = getStateFromTransform(T_odom_2_rune);
+      Eigen::Vector4d measurement = getStateFromTransform(t_odom_2_rune);
       ekf->predict();
       ekf_state_ = ekf->update(measurement);
     } catch (...) {
-      FYT_ERROR("rune_solver", "EKF update failed");
+      RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "EKF update failed");
       return 0;
     }
 
@@ -158,18 +152,7 @@ double RuneSolver::update(const rm_interfaces::msg::RuneTarget::SharedPtr receiv
   return last_observed_angle_;
 }
 
-double RuneSolver::predictTarget(Eigen::Vector3d &predicted_position, double timestamp) {
-  double t1 = timestamp - start_time_;
-  double t0 = last_time_ - start_time_;
-  double predict_angle_diff = curve_fitter->predict(t1) - curve_fitter->predict(t0);
-
-  // Get the predicted position
-  predicted_position = getTargetPosition(predict_angle_diff);
-
-  return predict_angle_diff + last_observed_angle_;
-}
-
-Eigen::Matrix4d RuneSolver::solvePose(const rm_interfaces::msg::RuneTarget &predicted_target) {
+Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &predicted_target) {
   Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
   std::vector<cv::Point2f> image_points(predicted_target.pts.size());
   std::transform(predicted_target.pts.begin(),
@@ -224,81 +207,16 @@ Eigen::Matrix4d RuneSolver::solvePose(const rm_interfaces::msg::RuneTarget &pred
       pose.block(0, 0, 3, 3) = rot_odom;
 
     } catch (tf2::TransformException &ex) {
-      FYT_ERROR("rune_solver", "rune to odom error: {}", ex.what());
+      RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "%s", ex.what());
       throw ex;
     }
   } else {
-    FYT_ERROR("rune_solver", "PnP failed");
+    RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "PnP failed");
     throw std::runtime_error("PnP failed");
   }
   return pose;
 }
-
-rm_interfaces::msg::GimbalCmd RuneSolver::solveGimbalCmd(const Eigen::Vector3d &target) {
-  // Get current yaw and pitch of gimbal
-  double current_yaw = 0.0, current_pitch = 0.0;
-  try {
-    auto gimbal_tf = tf2_buffer_->lookupTransform("odom", "gimbal_link", tf2::TimePointZero);
-    auto msg_q = gimbal_tf.transform.rotation;
-
-    tf2::Quaternion tf_q;
-    tf2::fromMsg(msg_q, tf_q);
-    double roll;
-    tf2::Matrix3x3(tf_q).getRPY(roll, current_pitch, current_yaw);
-    current_pitch = -current_pitch;
-  } catch (tf2::TransformException &ex) {
-    FYT_ERROR("rune_solver", "{}", ex.what());
-    throw ex;
-  }
-
-  // Calculate yaw and pitch
-  double yaw = atan2(target.y(), target.x());
-  double pitch = atan2(target.z(), target.head(2).norm());
-
-  // Set parameters of compensator
-  trajectory_compensator->velocity = rune_solver_params.bullet_speed;
-  trajectory_compensator->gravity = rune_solver_params.gravity;
-  trajectory_compensator->iteration_times = 30;
-
-  if (double temp_pitch = pitch; trajectory_compensator->compensate(target, temp_pitch)) {
-    pitch = temp_pitch;
-  }
-  double distance = target.norm();
-
-  // Compensate angle by angle_offset_map
-  auto angle_offset = manual_compensator->angleHardCorrect(target.head(2).norm(), target.z());
-  double pitch_offset = angle_offset[0] * M_PI / 180;
-  double yaw_offset = angle_offset[1] * M_PI / 180;
-  double cmd_pitch = pitch + pitch_offset;
-  double cmd_yaw = angles::normalize_angle(yaw + yaw_offset);
-
-  rm_interfaces::msg::GimbalCmd gimbal_cmd;
-  gimbal_cmd.yaw = cmd_yaw * 180 / M_PI;
-  gimbal_cmd.pitch = cmd_pitch * 180 / M_PI;
-  gimbal_cmd.yaw_diff = (cmd_yaw - current_yaw) * 180 / M_PI;
-  gimbal_cmd.pitch_diff = (cmd_pitch - current_pitch) * 180 / M_PI;
-  gimbal_cmd.distance = distance;
-
-  // Judge whether to shoot
-  constexpr double TARGET_RADIUS = 0.308;
-  double shooting_range_yaw = std::abs(atan2(TARGET_RADIUS / 2, distance)) * 180 / M_PI;
-  double shooting_range_pitch = std::abs(atan2(TARGET_RADIUS / 2, distance)) * 180 / M_PI;
-  // Limit the shooting area to 1 degree to avoid not shooting when distance is
-  // too large
-  shooting_range_yaw = std::max(shooting_range_yaw, 1.0);
-  shooting_range_pitch = std::max(shooting_range_pitch, 1.0);
-  if (std::abs(gimbal_cmd.yaw_diff) < shooting_range_yaw &&
-      std::abs(gimbal_cmd.pitch_diff) < shooting_range_pitch) {
-    gimbal_cmd.fire_advice = true;
-    FYT_DEBUG("rune_solver", "You Can Fire!");
-  } else {
-    gimbal_cmd.fire_advice = false;
-  }
-
-  return gimbal_cmd;
-}
-
-double RuneSolver::getNormalAngle(const rm_interfaces::msg::RuneTarget::SharedPtr received_target) {
+double RuneSolver::getNormalAngle(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   auto center_point = cv::Point2f(received_target->pts[0].x, received_target->pts[0].y);
   std::array<cv::Point2f, ARMOR_KEYPOINTS_NUM> armor_points;
   std::transform(received_target->pts.begin() + 1,
@@ -332,6 +250,24 @@ double RuneSolver::getObservedAngle(double normal_angle) {
 
 Eigen::Vector3d RuneSolver::getCenterPosition() const { return ekf_state_.head(3); }
 
+void RuneSolver::pubTargetPosition(auto_aim_interfaces::msg::RuneTarget &rune_target) const {
+  rune_target.center.x = ekf_state_(0);
+  rune_target.center.y = ekf_state_(1);
+  rune_target.center.z = ekf_state_(2);
+  rune_target.yaw = ekf_state_(3); 
+  rune_target.roll = -last_angle_; 
+  rune_target.tracking = tracker_state == TRACKING;
+  rune_target.is_big = curve_fitter->getType() == MotionType::BIG; 
+  rune_target.fitting_curve[0] = curve_fitter->getFittingParam()[0]; 
+  rune_target.fitting_curve[1] = curve_fitter->getFittingParam()[1];
+  rune_target.fitting_curve[2] = curve_fitter->getFittingParam()[2];
+  rune_target.fitting_curve[3] = curve_fitter->getFittingParam()[3];
+  rune_target.fitting_curve[4] = curve_fitter->getFittingParam()[4];
+  rune_target.direction = curve_fitter->getDirection();
+  rune_target.start_time = start_time_; 
+
+  return; 
+}
 Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
   Eigen::Vector3d t_odom_2_rune = ekf_state_.head(3);
 
@@ -342,7 +278,7 @@ Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
   double pitch = 0;
   double roll = -last_angle_;
   Eigen::Matrix3d R_odom_2_rune =
-    utils::eulerToMatrix(Eigen::Vector3d{roll, pitch, yaw}, utils::EulerOrder::XYZ);
+    eulerToMatrix(Eigen::Vector3d{roll, pitch, yaw}, EulerOrder::XYZ);
 
   // Calculate the position of the armor in rune frame
   Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff, Eigen::Vector3d::UnitX()).matrix() *
@@ -356,8 +292,8 @@ Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
 
 Eigen::Vector4d RuneSolver::getStateFromTransform(const Eigen::Matrix4d &transform) const {
   // Get yaw
-  Eigen::Matrix3d R_odom_2_rune = transform.block(0, 0, 3, 3);
-  Eigen::Quaterniond q_eigen = Eigen::Quaterniond(R_odom_2_rune);
+  Eigen::Matrix3d r_odom_2_rune = transform.block(0, 0, 3, 3);
+  Eigen::Quaterniond q_eigen = Eigen::Quaterniond(r_odom_2_rune);
   tf2::Quaternion q_tf = tf2::Quaternion(q_eigen.x(), q_eigen.y(), q_eigen.z(), q_eigen.w());
   double roll, pitch, yaw;
   tf2::Matrix3x3(q_tf).getRPY(roll, pitch, yaw);

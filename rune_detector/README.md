@@ -10,7 +10,7 @@ OpenVINO推理部分参考了[rm_vision-OpenVINO](https://github.com/Ericsii/rm_
 
 ### 发布话题 
 
-* `rune_target` (`rm_interfaces/msg/RuneTarget`) - 识别到的待击打能量机关五个关键点
+* `rune_target` (`auto_aim_interfaces/msg/RuneTarget`) - 识别到的待击打能量机关五个关键点
 *  `bebug_img` (`sensor_msgs/msg/Image`) - debug图像，绘制出识别到的目标和识别R标的二值化ROI
 
 ### 订阅话题 

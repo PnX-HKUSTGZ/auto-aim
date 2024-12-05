@@ -207,12 +207,12 @@ static void nmsMergeSortedBboxes(std::vector<RuneObject> &faceobjects,
     RuneObject &a = faceobjects[i];
 
     int keep = 1;
-    for (size_t j = 0; j < indices.size(); j++) {
-      RuneObject &b = faceobjects[indices[j]];
+    for (int indice : indices) {
+      RuneObject &b = faceobjects[indice];
 
       // intersection over union
       float inter_area = intersectionArea(a, b);
-      float union_area = areas[i] + areas[indices[j]] - inter_area;
+      float union_area = areas[i] + areas[indice] - inter_area;
       float iou = inter_area / union_area;
       if (iou > nms_threshold || isnan(iou)) {
         keep = 0;
@@ -343,13 +343,13 @@ bool RuneDetector::processCallback(const cv::Mat resized_img,
   for (size_t i = 0; i < indices.size(); i++) {
     objs_result.push_back(std::move(objs_tmp[indices[i]]));
 
-    if (objs_result[i].pts.children.size() > 0) {
-      const float N =
+    if (!objs_result[i].pts.children.empty()) {
+      const float n =
           static_cast<float>(objs_result[i].pts.children.size() + 1);
       FeaturePoints pts_final = std::accumulate(
           objs_result[i].pts.children.begin(),
           objs_result[i].pts.children.end(), objs_result[i].pts);
-      objs_result[i].pts = pts_final / N;
+      objs_result[i].pts = pts_final / n;
     }
   }
 

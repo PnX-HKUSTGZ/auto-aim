@@ -11,15 +11,15 @@ FYT视觉24赛季能量机关解算和预测ROS2包。
 
 ### 发布话题 
 
-*  `cmd_gimbal` (`rm_interfaces/msg/GimbalCmd`) - 最终发送到下位机的角度信息
+*  `cmd_gimbal` (`auto_aim_interfaces/msg/GimbalCmd`) - 最终发送到下位机的角度信息
 *  `predict_target` (`geometry_msgs/msg/PointStamped`) - 预测的靶心坐标
-*  `observed_angle` (`rm_interfaces/msg/DebugRuneAngle`) - 当前识别到的能量机关角度
-*  `predict_angle` (`rm_interfaces/msg/DebugRuneAngle`) - 预测的能量机关角度
+*  `observed_angle` (`auto_aim_interfaces/msg/DebugRuneAngle`) - 当前识别到的能量机关角度
+*  `predict_angle` (`auto_aim_interfaces/msg/DebugRuneAngle`) - 预测的能量机关角度
 *  `markers` (`visualization_markers/msg/MarkerArray`) - 用于Debug的可视化Marker，包括当前识别到的靶心坐标可视化、R标坐标可视化和预测的靶心坐标可视化
 
 ### 订阅话题 
 
-* `rune_target` (`rm_interfaces/msg/RuneTarget`) - 识别到的待击打能量机关五个关键点
+* `rune_target` (`auto_aim_interfaces/msg/RuneTarget`) - 识别到的待击打能量机关五个关键点
 
 ### 参数 
 

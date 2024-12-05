@@ -17,7 +17,7 @@
 
 #include <ceres/ceres.h>
 
-#include "rm_utils/math/extended_kalman_filter.hpp"
+#include "rune_solver/extended_kalman_filter.hpp"
 
 namespace rm_auto_aim {
 

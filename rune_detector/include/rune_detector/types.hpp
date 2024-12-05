@@ -26,6 +26,39 @@ enum class EnemyColor {
   BLUE = 1,
   WHITE = 2,
 };
+inline std::string enemyColorToString(EnemyColor color) {
+  switch (color) {
+    case EnemyColor::RED:
+      return "RED";
+    case EnemyColor::BLUE:
+      return "BLUE";
+    case EnemyColor::WHITE:
+      return "WHITE";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+enum VisionMode {
+  AUTO_AIM_SLOPE = 0,
+  AUTO_AIM_FLAT = 1,
+  SMALL_RUNE = 2,
+  BIG_RUNE = 3,
+};
+inline std::string visionModeToString(VisionMode mode) {
+  switch (mode) {
+    case VisionMode::AUTO_AIM_SLOPE:
+      return "AUTO_AIM_SLOPE";
+    case VisionMode::AUTO_AIM_FLAT:
+      return "AUTO_AIM_FLAT";
+    case VisionMode::SMALL_RUNE:
+      return "SMALL_RUNE";
+    case VisionMode::BIG_RUNE:
+      return "BIG_RUNE";
+    default:
+      return "UNKNOWN";
+  }
+}
 
 enum class RuneType { INACTIVATED = 0, ACTIVATED };
 

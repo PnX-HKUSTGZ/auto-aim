@@ -32,7 +32,10 @@
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
 // project
+#include "rune_detector/types.hpp"
 #include "rune_detector/rune_detector.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
+#include "auto_aim_interfaces/msg/rune.hpp"
 
 namespace rm_auto_aim {
 class RuneDetectorNode : public rclcpp::Node {
@@ -52,23 +55,22 @@ private:
 
   void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
                        std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
+  
+  std::string resolveURL(const std::string &url); // Resolve URL
   // Dynamic Parameter
   rcl_interfaces::msg::SetParametersResult onSetParameters(
     std::vector<rclcpp::Parameter> parameters);
   rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
-
-  // Heartbeat
-  HeartBeatPublisher::SharedPtr heartbeat_;
 
   // Image subscription
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
 
   //Target publisher
   std::string frame_id_;
-  rclcpp::Publisher<rm_interfaces::msg::RuneTarget>::SharedPtr rune_pub_;
+  rclcpp::Publisher<auto_aim_interfaces::msg::Rune>::SharedPtr rune_pub_;
 
   // Enable/Disable Rune Detector
-  rclcpp::Service<rm_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
+  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
 
   // Rune detector
   int requests_limit_;
@@ -87,6 +89,8 @@ private:
   // Debug infomation
   bool debug_;
   image_transport::Publisher result_img_pub_;
+
+  rclcpp::Time timestamp; 
 };
 }  // namespace rm_auto_aim
 #endif  // DETECTOR_NODE_HPP_

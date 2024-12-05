@@ -18,10 +18,10 @@
 
 // std
 #include <algorithm>
+#include <auto_aim_interfaces/msg/detail/rune_target__struct.hpp>
 #include <deque>
 #include <iostream>
-#include <rm_interfaces/msg/detail/debug_rune_angle__struct.hpp>
-#include <rm_utils/heartbeat.hpp>
+#include <auto_aim_interfaces/msg/detail/debug_rune_angle__struct.hpp>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -39,11 +39,10 @@
 // third party
 #include <opencv2/opencv.hpp>
 // project
-#include "rm_interfaces/msg/debug_rune_angle.hpp"
-#include "rm_interfaces/msg/gimbal_cmd.hpp"
-#include "rm_interfaces/msg/rune_target.hpp"
-#include "rm_interfaces/srv/set_mode.hpp"
-#include "rm_utils/heartbeat.hpp"
+#include "auto_aim_interfaces/msg/debug_rune_angle.hpp"
+#include "auto_aim_interfaces/msg/rune_target.hpp"
+#include "auto_aim_interfaces/msg/rune.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
 #include "rune_solver/rune_solver.hpp"
 
 namespace rm_auto_aim {
@@ -52,13 +51,10 @@ public:
   RuneSolverNode(const rclcpp::NodeOptions &options);
 
 private:
-  void runeTargetCallback(const rm_interfaces::msg::RuneTarget::SharedPtr rune_target_msg);
+  void runeTargetCallback(const auto_aim_interfaces::msg::Rune::SharedPtr rune_target_msg);
 
-  void setModeCallback(const std::shared_ptr<rm_interfaces::srv::SetMode::Request> request,
-                       std::shared_ptr<rm_interfaces::srv::SetMode::Response> response);
-
-  // Heartbeat
-  HeartBeatPublisher::SharedPtr heartbeat_;
+  void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+                       std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
 
   // Rune solver
   std::unique_ptr<RuneSolver> rune_solver_;
@@ -69,18 +65,19 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
 
   // Target Subscriber
-  rclcpp::Subscription<rm_interfaces::msg::RuneTarget>::SharedPtr rune_target_sub_;
-  rm_interfaces::msg::RuneTarget last_rune_target_;
+  rclcpp::Subscription<auto_aim_interfaces::msg::Rune>::SharedPtr rune_target_sub_;
+  auto_aim_interfaces::msg::Rune last_rune_target_;
+
+  // Target publisher
+  rclcpp::Publisher<auto_aim_interfaces::msg::RuneTarget>::SharedPtr rune_target_pub_;
 
   // Predict Target publisher
-  rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_pub_;
-  rclcpp::Publisher<rm_interfaces::msg::GimbalCmd>::SharedPtr gimbal_pub_;
   rclcpp::TimerBase::SharedPtr pub_timer_;
   void timerCallback();
 
   // Enable/Disable Rune Solver
   bool enable_;
-  rclcpp::Service<rm_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
+  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
 
   // Dynamic Parameter
   rcl_interfaces::msg::SetParametersResult onSetParameters(
@@ -93,14 +90,14 @@ private:
 
   // Debug info
   bool debug_;
-  rclcpp::Publisher<rm_interfaces::msg::DebugRuneAngle>::SharedPtr observed_angle_pub_;
-  rclcpp::Publisher<rm_interfaces::msg::DebugRuneAngle>::SharedPtr predicted_angle_pub_;
+  rclcpp::Publisher<auto_aim_interfaces::msg::DebugRuneAngle>::SharedPtr observed_angle_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fitter_text_pub_;
   visualization_msgs::msg::Marker obs_pos_marker_;
   visualization_msgs::msg::Marker r_tag_pos_marker_;
   visualization_msgs::msg::Marker pred_pos_marker_;
   visualization_msgs::msg::Marker aimming_line_marker_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_; 
+  rclcpp::Time stamp;
 };
 }  // namespace rm_auto_aim
 #endif

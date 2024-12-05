@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rune_detector_node.hpp"
+#include "rune_detector/rune_detector_node.hpp"
 // ros2
 #include <cv_bridge/cv_bridge.h>
 #include <rmw/qos_profiles.h>
-
 #include <rclcpp/qos.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 // std
 #include <algorithm>
 #include <array>
@@ -26,8 +27,12 @@
 #include <vector>
 // third party
 #include <opencv2/imgproc.hpp>
+#include <fmt/core.h>
 // project
 #include "rune_detector/types.hpp"
+#include "rune_detector/rune_detector.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
+#include "auto_aim_interfaces/msg/rune.hpp"
 
 namespace rm_auto_aim {
 
@@ -40,11 +45,12 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions &options)
   detect_r_tag_ = declare_parameter("detect_r_tag", true);
   binary_thresh_ = declare_parameter("min_lightness", 100);
   requests_limit_ = declare_parameter("requests_limit", 5);
+  detect_color_ = static_cast<EnemyColor>(declare_parameter("detect_color", 1)); 
 
   // 初始化检测器
   rune_detector_ = initDetector();
   // 创建 Rune 目标发布者
-  rune_pub_ = this->create_publisher<rm_interfaces::msg::RuneTarget>("rune_detector/rune_target",
+  rune_pub_ = this->create_publisher<auto_aim_interfaces::msg::Rune>("rune_detector/rune",
                                                                      rclcpp::SensorDataQoS());
 
   // 创建调试发布者
@@ -56,13 +62,10 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions &options)
   qos.keep_last(1);
   img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "image_raw", qos, std::bind(&RuneDetectorNode::imageCallback, this, std::placeholders::_1));
-  set_rune_mode_srv_ = this->create_service<rm_interfaces::srv::SetMode>(
+  set_rune_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
     "rune_detector/set_mode",
     std::bind(
       &RuneDetectorNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
-
-  // 心跳发布者
-  heartbeat_ = HeartBeatPublisher::create(this);
 }
 
 // 初始化检测器
@@ -70,7 +73,11 @@ std::unique_ptr<RuneDetector> RuneDetectorNode::initDetector() {
   std::string model_path =
     this->declare_parameter("detector.model", "package://rune_detector/model/yolox_rune_3.6m.onnx");
   std::string device_type = this->declare_parameter("detector.device_type", "AUTO");
-  RCLCPP_ASSERT(this->get_logger(), !model_path.empty());
+  if (model_path.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "Model path is empty!");
+    rclcpp::shutdown();
+    return nullptr;
+  }
   RCLCPP_INFO(this->get_logger(), "Model: %s, Device: %s", model_path.c_str(), device_type.c_str());
 
   float conf_threshold = this->declare_parameter("detector.confidence_threshold", 0.50);
@@ -78,8 +85,21 @@ std::unique_ptr<RuneDetector> RuneDetectorNode::initDetector() {
   float nms_threshold = this->declare_parameter("detector.nms_threshold", 0.3);
 
   namespace fs = std::filesystem;
-  fs::path resolved_path = utils::URLResolver::getResolvedPath(model_path);
-  RCLCPP_ASSERT(this->get_logger(), fs::exists(resolved_path), "%s Not Found", resolved_path.string().c_str());
+  std::string resolved_path_str;
+  try {
+    resolved_path_str = resolveURL(model_path);
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(this->get_logger(), "Error resolving URL: %s", e.what());
+    rclcpp::shutdown();
+    return nullptr;
+  }
+
+  fs::path resolved_path = resolved_path_str;
+  if (!fs::exists(resolved_path)) {
+    RCLCPP_ERROR(this->get_logger(), "Model file not found: %s", resolved_path.string().c_str());
+    rclcpp::shutdown();
+    return nullptr;
+  }
 
   // 设置动态参数回调
   rcl_interfaces::msg::SetParametersResult onSetParameters(
@@ -103,7 +123,7 @@ std::unique_ptr<RuneDetector> RuneDetectorNode::initDetector() {
 
 // 图像回调函数
 void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg) {
-  if (is_rune_ == false) {
+  if (!is_rune_) {
     return;
   }
 
@@ -113,7 +133,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     detect_requests_.pop();
   }
 
-  auto timestamp = rclcpp::Time(msg->header.stamp);
+  timestamp = rclcpp::Time(msg->header.stamp);
   frame_id_ = msg->header.frame_id;
   auto img = cv_bridge::toCvCopy(msg, "rgb8")->image;
 
@@ -138,14 +158,13 @@ rcl_interfaces::msg::SetParametersResult RuneDetectorNode::onSetParameters(
 void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
                                            int64_t timestamp_nanosec,
                                            const cv::Mat &src_img) {
-  auto timestamp = rclcpp::Time(timestamp_nanosec);
   // 用于绘制调试信息
   cv::Mat debug_img;
   if (debug_) {
     debug_img = src_img.clone();
   }
 
-  rm_interfaces::msg::RuneTarget rune_msg;
+  auto_aim_interfaces::msg::Rune rune_msg;
   rune_msg.header.frame_id = frame_id_;
   rune_msg.header.stamp = timestamp;
   rune_msg.is_big_rune = is_big_rune_;
@@ -196,7 +215,7 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
       });
 
     if (result_it != objs.end()) {
-      // RCLCPP_DEBUG(this->get_logger(), "Detected!");
+      RCLCPP_DEBUG(this->get_logger(), "Detected!");
       rune_msg.is_lost = false;
       rune_msg.pts[0].x = result_it->pts.r_center.x;
       rune_msg.pts[0].y = result_it->pts.r_center.y;
@@ -217,7 +236,7 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
     rune_msg.is_lost = true;
   }
 
-  rune_pub_->publish(std::move(rune_msg));
+  rune_pub_->publish(rune_msg);
 
   if (debug_) {
     if (debug_img.empty()) {
@@ -269,8 +288,8 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
 
 // 设置模式回调函数
 void RuneDetectorNode::setModeCallback(
-  const std::shared_ptr<rm_interfaces::srv::SetMode::Request> request,
-  std::shared_ptr<rm_interfaces::srv::SetMode::Response> response) {
+  const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+  std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response) {
   response->success = true;
 
   VisionMode mode = static_cast<VisionMode>(request->mode);
@@ -290,31 +309,15 @@ void RuneDetectorNode::setModeCallback(
   };
 
   switch (mode) {
-    case VisionMode::SMALL_RUNE_RED: {
+    case VisionMode::SMALL_RUNE: {
       is_rune_ = true;
       is_big_rune_ = false;
-      detect_color_ = EnemyColor::RED;
       createImageSub();
       break;
     }
-    case VisionMode::SMALL_RUNE_BLUE: {
-      is_rune_ = true;
-      is_big_rune_ = false;
-      detect_color_ = EnemyColor::BLUE;
-      createImageSub();
-      break;
-    }
-    case VisionMode::BIG_RUNE_RED: {
+    case VisionMode::BIG_RUNE: {
       is_rune_ = true;
       is_big_rune_ = true;
-      detect_color_ = EnemyColor::RED;
-      createImageSub();
-      break;
-    }
-    case VisionMode::BIG_RUNE_BLUE: {
-      is_rune_ = true;
-      is_big_rune_ = true;
-      detect_color_ = EnemyColor::BLUE;
       createImageSub();
       break;
     }
@@ -332,6 +335,24 @@ void RuneDetectorNode::setModeCallback(
 // 创建调试发布者
 void RuneDetectorNode::createDebugPublishers() {
   result_img_pub_ = image_transport::create_publisher(this, "rune_detector/result_img");
+}
+std::string RuneDetectorNode::resolveURL(const std::string &url) {
+  // 检查 URL 前缀
+  const std::string package_prefix = "package://";
+  if (url.substr(0, package_prefix.size()) != package_prefix) {
+    throw std::runtime_error("Invalid URL: " + url);
+  }
+
+  // 提取包名和相对路径
+  std::string package_name = url.substr(package_prefix.size(), url.find('/', package_prefix.size()) - package_prefix.size());
+  std::string relative_path = url.substr(url.find('/', package_prefix.size()));
+
+  // 获取包路径
+  std::string package_path = ament_index_cpp::get_package_share_directory(package_name);
+
+  // 组合成完整路径
+  std::string resolved_path = package_path + "/" +  relative_path;
+  return resolved_path;
 }
 
 // 销毁调试发布者

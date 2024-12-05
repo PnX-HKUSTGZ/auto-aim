@@ -34,9 +34,6 @@ public:
     direction_ = Direction::UNKNOWN;
   };
 
-  // Perform angle predict
-  double predict(double time);
-
   // Update data to be fitted
   void update(double time, double angle);
 
@@ -55,6 +52,12 @@ public:
 
   // Get the string of the fitting result
   std::string getDebugText();
+
+  // Get the fitting parameters
+  std::array<double, 5> getFittingParam() const; 
+
+  // Get the direction of the fitting curve
+  bool getDirection() const;
 
 private:
   // Perform double curve fitting

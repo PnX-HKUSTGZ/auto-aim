@@ -19,10 +19,11 @@
 #include <cmath>
 #include <string>
 #include <thread>
+//ros
+#include <rclcpp/rclcpp.hpp>
 // third party
 #include <fmt/format.h>
 // project
-#include "rm_utils/logger/log.hpp"
 #include "rune_solver/types.hpp"
 
 namespace rm_auto_aim {
@@ -36,8 +37,8 @@ void CurveFitter::fitDoubleCurve() {
     return;
   }
 
-  constexpr int PARALLEL_THRESHOLD = 300;
-  bool is_parallel = data_history_queue_.size() > PARALLEL_THRESHOLD;
+  constexpr int parallel_threshold = 300;
+  bool is_parallel = data_history_queue_.size() > parallel_threshold;
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -122,9 +123,9 @@ void CurveFitter::fitDoubleCurve() {
     type_ = MotionType::BIG;
   }
   auto t2 = std::chrono::high_resolution_clock::now();
-  FYT_DEBUG("rune_solver",
-            "Fitting time: {} ms",
-            std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
+  RCLCPP_DEBUG(rclcpp::get_logger("curve_fitter"),
+               "Fitting time: %ld ms",
+               std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
 }
 
 // Fit the curve with the determined type
@@ -185,35 +186,12 @@ void CurveFitter::fitCurve() {
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
   auto t2 = std::chrono::high_resolution_clock::now();
-  FYT_DEBUG("rune_solver",
-            "Fitting time: {} ms",
-            std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
+  RCLCPP_DEBUG(rclcpp::get_logger("curve_fitter"),
+               "Fitting time: %ld ms",
+               std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
 
   // Save the optimized parameters
   fitting_param_ = temp_param;
-}
-
-double CurveFitter::predict(double current_time) {
-  // If the target is static, return the last angle
-  if (is_static_) {
-    return data_history_queue_.back().angle;
-  }
-
-  double pred_angle = 0;
-  if (type_ == MotionType::BIG) {
-    pred_angle = BIG_RUNE_CURVE(current_time,
-                                fitting_param_[0],
-                                fitting_param_[1],
-                                fitting_param_[2],
-                                fitting_param_[3],
-                                fitting_param_[4],
-                                direction_);
-  } else if (type_ == MotionType::SMALL) {
-    pred_angle = SMALL_RUNE_CURVE(
-      current_time, fitting_param_[0], fitting_param_[1], fitting_param_[2], direction_);
-  }
-
-  return pred_angle;
 }
 
 void CurveFitter::reset() {
@@ -320,15 +298,16 @@ void CurveFitter::update(double time, double angle) {
     startFitting();
   } else {
     // If fitting is in progess or has been completed, do not start a new fitting
-    FYT_WARN("rune_solver", "Fitting is in progress, do not start a new fitting");
+    RCLCPP_DEBUG(rclcpp::get_logger("curve_fitter"), "Fitting is in progress, do not start a new fitting");
   }
 }
 
 bool CurveFitter::statusVerified() {
-  if (type_ == MotionType::UNKNOWN || direction_ == Direction::UNKNOWN ||
-      fitting_future_ == nullptr) {
-    return false;
-  }
-  return true;
+  return !(type_ == MotionType::UNKNOWN || direction_ == Direction::UNKNOWN ||
+      fitting_future_ == nullptr);
 }
+
+std::array<double, 5> CurveFitter::getFittingParam() const { return fitting_param_; }
+bool CurveFitter::getDirection() const { return direction_; }
+
 }  //namespace rm_auto_aim
