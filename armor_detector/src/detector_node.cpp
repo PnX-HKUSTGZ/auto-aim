@@ -381,6 +381,36 @@ void ArmorDetectorNode::publishMarkers()
   marker_pub_->publish(marker_array_);
 }
 
+void ArmorDetectorNode::setModeCallback(
+  const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+  std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response) {
+  response->success = true;
+
+  VisionMode mode = static_cast<VisionMode>(request->mode);
+  std::string mode_name = visionModeToString(mode);
+  if (mode_name == "UNKNOWN") {
+    RCLCPP_ERROR(this->get_logger(), "Invalid mode: %d", request->mode);
+    return;
+  }
+
+  switch (mode) {
+    case VisionMode::AUTO_AIM_FLAT:{
+      is_flat_mode_ = true;
+      enable_ = true;
+    }
+    case VisionMode::AUTO_AIM_SLOPE:{
+      is_flat_mode_ = false;
+      enable_ = true;
+    }
+    default: {
+      enable_ = false;
+      break;
+    }
+  }
+
+  RCLCPP_WARN(this->get_logger(), "Set Car Mode: %s", visionModeToString(mode).c_str());
+}
+
 }  // namespace rm_auto_aim
 
 #include "rclcpp_components/register_node_macro.hpp"

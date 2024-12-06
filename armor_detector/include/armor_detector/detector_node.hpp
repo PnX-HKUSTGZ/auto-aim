@@ -24,6 +24,8 @@
 #include "armor_detector/light_corner_corrector.hpp"
 #include "armor_detector/pnp_solver.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
+
 
 namespace rm_auto_aim
 {
@@ -35,6 +37,9 @@ public:
 
 private:
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
+
+  void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+                      std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
 
   std::unique_ptr<Detector> initDetector();
   std::vector<Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img); 
@@ -83,6 +88,30 @@ private:
   image_transport::Publisher binary_img_pub_;
   image_transport::Publisher number_img_pub_;
   image_transport::Publisher result_img_pub_;
+
+  // types
+  enum VisionMode {
+    AUTO_AIM_SLOPE = 0,
+    AUTO_AIM_FLAT = 1,
+    SMALL_RUNE = 2,
+    BIG_RUNE = 3,
+  };
+  inline std::string visionModeToString(VisionMode mode) {
+    switch (mode) {
+      case VisionMode::AUTO_AIM_SLOPE:
+        return "AUTO_AIM_SLOPE";
+      case VisionMode::AUTO_AIM_FLAT:
+        return "AUTO_AIM_FLAT";
+      case VisionMode::SMALL_RUNE:
+        return "SMALL_RUNE";
+      case VisionMode::BIG_RUNE:
+        return "BIG_RUNE";
+      default:
+        return "UNKNOWN";
+    }
+  }
+  bool is_flat_mode_ = false;
+  bool enable_ = true; 
 };
 
 }  // namespace rm_auto_aim
