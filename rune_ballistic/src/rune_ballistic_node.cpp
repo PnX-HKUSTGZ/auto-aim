@@ -50,7 +50,7 @@ RuneBallisticNode::RuneBallisticNode(const rclcpp::NodeOptions & options)
         "rune_solver/rune_target",rclcpp::SensorDataQoS() ,
         std::bind(&RuneBallisticNode::targetCallback, this, std::placeholders::_1));
     //创建发布者
-    publisher_ = this->create_publisher<auto_aim_interfaces::msg::Firecontrol>("/rune_firecontrol", 10);
+    publisher_ = this->create_publisher<auto_aim_interfaces::msg::Firecontrol>("/firecontrol", 10);
     //设置时间callback
     timer_ = this->create_wall_timer(std::chrono::milliseconds(4), std::bind(&RuneBallisticNode::timerCallback, this));
     
