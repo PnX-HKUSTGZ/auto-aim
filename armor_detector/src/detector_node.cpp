@@ -90,6 +90,11 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "/image_raw", rclcpp::SensorDataQoS(),
     std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
+  // set_mode
+  set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
+    "rune_solver/set_mode",
+    std::bind(
+      &ArmorDetectorNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
 }
 
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)

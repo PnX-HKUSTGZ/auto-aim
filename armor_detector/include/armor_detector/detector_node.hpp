@@ -60,6 +60,9 @@ private:
   // Armor Detector
   std::unique_ptr<Detector> detector_;
 
+  // set_mode service
+  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
+
   // Detected armors publisher
   auto_aim_interfaces::msg::Armors armors_msg_;
   rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
