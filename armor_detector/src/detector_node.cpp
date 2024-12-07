@@ -99,6 +99,9 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
+  if(!enable_){
+    return;
+  }
   if (debug_)armors_msg_.image = *img_msg;
   cv::Mat img; 
   auto armors = detectArmors(img_msg, img);
