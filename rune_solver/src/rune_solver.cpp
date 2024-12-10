@@ -33,15 +33,18 @@
 #include "rune_solver/types.hpp"
 
 namespace rm_auto_aim {
+
+// 构造函数，初始化 RuneSolver
 RuneSolver::RuneSolver(const RuneSolverParams &rsp, std::shared_ptr<tf2_ros::Buffer> buffer)
 : rune_solver_params(rsp), tf2_buffer_(buffer) {
-  // Init
+  // 初始化状态
   tracker_state = LOST;
   curve_fitter = std::make_unique<CurveFitter>(MotionType::UNKNOWN);
   curve_fitter->setAutoTypeDetermined(rsp.auto_type_determined);
   ekf_state_ = Eigen::Vector4d::Zero();
 }
 
+// 初始化 RuneSolver
 double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   if (received_target->is_lost) {
     return 0;
@@ -49,11 +52,11 @@ double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received
 
   RCLCPP_INFO(rclcpp::get_logger("rune_solver"), "Init!");
 
-  // Init EKF
+  // 初始化 EKF
   try {
-    Eigen::Matrix4d t_odom_2_rune = solvePose(*received_target);
+    Eigen::Matrix4d t_odom_2_rune = solvePose(*received_target); //pnp解算
 
-    // Filter out outliers
+    // 过滤掉异常值
     Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
     if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE) {
       RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
@@ -67,7 +70,7 @@ double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received
     return 0;
   }
 
-  // Init observation variables
+  // 初始化观测变量
   tracker_state = DETECTING;
   double observed_angle = getNormalAngle(received_target);
   double observed_time = 0;
@@ -81,6 +84,7 @@ double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received
   return observed_angle;
 }
 
+// 更新 RuneSolver
 double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   double now_time = rclcpp::Time(received_target->header.stamp).seconds();
   double delta_time = now_time - last_time_;
@@ -92,11 +96,11 @@ double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr receiv
   }
 
   if (!received_target->is_lost) {
-    // Update EKF
+    // 更新 EKF
     try {
       Eigen::Matrix4d t_odom_2_rune = solvePose(*received_target);
 
-      // Filter out outliers
+      // 过滤掉异常值
       Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
       if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE) {
         RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
@@ -111,12 +115,12 @@ double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr receiv
       return 0;
     }
 
-    // Get the data to be fitted
+    // 获取拟合数据
     double observed_time = now_time - start_time_;
     double normal_angle = getNormalAngle(received_target);
     double observed_angle = getObservedAngle(normal_angle);
 
-    // Update fitter
+    // 更新拟合器
     curve_fitter->update(observed_time, observed_angle);
 
     last_time_ = now_time;
@@ -124,7 +128,7 @@ double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr receiv
     last_observed_angle_ = observed_angle;
   }
 
-  // Update tracker state
+  // 更新跟踪器状态
   switch (tracker_state) {
     case DETECTING: {
       if (received_target->is_lost && delta_time > rune_solver_params.lost_time_thres) {
@@ -152,6 +156,7 @@ double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr receiv
   return last_observed_angle_;
 }
 
+// pnp计算姿态
 Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &predicted_target) {
   Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
   std::vector<cv::Point2f> image_points(predicted_target.pts.size());
@@ -162,25 +167,23 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
 
   cv::Mat rvec(3, 1, CV_64F), tvec(3, 1, CV_64F);
   if (pnp_solver && pnp_solver->solvePnP(image_points, rvec, tvec, "rune")) {
-    // Get the transformation matrix from rune to odom
+    // 获取从 rune 到 odom 的变换矩阵
     try {
-      // Get rotation matrix from rvec
+      // 从 rvec 获取旋转矩阵
       cv::Mat rmat;
       cv::Rodrigues(rvec, rmat);
       Eigen::Matrix3d rot;
-      // clang-format off
       rot << rmat.at<double>(0, 0), rmat.at<double>(0, 1), rmat.at<double>(0, 2),
              rmat.at<double>(1, 0), rmat.at<double>(1, 1), rmat.at<double>(1, 2), 
              rmat.at<double>(2, 0), rmat.at<double>(2, 1), rmat.at<double>(2, 2);
-      // clang-format on
       Eigen::Quaterniond quat(rot);
 
-      // Init pose msg
+      // 初始化姿态消息
       geometry_msgs::msg::PoseStamped ps;
       ps.header.frame_id = "camera_optical_frame";
       ps.header.stamp = predicted_target.header.stamp;
 
-      // Fill pose msg
+      // 填充姿态消息
       ps.pose.orientation.x = quat.x();
       ps.pose.orientation.y = quat.y();
       ps.pose.orientation.z = quat.z();
@@ -189,10 +192,10 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
       ps.pose.position.y = tvec.at<double>(1);
       ps.pose.position.z = tvec.at<double>(2);
 
-      // Transform to odom
+      // 转换到 odom 坐标系
       ps = tf2_buffer_->transform(ps, "odom");
 
-      // Fill pose
+      // 填充姿态
       pose(0, 3) = ps.pose.position.x;
       pose(1, 3) = ps.pose.position.y;
       pose(2, 3) = ps.pose.position.z;
@@ -216,6 +219,8 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
   }
   return pose;
 }
+
+// 获取roll角
 double RuneSolver::getNormalAngle(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   auto center_point = cv::Point2f(received_target->pts[0].x, received_target->pts[0].y);
   std::array<cv::Point2f, ARMOR_KEYPOINTS_NUM> armor_points;
@@ -227,16 +232,20 @@ double RuneSolver::getNormalAngle(const auto_aim_interfaces::msg::Rune::SharedPt
   cv::Point2f armor_center = getCenterPoint(armor_points);
   double x_diff = armor_center.x - center_point.x;
   double y_diff = -(armor_center.y - center_point.y);
-  double normal_angle = std::atan2(y_diff, x_diff);
-  // Normalize angle
+  double tan_camera = y_diff / x_diff; //通过yaw角把相机坐标系下的roll转换到能量机关坐标系的roll
+  double cos_yaw = cos(ekf_state_(3));
+  double tan_roll = tan_camera * cos_yaw;
+  double normal_angle = std::atan2(tan_roll, 1);
+  // 归一化角度
   normal_angle = angles::normalize_angle_positive(normal_angle);
 
   return normal_angle;
 }
 
+// 处理跳变
 double RuneSolver::getObservedAngle(double normal_angle) {
   double angle_diff = angles::shortest_angular_distance(last_angle_, normal_angle);
-  // Handle rune target switch
+  // 处理符文目标切换
   if (std::abs(angle_diff) > rune_solver_params.angle_offset_thres) {
     angle_diff = normal_angle - last_angle_;
     int offset = std::round(double(angle_diff / DEG_72));
@@ -248,8 +257,10 @@ double RuneSolver::getObservedAngle(double normal_angle) {
   return observed_angle;
 }
 
+// 获取中心位置
 Eigen::Vector3d RuneSolver::getCenterPosition() const { return ekf_state_.head(3); }
 
+// 发布目标位置
 void RuneSolver::pubTargetPosition(auto_aim_interfaces::msg::RuneTarget &rune_target) const {
   rune_target.center.x = ekf_state_(0);
   rune_target.center.y = ekf_state_(1);
@@ -268,30 +279,33 @@ void RuneSolver::pubTargetPosition(auto_aim_interfaces::msg::RuneTarget &rune_ta
 
   return; 
 }
+
+// 获取目标位置
 Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
   Eigen::Vector3d t_odom_2_rune = ekf_state_.head(3);
 
-  // Considering the large error and jitter(抖动) in the orientation obtained from PnP,
-  // and the fact that the position of the Rune are static in the odom frame,
-  // it is advisable to reconstruct the rotation matrix using geometric information
+  // 考虑到从 PnP 获取的方向存在较大的误差和抖动，
+  // 并且符文的位置在 odom 坐标系中是静态的，
+  // 建议使用几何信息重新构建旋转矩阵
   double yaw = ekf_state_(3);
   double pitch = 0;
   double roll = -last_angle_;
   Eigen::Matrix3d R_odom_2_rune =
     eulerToMatrix(Eigen::Vector3d{roll, pitch, yaw}, EulerOrder::XYZ);
 
-  // Calculate the position of the armor in rune frame
+  // 计算符文坐标系中的装甲位置
   Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff, Eigen::Vector3d::UnitX()).matrix() *
                            Eigen::Vector3d(0, -ARM_LENGTH, 0);
 
-  // Transform to odom frame
+  // 转换到 odom 坐标系
   Eigen::Vector3d p_odom = R_odom_2_rune * p_rune + t_odom_2_rune;
 
   return p_odom;
 }
 
+// 从变换矩阵获取状态
 Eigen::Vector4d RuneSolver::getStateFromTransform(const Eigen::Matrix4d &transform) const {
-  // Get yaw
+  // 获取 yaw 角
   Eigen::Matrix3d r_odom_2_rune = transform.block(0, 0, 3, 3);
   Eigen::Quaterniond q_eigen = Eigen::Quaterniond(r_odom_2_rune);
   tf2::Quaternion q_tf = tf2::Quaternion(q_eigen.x(), q_eigen.y(), q_eigen.z(), q_eigen.w());
@@ -299,7 +313,7 @@ Eigen::Vector4d RuneSolver::getStateFromTransform(const Eigen::Matrix4d &transfo
   tf2::Matrix3x3(q_tf).getRPY(roll, pitch, yaw);
   yaw = angles::normalize_angle(yaw);
 
-  // Make yaw continuos
+  // 使 yaw 连续
   yaw = ekf_state_(3) + angles::shortest_angular_distance(ekf_state_(3), yaw);
 
   Eigen::Vector4d state;
@@ -307,8 +321,10 @@ Eigen::Vector4d RuneSolver::getStateFromTransform(const Eigen::Matrix4d &transfo
   return state;
 }
 
+// 获取当前角度
 double RuneSolver::getCurAngle() const { return last_angle_; }
 
+// 获取中心点
 cv::Point2f RuneSolver::getCenterPoint(
   const std::array<cv::Point2f, ARMOR_KEYPOINTS_NUM> &armor_points) {
   return std::accumulate(armor_points.begin(), armor_points.end(), cv::Point2f(0, 0)) /

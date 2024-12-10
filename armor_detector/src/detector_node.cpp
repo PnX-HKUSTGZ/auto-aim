@@ -92,7 +92,7 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
   // set_mode
   set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
-    "rune_solver/set_mode",
+    "armor_detector/set_mode",
     std::bind(
       &ArmorDetectorNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
 }

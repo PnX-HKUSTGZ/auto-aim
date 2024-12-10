@@ -17,7 +17,6 @@
 // ros2
 #include <cv_bridge/cv_bridge.h>
 #include <rmw/qos_profiles.h>
-
 #include <rclcpp/qos.hpp>
 // third party
 #include <opencv2/calib3d.hpp>
@@ -28,14 +27,16 @@
 #include "rune_solver/motion_model.hpp"
 
 namespace rm_auto_aim {
+
+// 构造函数
 RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions &options) : Node("rune_solver", options) {
   RCLCPP_INFO(this->get_logger(), "Starting RuneSolverNode!");
 
-  // Tf2 info
+  // 初始化 TF2 缓冲区和监听器
   tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
 
-  // RuneSolver
+  // 初始化 RuneSolver 参数
   auto rune_solver_params = RuneSolver::RuneSolverParams{
     .compensator_type = declare_parameter("compensator_type", "ideal"),
     .gravity = declare_parameter("gravity", 9.8),
@@ -46,14 +47,14 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions &options) : Node("rune_
   };
   rune_solver_ = std::make_unique<RuneSolver>(rune_solver_params, tf2_buffer_);
 
-  // EKF for filtering the position of R tag
-  // state: x, y, z, yaw
-  // measurement: x, y, z, yaw
-  // f - Process function
+  // 初始化 EKF（扩展卡尔曼滤波器）用于滤波 R 标记的位置
+  // 状态：x, y, z, yaw
+  // 测量：x, y, z, yaw
+  // f - 过程函数
   auto f = Predict();
-  // h - Observation function
+  // h - 观测函数
   auto h = Measure();
-  // update_Q - process noise covariance matrix
+  // update_Q - 过程噪声协方差矩阵
   std::vector<double> q_vec =
     declare_parameter("ekf.q", std::vector<double>{0.001, 0.001, 0.001, 0.001});
   auto u_q = [q_vec]() {
@@ -61,28 +62,28 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions &options) : Node("rune_
     q.diagonal() << q_vec[0], q_vec[1], q_vec[2], q_vec[3];
     return q;
   };
-  // update_R - measurement noise covariance matrix
+  // update_R - 测量噪声协方差矩阵
   std::vector<double> r_vec = declare_parameter("ekf.r", std::vector<double>{0.1, 0.1, 0.1, 0.1});
   auto u_r = [r_vec](const Eigen::Matrix<double, Z_N, 1> &z) {
     Eigen::Matrix<double, Z_N, Z_N> r = Eigen::MatrixXd::Zero(4, 4);
     r.diagonal() << r_vec[0], r_vec[1], r_vec[2], r_vec[3];
     return r;
   };
-  // P - error estimate covariance matrix
+  // P - 误差估计协方差矩阵
   Eigen::MatrixXd p0 = Eigen::MatrixXd::Identity(4, 4);
   rune_solver_->ekf = std::make_unique<RuneCenterEKF>(f, h, u_q, u_r, p0);
 
-  // Target subscriber
+  // 订阅目标话题
   rune_target_sub_ = this->create_subscription<auto_aim_interfaces::msg::Rune>(
     "rune_detector/rune",
     rclcpp::SensorDataQoS(),
     std::bind(&RuneSolverNode::runeTargetCallback, this, std::placeholders::_1));
 
-  // Set dynamic parameter callback
+  // 设置动态参数回调
   on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
     std::bind(&RuneSolverNode::onSetParameters, this, std::placeholders::_1));
 
-  // Camera info
+  // 订阅相机信息
   cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
     "camera_info",
     rclcpp::SensorDataQoS(),
@@ -93,13 +94,13 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions &options) : Node("rune_
       cam_info_sub_.reset();
     });
 
-  // Enable/Disable Rune Solver
+  // 启用/禁用 Rune Solver 服务
   set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
     "rune_solver/set_mode",
     std::bind(
       &RuneSolverNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
 
-  // Debug info
+  // Debug 信息
   debug_ = this->declare_parameter("debug", true);
   rune_target_pub_ = this->create_publisher<auto_aim_interfaces::msg::RuneTarget>(
     "rune_solver/rune_target", 10);
@@ -138,24 +139,24 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions &options) : Node("rune_
       "rune_solver/marker", rclcpp::SensorDataQoS());
   }
   last_rune_target_.header.frame_id = "";
-  // Timer 250 Hz
+  // 定时器 250 Hz
   pub_timer_ = this->create_wall_timer(std::chrono::milliseconds(4),
                                        std::bind(&RuneSolverNode::timerCallback, this));
-
 }
 
+// 定时器回调函数
 void RuneSolverNode::timerCallback() {
-  // rune_solver_->pnp_solver is nullptr when camera_info is not received
+  // 如果未接收到相机信息，返回
   if (rune_solver_->pnp_solver == nullptr) {
     return;
   }
 
-  // Return if not enable
+  // 如果未启用，返回
   if (!enable_) {
     return;
   }
 
-  // Init message
+  // 初始化消息
   geometry_msgs::msg::PointStamped target_msg;
   target_msg.header.frame_id = "odom";
   Eigen::Vector3d cur_pos = rune_solver_->getTargetPosition(0);
@@ -165,11 +166,11 @@ void RuneSolverNode::timerCallback() {
   rune_solver_->pubTargetPosition(rune_target);
 
   if (debug_) {
-    // Publish fitting info
+    // 发布拟合信息
     std_msgs::msg::String fitter_text_msg;
     fitter_text_pub_->publish(fitter_text_msg);
 
-    // Publish visualization marker
+    // 发布可视化标记
     visualization_msgs::msg::MarkerArray marker_array;
     if (rune_solver_->tracker_state == RuneSolver::LOST) {
       obs_pos_marker_.action = visualization_msgs::msg::Marker::DELETEALL;
@@ -206,15 +207,16 @@ void RuneSolverNode::timerCallback() {
   }
 }
 
+// 目标话题回调函数
 void RuneSolverNode::runeTargetCallback(
   const auto_aim_interfaces::msg::Rune::SharedPtr rune_target_msg) {
   stamp = rune_target_msg->header.stamp;
-  // rune_solver_->pnp_solver is nullptr when camera_info is not received
+  // 如果未接收到相机信息，返回
   if (rune_solver_->pnp_solver == nullptr) {
     return;
   }
 
-  // Keep the last detected target
+  // 保留最后检测到的目标
   if (!rune_target_msg->is_lost) {
     last_rune_target_ = *rune_target_msg;
   }
@@ -233,6 +235,7 @@ void RuneSolverNode::runeTargetCallback(
   }
 }
 
+// 动态参数回调函数
 rcl_interfaces::msg::SetParametersResult RuneSolverNode::onSetParameters(
   std::vector<rclcpp::Parameter> parameters) {
   rcl_interfaces::msg::SetParametersResult result;
@@ -255,6 +258,7 @@ rcl_interfaces::msg::SetParametersResult RuneSolverNode::onSetParameters(
   return result;
 }
 
+// 设置模式服务回调函数
 void RuneSolverNode::setModeCallback(
   const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
   std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response) {
@@ -286,7 +290,5 @@ void RuneSolverNode::setModeCallback(
 
 #include "rclcpp_components/register_node_macro.hpp"
 
-// Register the component with class_loader.
-// This acts as a sort of entry point, allowing the component to be discoverable when its library
-// is being loaded into a running process.
+// 注册组件
 RCLCPP_COMPONENTS_REGISTER_NODE(rm_auto_aim::RuneSolverNode)
