@@ -27,100 +27,10 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     tracker_->tracking_thres = this->declare_parameter("tracker.tracking_thres", 5);
     lost_time_thres_ = this->declare_parameter("tracker.lost_time_thres", 0.3);
 
-    // EKF
-    // xa = x_armor, xc = x_robot_center
-    // state: xc, v_xc, yc, v_yc, za, v_za, yaw, v_yaw, r
-    // measurement: xa, ya, za, yaw
-    // f - Process function状态转移函数预测值
-    auto f = [this](const Eigen::VectorXd & x) {
-        Eigen::VectorXd x_new = x;
-        x_new(0) += x(1) * dt_;
-        x_new(2) += x(3) * dt_;
-        x_new(4) += x(5) * dt_;
-        x_new(6) += x(7) * dt_;
-        return x_new;
-    };
-    // J_f - Jacobian of process function
-    auto j_f = [this](const Eigen::VectorXd &) {
-        Eigen::MatrixXd f(9, 9);
-        // clang-format off
-        f <<  1,   dt_, 0,   0,   0,   0,   0,   0,   0,
-                0,   1,   0,   0,   0,   0,   0,   0,   0,
-                0,   0,   1,   dt_, 0,   0,   0,   0,   0, 
-                0,   0,   0,   1,   0,   0,   0,   0,   0,
-                0,   0,   0,   0,   1,   dt_, 0,   0,   0,
-                0,   0,   0,   0,   0,   1,   0,   0,   0,
-                0,   0,   0,   0,   0,   0,   1,   dt_, 0,
-                0,   0,   0,   0,   0,   0,   0,   1,   0,
-                0,   0,   0,   0,   0,   0,   0,   0,   1;
-        // clang-format on
-        return f;
-    };
-    // h - Observation function 通过机器人中心位置计算装甲板的位置
-    auto h = [](const Eigen::VectorXd & x) {
-        Eigen::VectorXd z(4);
-        double xc = x(0), yc = x(2), yaw = x(6), r = x(8);
-        z(0) = xc - r * cos(yaw);  // xa
-        z(1) = yc - r * sin(yaw);  // ya
-        z(2) = x(4);               // za
-        z(3) = x(6);               // yaw
-        return z;
-    };
-    // J_h - Jacobian of observation function
-    auto j_h = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 9);
-        double yaw = x(6), r = x(8);
-        // clang-format off
-        //    xc   v_xc yc   v_yc za   v_za yaw         v_yaw r
-        h <<  1,   0,   0,   0,   0,   0,   r*sin(yaw), 0,   -cos(yaw),
-                0,   0,   1,   0,   0,   0,   -r*cos(yaw),0,   -sin(yaw),
-                0,   0,   0,   0,   1,   0,   0,          0,   0,
-                0,   0,   0,   0,   0,   0,   1,          0,   0;
-        // clang-format on
-        return h;
-    };
-    // update_Q - process noise covariance matrix
-    s2qxyz_ = declare_parameter("ekf.sigma2_q_xyz", 20.0);
-    s2qyaw_ = declare_parameter("ekf.sigma2_q_yaw", 100.0);
-    s2qr_ = declare_parameter("ekf.sigma2_q_r", 800.0);
-    auto u_q = [this]() {
-        Eigen::MatrixXd q(9, 9);
-        double t = dt_, x = s2qxyz_, y = s2qyaw_, r = s2qr_;
-        double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x, q_vx_vx = pow(t, 2) * x;
-        double q_y_y = pow(t, 4) / 4 * y, q_y_vy = pow(t, 3) / 2 * x, q_vy_vy = pow(t, 2) * y;
-        double q_r = pow(t, 4) / 4 * r;
-        // clang-format off
-        //    xc      v_xc    yc      v_yc    za      v_za    yaw     v_yaw   r
-        q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,
-                q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,
-                0,      0,      q_x_x,  q_x_vx, 0,      0,      0,      0,      0,
-                0,      0,      q_x_vx, q_vx_vx,0,      0,      0,      0,      0,
-                0,      0,      0,      0,      q_x_x,  q_x_vx, 0,      0,      0,
-                0,      0,      0,      0,      q_x_vx, q_vx_vx,0,      0,      0,
-                0,      0,      0,      0,      0,      0,      q_y_y,  q_y_vy, 0,
-                0,      0,      0,      0,      0,      0,      q_y_vy, q_vy_vy,0,
-                0,      0,      0,      0,      0,      0,      0,      0,      q_r;
-        // clang-format on
-        return q;
-    };
-    // update_R - measurement noise covariance matrix
-    r_xyz_factor = declare_parameter("ekf.r_xyz_factor", 0.05);
-    r_yaw = declare_parameter("ekf.r_yaw", 0.02);
-    auto u_r = [this](const Eigen::VectorXd & z) {
-        Eigen::DiagonalMatrix<double, 4> r;
-        double x = r_xyz_factor;
-        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw;
-        return r;
-    };
-    // P - error estimate covariance matrix
-    Eigen::DiagonalMatrix<double, 9> p0;
-    p0.setIdentity();
-    tracker_->ekf = ExtendedKalmanFilter{f, h, j_f, j_h, u_q, u_r, p0};//初始化扩展kf滤波器
+    // Initialize EKF
+    initializeEKF();
 
-    // Reset tracker service，允许操作员重置追踪器
-    using std::placeholders::_1;
-    using std::placeholders::_2;
-    using std::placeholders::_3;
+    // Reset tracker service
     reset_tracker_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "/tracker/reset", [this](
                             const std_srvs::srv::Trigger::Request::SharedPtr,
@@ -131,48 +41,37 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             return;
         });
 
-    //从相机的消息中提取内参和畸变参数
+    // Camera info subscription
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         "/camera_info", rclcpp::SensorDataQoS(),
         [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
             cam_info_ = *camera_info;
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
-            cam_info_sub_.reset();//取消订阅
+            cam_info_sub_.reset();
         });
 
-    // Subscriber with tf2 message_filter
-    // tf2 relevant   
+    // TF2 setup
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
-    // Create the timer interface before call to waitForTransform,
-    // to avoid a tf2_ros::CreateTimerInterfaceException exception
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
         this->get_node_base_interface(), this->get_node_timers_interface());
-
-    tf2_buffer_->setCreateTimerInterface(timer_interface);//让tf2能够在需要时创建定时器
-    tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);//接收坐标变换信息并更新buffer
-    // subscriber and filter
-    armors_sub_.subscribe(this, "/detector/armors", rmw_qos_profile_sensor_data);//订阅装甲板检测结果的主题
+    tf2_buffer_->setCreateTimerInterface(timer_interface);
+    tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
+    armors_sub_.subscribe(this, "/detector/armors", rmw_qos_profile_sensor_data);
     target_frame_ = this->declare_parameter("target_frame", "odom");
 
-    tf2_filter_ = std::make_shared<tf2_filter>(
+    tf2_filter_ = std::make_shared<tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>>(
         armors_sub_, *tf2_buffer_, target_frame_, 10, this->get_node_logging_interface(),
         this->get_node_clock_interface(), std::chrono::duration<int>(1));
-
-    // Register a callback with tf2_ros::MessageFilter to be called when transforms are available
     tf2_filter_->registerCallback(&ArmorTrackerNode::armorsCallback, this);
 
-    // Measurement publisher (for debug usage)
+    // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
-
-    // Publisher
     target_pub_ = this->create_publisher<auto_aim_interfaces::msg::Target>(
         "/tracker/target", rclcpp::SensorDataQoS());
-        
-    // debug image publisher
     tracker_img_pub_ = image_transport::create_publisher(this, "/tracker/result_img");
+    marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
 
-    // Visualization Marker Publisher
-    // See http://wiki.ros.org/rviz/DisplayTypes/Marker
+    // Visualization Marker setup
     position_marker_.ns = "position";
     position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
     position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
@@ -198,7 +97,173 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     armor_marker_.scale.z = 0.125;
     armor_marker_.color.a = 1.0;
     armor_marker_.color.r = 1.0;
-    marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
+}
+
+void ArmorTrackerNode::initializeEKF()
+{
+    // EKF
+    // xa = x_armor, xc = x_robot_center
+    // state: xc, v_xc, yc, v_yc, zc1, zc2, v_zc, v_yaw, r1, r2, yaw1, yaw2
+    // measurement: xa, ya, za, yaw
+    // f - Process function
+    auto f = [this](const Eigen::VectorXd & x) {
+        Eigen::VectorXd x_new = x;
+        x_new(XC) += x(VXC) * dt_;
+        x_new(YC) += x(VYC) * dt_;
+        x_new(ZC1) += x(VZC) * dt_;
+        x_new(ZC2) += x(VZC) * dt_;
+        x_new(YAW1) += x(VYAW) * dt_;
+        x_new(YAW2) += x(VYAW) * dt_;
+        return x_new;
+    };
+    // J_f - Jacobian of process function
+    auto j_f = [this](const Eigen::VectorXd &) {
+        Eigen::MatrixXd f(12, 12);
+        // clang-format off
+        f <<1,   dt_, 0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // xc = xc + v_xc * dt
+            0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // v_xc = v_xc
+            0,   0,   1,   dt_, 0,   0,   0,   0,   0,   0,   0,   0, // yc = yc + v_yc * dt
+            0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0, // v_yc = v_yc
+            0,   0,   0,   0,   1,   0, dt_,   0,   0,   0,   0,   0, // zc1 = zc1 + v_zc * dt
+            0,   0,   0,   0,   0,   1, dt_,   0,   0,   0,   0,   0, // zc2 = zc2 + v_zc * dt
+            0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0, // v_zc = v_zc
+            0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0, // v_yaw = v_yaw
+            0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0, // r1 = r1
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0, // r2 = r2
+            0,   0,   0,   0,   0,   0,   0, dt_,   0,   0,   1,   0, // yaw1 = yaw1 + v_yaw * dt
+            0,   0,   0,   0,   0,   0,   0, dt_,   0,   0,   0,   1; // yaw2 = yaw2 + v_yaw * dt
+        // clang-format on
+        return f;
+    };
+    // h1 - Observation function for armor 1
+    auto h1 = [](const Eigen::VectorXd & x) {
+        Eigen::VectorXd z(4);
+        double xc = x(XC), yc = x(YC), yaw = x(YAW1), r = x(R1);
+        z(0) = xc - r * cos(yaw);  // xa
+        z(1) = yc - r * sin(yaw);  // ya
+        z(2) = x(ZC1);                  // za
+        z(3) = x(YAW1);                 // yaw
+        return z;
+    };
+    // J_h1 - Jacobian of observation function for armor 1
+    auto j_h1 = [](const Eigen::VectorXd & x) {
+        Eigen::MatrixXd h(4, 12);
+        double yaw = x(YAW1), r = x(R1);
+        // clang-format off
+        //    xc   v_xc yc   v_yc zc1  zc2  v_zc v_yaw r1  r2  yaw1 yaw2
+        h <<  1,   0,   0,   0,   0,   0,   0,   0,   r*sin(yaw), 0,   -cos(yaw), 0, // xa = xc - r1 * cos(yaw1)
+              0,   0,   1,   0,   0,   0,   0,   0,  -r*cos(yaw), 0,   -sin(yaw), 0, // ya = yc - r1 * sin(yaw1)
+              0,   0,   0,   0,   1,   0,   0,   0,          0,   0,          0, 0, // za = zc1
+              0,   0,   0,   0,   0,   0,   0,   0,          0,   0,          1, 0; // yaw = yaw1
+        // clang-format on
+        return h;
+    };
+    // h2 - Observation function for armor 2
+    auto h2 = [](const Eigen::VectorXd & x) {
+        Eigen::VectorXd z(4);
+        double xc = x(XC), yc = x(YC), yaw = x(YAW2), r = x(R2);
+        z(0) = xc - r * cos(yaw);  // xa
+        z(1) = yc - r * sin(yaw);  // ya
+        z(2) = x(ZC2);                  // za
+        z(3) = x(YAW2);                 // yaw
+        return z;
+    };
+    // J_h2 - Jacobian of observation function for armor 2
+    auto j_h2 = [](const Eigen::VectorXd & x) {
+        Eigen::MatrixXd h(4, 12);
+        double yaw = x(YAW2), r = x(R2);
+        // clang-format off
+        //    xc   v_xc yc   v_yc zc1  zc2  v_zc v_yaw r1  r2  yaw1 yaw2
+        h <<  1,   0,   0,   0,   0,   0,   0,   0,   0, r*sin(yaw),  0,  -cos(yaw), // xa = xc - r2 * cos(yaw2)
+              0,   0,   1,   0,   0,   0,   0,   0,   0,-r*cos(yaw),  0,  -sin(yaw), // ya = yc - r2 * sin(yaw2)
+              0,   0,   0,   0,   0,   1,   0,   0,          0,   0,          0, 0, // za = zc2
+              0,   0,   0,   0,   0,   0,   0,   0,          0,   0,          0, 1; // yaw = yaw2
+        // clang-format on
+        return h;
+    }; 
+    // h_two - Observation function for 2 armors
+    auto h_two = [](const Eigen::VectorXd & x) {
+        Eigen::VectorXd z(10);
+        double xc = x(XC), yc = x(YC), yaw1 = x(YAW1), yaw2 = x(YAW2), r1 = x(R1), r2 = x(R2);
+        z(0) = xc - r1 * cos(yaw1);  // xa1
+        z(1) = yc - r1 * sin(yaw1);  // ya1
+        z(2) = x(ZC1);                // za1
+        z(3) = yaw1;                  // yaw1
+        z(4) = xc - r2 * cos(yaw2);  // xa2
+        z(5) = yc - r2 * sin(yaw2);  // ya2
+        z(6) = x(ZC2);                // za2
+        z(7) = yaw2;                  // yaw2
+        z(8) = r1;                    // r1
+        z(9) = r2;                    // r2
+        return z;
+    };
+    // J_h_two - Jacobian of observation function for 2 armors
+    auto j_h_two = [](const Eigen::VectorXd & x) {
+        Eigen::MatrixXd h(10, 12);
+        double yaw1 = x(YAW1), yaw2 = x(YAW2), r1 = x(R1), r2 = x(R2);
+        // clang-format off
+        //    xc   v_xc yc   v_yc zc1  zc2  v_zc v_yaw r1  r2  yaw1 yaw2
+        h <<  1,   0,   0,   0,   0,   0,   0,   0,   r1*sin(yaw1), 0,   -cos(yaw1), 0, // xa1 = xc - r1 * cos(yaw1)
+              0,   0,   1,   0,   0,   0,   0,   0,  -r1*cos(yaw1), 0,   -sin(yaw1), 0, // ya1 = yc - r1 * sin(yaw1)
+              0,   0,   0,   0,   1,   0,   0,   0,          0,   0,          0, 0, // za1 = zc1
+              0,   0,   0,   0,   0,   0,   0,   0,          1,   0,          0, 0, // yaw1 = yaw1
+              1,   0,   0,   0,   0,   0,   0,   0,          0,   -cos(yaw2), 0, r2*sin(yaw2), // xa2 = xc - r2 * cos(yaw2)
+              0,   0,   1,   0,   0,   0,   0,   0,          0,   -sin(yaw2), 0, -r2*cos(yaw2), // ya2 = yc - r2 * sin(yaw2)
+              0,   0,   0,   0,   0,   1,   0,   0,          0,   0,          0, 0, // za2 = zc2
+              0,   0,   0,   0,   0,   0,   0,   0,          0,   0,          0, 1, // yaw2 = yaw2
+              0,   0,   0,   0,   0,   0,   0,   0,          1,   0,          0, 0, // r1 = r1 
+              0,   0,   0,   0,   0,   0,   0,   0,          0,   1,          0, 0; // r2 = r2
+        // clang-format on
+        return h;
+    };
+    // update_Q - process noise covariance matrix
+    s2qxyz_ = declare_parameter("ekf.sigma2_q_xyz", 20.0);
+    s2qyaw_ = declare_parameter("ekf.sigma2_q_yaw", 100.0);
+    s2qr_ = declare_parameter("ekf.sigma2_q_r", 800.0);
+    auto u_q = [this]() {
+        Eigen::MatrixXd q(12, 12);
+        double t = dt_, x = s2qxyz_, y = s2qyaw_, r = s2qr_;
+        double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x, q_vx_vx = pow(t, 2) * x;
+        double q_y_y = pow(t, 4) / 4 * x, q_y_vy = pow(t, 3) / 2 * x, q_vy_vy = pow(t, 2) * x;
+        double q_z_z = pow(t, 4) / 4 * x, q_z_vz = pow(t, 3) / 2 * x, q_vz_vz = pow(t, 2) * x;
+        double q_yaw_yaw = pow(t, 4) / 4 * y, q_yaw_vyaw = pow(t, 3) / 2 * y, q_vyaw_vyaw = pow(t, 2) * y;
+        double q_r = pow(t, 4) / 4 * r;
+        // clang-format off
+        //    xc      v_xc    yc      v_yc    zc1     zc2     v_zc    v_yaw   r1      r2      yaw1    yaw2
+        q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,
+              q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,      0,      0,      0,
+              0,      0,      q_y_y,  q_y_vy, 0,      0,      0,      0,      0,      0,      0,      0,
+              0,      0,      q_y_vy, q_vy_vy,0,      0,      0,      0,      0,      0,      0,      0,
+              0,      0,      0,      0,      q_z_z,  q_z_vz, 0,      0,      0,      0,      0,      0,
+              0,      0,      0,      0,      q_z_vz, q_vz_vz,0,      0,      0,      0,      0,      0,
+              0,      0,      0,      0,      0,      0,      q_z_z,  q_z_vz, 0,      0,      0,      0,
+              0,      0,      0,      0,      0,      0,      q_z_vz, q_vz_vz,0,      0,      0,      0,
+              0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,      0,
+              0,      0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,
+              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_yaw, q_yaw_vyaw,
+              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw, q_vyaw_vyaw;
+        // clang-format on
+        return q;
+    };
+    // update_R - measurement noise covariance matrix
+    r_xyz_factor = declare_parameter("ekf.r_xyz_factor", 0.05);
+    r_yaw = declare_parameter("ekf.r_yaw", 0.02);
+    auto u_r = [this](const Eigen::VectorXd & z) {
+        Eigen::DiagonalMatrix<double, 4> r;
+        double x = r_xyz_factor;
+        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw;
+        return r;
+    };
+    auto u_r_two = [this](const Eigen::VectorXd & z){
+        Eigen::DiagonalMatrix<double, 8> r; 
+        double x = r_xyz_factor;
+        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw, abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw;
+        return r; 
+    }; 
+    // P - error estimate covariance matrix
+    Eigen::DiagonalMatrix<double, 12> p0;
+    p0.setIdentity();
+    tracker_->ekf = ExtendedKalmanFilter{f, h1, h2, h_two, j_f, j_h1, j_h2, j_h_two, u_q, u_r, u_r_two, p0};
 }
 
 void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_msg)
@@ -264,17 +329,17 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             const auto & state = tracker_->target_state;
             target_msg.id = tracker_->tracked_id;
             target_msg.armors_num = static_cast<int>(tracker_->tracked_armors_num);
-            target_msg.position.x = state(0);
-            target_msg.velocity.x = state(1);
-            target_msg.position.y = state(2);
-            target_msg.velocity.y = state(3);
-            target_msg.position.z = state(4);
-            target_msg.velocity.z = state(5);
-            target_msg.yaw = state(6);
-            target_msg.v_yaw = state(7);
-            target_msg.radius_1 = state(8);
-            target_msg.radius_2 = tracker_->another_r;
-            target_msg.dz = tracker_->dz;
+            target_msg.position.x = state(XC);
+            target_msg.velocity.x = state(VXC);
+            target_msg.position.y = state(YC);
+            target_msg.velocity.y = state(VYC);
+            target_msg.position.z = state(ZC1);
+            target_msg.velocity.z = state(VZC);
+            target_msg.yaw = state(YAW1);
+            target_msg.v_yaw = state(VYAW);
+            target_msg.radius_1 = state(R1);
+            target_msg.radius_2 = state(R2);
+            target_msg.dz = state(ZC2) - state(ZC1);
         }
     }
 

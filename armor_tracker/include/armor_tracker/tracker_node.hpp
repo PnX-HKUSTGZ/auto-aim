@@ -41,6 +41,7 @@ public:
   explicit ArmorTrackerNode(const rclcpp::NodeOptions & options);
 
 private:
+  void initializeEKF(); 
   void armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr);
 
   void publishMarkers(const auto_aim_interfaces::msg::Target & target_msg);
@@ -93,6 +94,22 @@ private:
   // 发布图像
   image_transport::Publisher tracker_img_pub_;
   std_msgs::msg::Header_<std::allocator<void>>::_stamp_type last_img_time_; 
+  // 状态
+  enum CarState
+  {
+      XC = 0,
+      VXC,
+      YC,
+      VYC,
+      ZC1,
+      ZC2, 
+      VZC,
+      VYAW,
+      R1,
+      R2, 
+      YAW1,
+      YAW2 // 11
+  };
 };
 
 }  // namespace rm_auto_aim

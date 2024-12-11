@@ -14,6 +14,7 @@
 // STD
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "armor_tracker/extended_kalman_filter.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
@@ -50,6 +51,7 @@ public:
 
   std::string tracked_id;
   Armor tracked_armor;
+  Armor tracked_armor_2;
   ArmorsNum tracked_armors_num;
 
   double info_position_diff;
@@ -58,28 +60,38 @@ public:
   Eigen::VectorXd measurement;
 
   Eigen::VectorXd target_state;
-
-  // To store another pair of armors message
-  double dz, another_r;
-
 private:
-  void initEKF(const Armor & a);
+  void initEKF(const Armor & a); 
+  void initEKFTwo(const Armor & a, const Armor & b);
 
   void updateArmorsNum(const Armor & a);
 
-  void handleArmorJump(const Armor & a);
-
   double orientationToYaw(const geometry_msgs::msg::Quaternion & q);
 
-  Eigen::Vector3d getArmorPositionFromState(const Eigen::VectorXd & x);
+  Eigen::Vector3d getArmorPositionFromState1(const Eigen::VectorXd & x);
+  Eigen::Vector3d getArmorPositionFromState2(const Eigen::VectorXd & x);
 
   double max_match_distance_;
   double max_match_yaw_diff_;
 
   int detect_count_;
   int lost_count_;
-
-  double last_yaw_;
+  double last_yaw_; 
+  enum CarState
+  {
+    XC = 0,
+    VXC,
+    YC,
+    VYC,
+    ZC1,
+    ZC2, 
+    VZC,
+    VYAW,
+    R1,
+    R2, 
+    YAW1,
+    YAW2 // 11
+  };
 };
 
 }  // namespace rm_auto_aim
