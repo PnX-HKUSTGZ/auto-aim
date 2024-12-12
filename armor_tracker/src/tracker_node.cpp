@@ -248,6 +248,7 @@ void ArmorTrackerNode::initializeEKF()
     // update_R - measurement noise covariance matrix
     r_xyz_factor = declare_parameter("ekf.r_xyz_factor", 0.05);
     r_yaw = declare_parameter("ekf.r_yaw", 0.02);
+    r_radius = declare_parameter("ekf.r_radius", 0.02);
     auto u_r = [this](const Eigen::VectorXd & z) {
         Eigen::DiagonalMatrix<double, 4> r;
         double x = r_xyz_factor;
@@ -255,9 +256,10 @@ void ArmorTrackerNode::initializeEKF()
         return r;
     };
     auto u_r_two = [this](const Eigen::VectorXd & z){
-        Eigen::DiagonalMatrix<double, 8> r; 
+        Eigen::DiagonalMatrix<double, 10> r; 
         double x = r_xyz_factor;
-        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw, abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw;
+        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw, 
+                        abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw, r_radius, r_radius;
         return r; 
     }; 
     // P - error estimate covariance matrix
@@ -402,23 +404,23 @@ void ArmorTrackerNode::publishImg(
             double sin_pitch = sin(pitch);
 
             corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z + half_height * cos_pitch);
-
-            corners_world.emplace_back(
-                armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+                armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+                armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
                 armor_z + half_height * cos_pitch);
 
             corners_world.emplace_back(
                 armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
                 armor_y + half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+                armor_z + half_height * cos_pitch);
+
+            corners_world.emplace_back(
+                armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
+                armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
                 armor_z - half_height * cos_pitch);
 
             corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+                armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
+                armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
                 armor_z - half_height * cos_pitch);
 
             // 将装甲板的角点从世界坐标系转换到相机坐标系
