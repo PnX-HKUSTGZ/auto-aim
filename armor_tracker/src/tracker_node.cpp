@@ -402,19 +402,18 @@ void ArmorTrackerNode::publishImg(
                 cv::line(image, corners_image[j], corners_image[(j + 1) % corners_image.size()], cv::Scalar(0, 255, 0), 2); 
             }
         }
-        // Draw camera center
-        cv::circle(image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
-        auto latency = (this->now() - rclcpp::Time(image_msg.header.stamp)).seconds() * 1000; 
-        std::stringstream text; 
-        text  << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-        cv::putText(image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-        // 将处理后的 OpenCV 图像转换回 ROS 图像消息
-        auto processed_image_msg = cv_bridge::CvImage(image_msg.header, "bgr8", image).toImageMsg();
-
-        // 发布处理后的图像
-        tracker_img_pub_.publish(*processed_image_msg);
     }
-    
+    // Draw camera center
+    cv::circle(image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
+    auto latency = (this->now() - rclcpp::Time(image_msg.header.stamp)).seconds() * 1000; 
+    std::stringstream text; 
+    text  << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+    cv::putText(image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+    // 将处理后的 OpenCV 图像转换回 ROS 图像消息
+    auto processed_image_msg = cv_bridge::CvImage(image_msg.header, "bgr8", image).toImageMsg();
+
+    // 发布处理后的图像
+    tracker_img_pub_.publish(*processed_image_msg);
 }
 
 void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & target_msg)
