@@ -181,7 +181,6 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
   param_desc.integer_range[0].from_value = 0;
   param_desc.integer_range[0].to_value = 1;
   auto detect_color = declare_parameter("detect_color", RED, param_desc);
-  std::cout<<detect_color<<std::endl;
   //填充light和armor类所需要的参数
   Detector::LightParams l_params = {
     
