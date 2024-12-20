@@ -130,8 +130,6 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         // rvec to 3x3 rotation matrix
         cv::Mat rotation_matrix;
         cv::Rodrigues(rvec, rotation_matrix);//将旋转向量转换为旋转矩阵
-        // show yaw pitch
-        armor.yaw = atan2(rotation_matrix.at<double>(1, 0), rotation_matrix.at<double>(0, 0));
 
         // rotation matrix to quaternion
         tf2::Matrix3x3 tf2_rotation_matrix(
@@ -143,6 +141,12 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         tf2::Quaternion tf2_q;
         tf2_rotation_matrix.getRotation(tf2_q);
         armor_msg.pose.orientation = tf2::toMsg(tf2_q);
+
+        // get yaw
+        double roll, pitch, yaw;
+        tf2::Quaternion given_quat(-0.500000, 0.500000, -0.500000, 0.500000);
+        tf2::Matrix3x3(tf2_q * given_quat).getRPY(roll, pitch, yaw);
+        armor.yaw = yaw;
 
         // Fill the distance to image center
         armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
