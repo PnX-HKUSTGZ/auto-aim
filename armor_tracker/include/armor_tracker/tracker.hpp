@@ -66,7 +66,9 @@ private:
 
   void updateArmorsNum(const Armor & a);
 
-  double orientationToYaw(const geometry_msgs::msg::Quaternion & q);
+  double orientationToYaw(const geometry_msgs::msg::Quaternion & q, geometry_msgs::msg::Point & position);
+  double orientationToYaw(const geometry_msgs::msg::Quaternion & q); //overload
+  double calYawDiff(double yaw1, double yaw2); 
 
   Eigen::Vector3d getArmorPositionFromState1(const Eigen::VectorXd & x);
   Eigen::Vector3d getArmorPositionFromState2(const Eigen::VectorXd & x);
@@ -76,7 +78,6 @@ private:
 
   int detect_count_;
   int lost_count_;
-  double last_yaw_; 
   enum CarState
   {
     XC = 0,
