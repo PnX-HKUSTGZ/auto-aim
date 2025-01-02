@@ -1,425 +1,681 @@
-// Copyright 2023 Yunlong Feng
-//
-// Additional modifications and features by Chengfu Zou, 2024.
-//
-// Copyright (C) FYT Vision Group. All rights reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 #include "rune_detector/rune_detector.hpp"
-// std
-#include <algorithm>
-#include <numeric>
-#include <unordered_map>
-// third party
-#include <opencv2/imgproc.hpp>
-// project
 #include "rune_detector/types.hpp"
-
 namespace rm_auto_aim {
-
-static constexpr int INPUT_W = 480;   // Width of input
-static constexpr int INPUT_H = 480;   // Height of input
-static constexpr int NUM_CLASSES = 2; // Number of classes
-static constexpr int NUM_COLORS = 2;  // Number of color
-static constexpr int NUM_POINTS = 5;
-static constexpr int NUM_POINTS_2 = 2 * NUM_POINTS;
-static constexpr float MERGE_CONF_ERROR = 0.15;
-static constexpr float MERGE_MIN_IOU = 0.9;
-// 由于训练失误，网络的颜色是反的
-static std::unordered_map<int, EnemyColor> DNN_COLOR_TO_ENEMY_COLOR = {
-    {0, EnemyColor::BLUE}, {1, EnemyColor::RED}};
-
-static cv::Mat letterbox(const cv::Mat &img, Eigen::Matrix3f &transform_matrix,
-                         std::vector<int> new_shape = {INPUT_W, INPUT_H}) {
-  // Get current image shape [height, width]
-
-  int img_h = img.rows;
-  int img_w = img.cols;
-
-  // Compute scale ratio(new / old) and target resized shape
-  float scale =
-      std::min(new_shape[1] * 1.0 / img_h, new_shape[0] * 1.0 / img_w);
-  int resize_h = static_cast<int>(round(img_h * scale));
-  int resize_w = static_cast<int>(round(img_w * scale));
-
-  // Compute padding
-  int pad_h = new_shape[1] - resize_h;
-  int pad_w = new_shape[0] - resize_w;
-
-  // Resize and pad image while meeting stride-multiple constraints
-  cv::Mat resized_img;
-  cv::resize(img, resized_img, cv::Size(resize_w, resize_h));
-
-  // divide padding into 2 sides
-  float half_h = pad_h * 1.0 / 2;
-  float half_w = pad_w * 1.0 / 2;
-
-  // Compute padding boarder
-  int top = static_cast<int>(round(half_h - 0.1));
-  int bottom = static_cast<int>(round(half_h + 0.1));
-  int left = static_cast<int>(round(half_w - 0.1));
-  int right = static_cast<int>(round(half_w + 0.1));
-
-  /* clang-format off */
-  /* *INDENT-OFF* */
-
-  // Compute point transform_matrix
-  transform_matrix << 1.0 / scale, 0, -half_w / scale,
-                      0, 1.0 / scale, -half_h / scale,
-                      0, 0, 1;
-
-  /* *INDENT-ON* */
-  /* clang-format on */
-
-  // Add border
-  cv::copyMakeBorder(resized_img, resized_img, top, bottom, left, right,
-                     cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
-
-  return resized_img;
+RuneDetector::RuneDetector(int max_iterations, double distance_threshold, double prob_threshold, EnemyColor detect_color): 
+    max_iterations(max_iterations), distance_threshold(distance_threshold), prob_threshold(prob_threshold), detect_color(detect_color)
+{
 }
-
-// Generate grids and stride for post processing
-// target_w: Width of input.
-// target_h: Height of input.
-// strides A vector of stride.
-// grid_strides Grid stride generated in this function
-static void generateGridsAndStride(const int target_w, const int target_h,
-                                   std::vector<int> &strides,
-                                   std::vector<GridAndStride> &grid_strides) {
-  for (auto stride : strides) {
-    int num_grid_w = target_w / stride;
-    int num_grid_h = target_h / stride;
-
-    for (int g1 = 0; g1 < num_grid_h; g1++) {
-      for (int g0 = 0; g0 < num_grid_w; g0++) {
-        grid_strides.emplace_back(GridAndStride{g0, g1, stride});
-      }
+std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
+    frame = img.clone(); 
+    preprocess(); 
+    std::vector<RuneObject> rune_objects; 
+    RuneObject rune_object;
+    std::vector<cv::Point2f> signal_points_hitting = processHittingLights();
+    if(signal_points_hitting.size() != 6) return {};
+    else{
+        rune_object.pts.arm_bottom = signal_points_hitting[0];
+        rune_object.pts.arm_top = signal_points_hitting[1];
+        rune_object.pts.hit_bottom = signal_points_hitting[2];
+        rune_object.pts.hit_left = signal_points_hitting[3];
+        rune_object.pts.hit_top = signal_points_hitting[4];
+        rune_object.pts.hit_right = signal_points_hitting[5];
+        rune_object.type = RuneType::ACTIVATED;
+        rune_objects.push_back(rune_object);
     }
-  }
-}
-
-// Decode output tensor
-static void generateProposals(
-    std::vector<RuneObject> &output_objs, std::vector<float> &scores,
-    std::vector<cv::Rect> &rects, const cv::Mat &output_buffer,
-    const Eigen::Matrix<float, 3, 3> &transform_matrix, float conf_threshold,
-    std::vector<GridAndStride> grid_strides) {
-  const int num_anchors = grid_strides.size();
-
-  for (int anchor_idx = 0; anchor_idx < num_anchors; anchor_idx++) {
-    float confidence = output_buffer.at<float>(anchor_idx, NUM_POINTS_2);
-    if (confidence < conf_threshold) {
-      continue;
-    }
-
-    const int grid0 = grid_strides[anchor_idx].grid0;
-    const int grid1 = grid_strides[anchor_idx].grid1;
-    const int stride = grid_strides[anchor_idx].stride;
-
-    double color_score, class_score;
-    cv::Point color_id, class_id;
-    cv::Mat color_scores =
-        output_buffer.row(anchor_idx)
-            .colRange(NUM_POINTS_2 + 1, NUM_POINTS_2 + 1 + NUM_COLORS);
-    cv::Mat num_scores =
-        output_buffer.row(anchor_idx)
-            .colRange(NUM_POINTS_2 + 1 + NUM_COLORS,
-                      NUM_POINTS_2 + 1 + NUM_COLORS + NUM_CLASSES);
-    // Argmax
-    cv::minMaxLoc(color_scores, nullptr, &color_score, nullptr, &color_id);
-    cv::minMaxLoc(num_scores, nullptr, &class_score, nullptr, &class_id);
-
-    float x_1 = (output_buffer.at<float>(anchor_idx, 0) + grid0) * stride;
-    float y_1 = (output_buffer.at<float>(anchor_idx, 1) + grid1) * stride;
-    float x_2 = (output_buffer.at<float>(anchor_idx, 2) + grid0) * stride;
-    float y_2 = (output_buffer.at<float>(anchor_idx, 3) + grid1) * stride;
-    float x_3 = (output_buffer.at<float>(anchor_idx, 4) + grid0) * stride;
-    float y_3 = (output_buffer.at<float>(anchor_idx, 5) + grid1) * stride;
-    float x_4 = (output_buffer.at<float>(anchor_idx, 6) + grid0) * stride;
-    float y_4 = (output_buffer.at<float>(anchor_idx, 7) + grid1) * stride;
-    float x_5 = (output_buffer.at<float>(anchor_idx, 8) + grid0) * stride;
-    float y_5 = (output_buffer.at<float>(anchor_idx, 9) + grid1) * stride;
-
-    Eigen::Matrix<float, 3, 5> apex_norm;
-    Eigen::Matrix<float, 3, 5> apex_dst;
-
-    /* clang-format off */
-    /* *INDENT-OFF* */
-    apex_norm << x_1, x_2, x_3, x_4, x_5,
-                y_1, y_2, y_3, y_4, y_5,
-                1,   1,   1,   1,   1;
-    /* *INDENT-ON* */
-    /* clang-format on */
-
-    apex_dst = transform_matrix * apex_norm;
-
-    RuneObject obj;
-
-    obj.pts.r_center = cv::Point2f(apex_dst(0, 0), apex_dst(1, 0));
-    obj.pts.bottom_left = cv::Point2f(apex_dst(0, 1), apex_dst(1, 1));
-    obj.pts.top_left = cv::Point2f(apex_dst(0, 2), apex_dst(1, 2));
-    obj.pts.top_right = cv::Point2f(apex_dst(0, 3), apex_dst(1, 3));
-    obj.pts.bottom_right = cv::Point2f(apex_dst(0, 4), apex_dst(1, 4));
-
-    auto rect = cv::boundingRect(obj.pts.toVector2f());
-
-    obj.box = rect;
-    obj.color = DNN_COLOR_TO_ENEMY_COLOR[color_id.x];
-    obj.type = static_cast<RuneType>(class_id.x);
-    obj.prob = confidence;
-
-    rects.push_back(rect);
-    scores.push_back(confidence);
-    output_objs.push_back(std::move(obj));
-  }
-}
-
-// Calculate intersection area between Object a and Object b.
-static inline float intersectionArea(const RuneObject &a, const RuneObject &b) {
-  cv::Rect_<float> inter = a.box & b.box;
-  return inter.area();
-}
-
-static void nmsMergeSortedBboxes(std::vector<RuneObject> &faceobjects,
-                                 std::vector<int> &indices,
-                                 float nms_threshold) {
-  indices.clear();
-
-  const int n = faceobjects.size();
-
-  std::vector<float> areas(n);
-  for (int i = 0; i < n; i++) {
-    areas[i] = faceobjects[i].box.area();
-  }
-
-  for (int i = 0; i < n; i++) {
-    RuneObject &a = faceobjects[i];
-
-    int keep = 1;
-    for (int indice : indices) {
-      RuneObject &b = faceobjects[indice];
-
-      // intersection over union
-      float inter_area = intersectionArea(a, b);
-      float union_area = areas[i] + areas[indice] - inter_area;
-      float iou = inter_area / union_area;
-      if (iou > nms_threshold || isnan(iou)) {
-        keep = 0;
-        // Stored for Merge
-        if (a.type == b.type && a.color == b.color && iou > MERGE_MIN_IOU &&
-            abs(a.prob - b.prob) < MERGE_CONF_ERROR) {
-          a.pts.children.push_back(b.pts);
+    center = signal_points_hitting[0] + (signal_points_hitting[1] - signal_points_hitting[0]) * 0.5;
+    std::vector<std::vector<cv::Point2f>> signal_points_hit = processhitLights();
+    for(int i = 0; i < signal_points_hit.size(); i++){
+        if(signal_points_hit[i].size() == 6){
+            rune_object.pts.arm_bottom = signal_points_hit[i][0];
+            rune_object.pts.arm_top = signal_points_hit[i][1];
+            rune_object.pts.hit_bottom = signal_points_hit[i][2];
+            rune_object.pts.hit_left = signal_points_hit[i][3];
+            rune_object.pts.hit_top = signal_points_hit[i][4];
+            rune_object.pts.hit_right = signal_points_hit[i][5];
+            rune_object.type = RuneType::INACTIVATED;
+            rune_objects.push_back(rune_object);
         }
-        // cout<<b.pts_x.size()<<endl;
-      }
     }
 
-    if (keep) {
-      indices.push_back(i);
+    return rune_objects;
+}
+std::vector<cv::Point2f> RuneDetector::processHittingLights()// 用于绘制的原图或当前帧
+{
+    // 查找轮廓
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+    cv::findContours(flow_img, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
+
+    // 筛选并保存长宽比在 2.5 到 7 之间的旋转矩形
+    std::vector<cv::RotatedRect> flow_lights;
+    for (const auto& contour : contours) {
+        cv::RotatedRect rotated_rect = cv::minAreaRect(contour);
+        if(!isRightColor(rotated_rect)) continue;
+        double aspect_ratio = static_cast<double>(rotated_rect.size.width) / rotated_rect.size.height;
+        if (aspect_ratio < 1.0) {
+            aspect_ratio = 1.0 / aspect_ratio;
+        }
+        if (aspect_ratio >= 2.5 && aspect_ratio <= 7.0 && rotated_rect.size.area() >= 20) {
+            flow_lights.push_back(rotated_rect);
+        }
     }
-  }
-}
 
-RuneDetector::RuneDetector(const std::filesystem::path &model_path,
-                           const std::string &device_name, float conf_threshold,
-                           int top_k, float nms_threshold, bool auto_init)
-    : model_path_(model_path), device_name_(device_name),
-      conf_threshold_(conf_threshold), top_k_(top_k),
-      nms_threshold_(nms_threshold) {
-  if (auto_init) {
-    init();
-  }
-}
-
-void RuneDetector::init() {
-  if (ov_core_ == nullptr) {
-    ov_core_ = std::make_unique<ov::Core>();
-  }
-
-  auto model = ov_core_->read_model(model_path_);
-
-  // Set infer type
-  ov::preprocess::PrePostProcessor ppp(model);
-  // Set input output precision
-  auto elem_type = device_name_ == "GPU" ? ov::element::f16 : ov::element::f32;
-  auto perf_mode =
-      device_name_ == "GPU"
-          ? ov::hint::performance_mode(ov::hint::PerformanceMode::THROUGHPUT)
-          : ov::hint::performance_mode(ov::hint::PerformanceMode::LATENCY);
-  ppp.input().tensor().set_element_type(elem_type);
-  ppp.output().tensor().set_element_type(elem_type);
-
-  // Compile model
-  compiled_model_ = std::make_unique<ov::CompiledModel>(
-      ov_core_->compile_model(model, device_name_, perf_mode));
-
-  strides_ = {8, 16, 32};
-  generateGridsAndStride(INPUT_W, INPUT_H, strides_, grid_strides_);
-}
-
-std::future<bool> RuneDetector::pushInput(const cv::Mat &rgb_img,
-                                          int64_t timestamp_nanosec) {
-  if (rgb_img.empty()) {
-    // return false when img is empty
-    return std::async([]() { return false; });
-  }
-
-  // Reprocess
-  Eigen::Matrix3f
-      transform_matrix; // transform matrix from resized image to source image.
-  cv::Mat resized_img = letterbox(rgb_img, transform_matrix);
-
-  // Start async detect
-  return std::async(std::launch::async, &RuneDetector::processCallback, this,
-                    resized_img, transform_matrix, timestamp_nanosec, rgb_img);
-}
-
-void RuneDetector::setCallback(CallbackType callback) {
-  infer_callback_ = callback;
-}
-
-bool RuneDetector::processCallback(const cv::Mat resized_img,
-                                   Eigen::Matrix3f transform_matrix,
-                                   int64_t timestamp_nanosec,
-                                   const cv::Mat &src_img) {
-  // BGR->RGB, u8(0-255)->f32(0.0-1.0), HWC->NCHW
-  // note: TUP's model no need to normalize
-  cv::Mat blob = cv::dnn::blobFromImage(
-      resized_img, 1., cv::Size(INPUT_W, INPUT_H), cv::Scalar(0, 0, 0), true);
-
-  // Feed blob into input
-  auto input_port = compiled_model_->input();
-  ov::Tensor input_tensor(
-      input_port.get_element_type(),
-      ov::Shape(std::vector<size_t>{1, 3, INPUT_W, INPUT_H}), blob.ptr(0));
-
-  // Start inference
-  // Lock because of the thread race condition within the openvino library
-  mtx_.lock();
-  auto infer_request = compiled_model_->create_infer_request();
-  infer_request.set_input_tensor(input_tensor);
-  infer_request.infer();
-  mtx_.unlock();
-
-  auto output = infer_request.get_output_tensor();
-
-  // Process output data
-  auto output_shape = output.get_shape();
-  // 3549 x 21 Matrix
-  cv::Mat output_buffer(output_shape[1], output_shape[2], CV_32F,
-                        output.data());
-
-  // Parsed variable
-  std::vector<RuneObject> objs_tmp, objs_result;
-  std::vector<cv::Rect> rects;
-  std::vector<float> scores;
-  std::vector<int> indices;
-
-  // Parse YOLO output
-  generateProposals(objs_tmp, scores, rects, output_buffer, transform_matrix,
-                    this->conf_threshold_, this->grid_strides_);
-
-  // TopK
-  std::sort(
-      objs_tmp.begin(), objs_tmp.end(),
-      [](const RuneObject &a, const RuneObject &b) { return a.prob > b.prob; });
-  if (objs_tmp.size() > static_cast<size_t>(this->top_k_)) {
-    objs_tmp.resize(this->top_k_);
-  }
-
-  nmsMergeSortedBboxes(objs_tmp, indices, this->nms_threshold_);
-
-  for (size_t i = 0; i < indices.size(); i++) {
-    objs_result.push_back(std::move(objs_tmp[indices[i]]));
-
-    if (!objs_result[i].pts.children.empty()) {
-      const float n =
-          static_cast<float>(objs_result[i].pts.children.size() + 1);
-      FeaturePoints pts_final = std::accumulate(
-          objs_result[i].pts.children.begin(),
-          objs_result[i].pts.children.end(), objs_result[i].pts);
-      objs_result[i].pts = pts_final / n;
+    // 储存含有两个以上子轮廓的父轮廓并用椭圆拟合
+    std::vector<cv::RotatedRect> aim_lights;
+    for (size_t i = 0; i < contours.size(); i++) {
+        int child_count = 0;
+        for (int j = hierarchy[i][2]; j != -1; j = hierarchy[j][0]) {
+            child_count++;
+        }
+        // 检查是否有两个以上子轮廓并且轮廓点数大于等于 5
+        if (child_count >= 2 && contours[i].size() >= 5) {
+            cv::RotatedRect ellipse = cv::fitEllipse(contours[i]);
+            if(!isRightColor(ellipse)) continue;
+            aim_lights.push_back(ellipse);
+        }
     }
-  }
 
-  // NMS & TopK
-  // cv::dnn::NMSBoxes(
-  //   rects, scores, this->conf_threshold_, this->nms_threshold_, indices, 1.0,
-  //   this->top_k_);
-  // for (size_t i = 0; i < indices.size(); ++i) {
-  //   objs_result.push_back(std::move(objs_tmp[i]));
-  // }
+    // 进行匹配
+    std::pair<cv::RotatedRect, cv::RotatedRect> matched_light; 
+    bool matched = false;
+    double min_score = 1e9;
 
-  // Call callback function
-  if (this->infer_callback_) {
-    this->infer_callback_(objs_result, timestamp_nanosec, src_img);
-    return true;
-  }
+    for (const auto& aim_light : aim_lights) {
+        for(const auto& flow_light : flow_lights) {
+            double score = calculateMatchScoreHitting(flow_light, aim_light);
+            if (score < min_score && score != -1) {
+                min_score = score;
+                matched = true;
+                matched_light.first = flow_light;
+                matched_light.second = aim_light;
+            }
+        }
+    }
 
-  return false;
+    std::vector<cv::Point2f> signal_points_hitting;
+    if (matched) {
+        cv::RotatedRect flow_light = matched_light.first;
+        cv::RotatedRect aim_light = matched_light.second;
+
+        // 绘制匹配的灯条
+        cv::Point2f flow_light_vertices[4];
+        flow_light.points(flow_light_vertices);
+        for (int i = 0; i < 4; i++) {
+            cv::line(frame, flow_light_vertices[i], flow_light_vertices[(i + 1) % 4], cv::Scalar(0, 255, 0), 2);
+        }
+        // 绘制匹配的椭圆
+        cv::ellipse(frame, aim_light, cv::Scalar(0, 255, 0), 2);
+
+        // 获取关键点
+        signal_points_hitting = getSignalPoints(aim_light, flow_light);
+
+        // 将检测到的矩形和椭圆的内部的mask设置为0
+        std::vector<cv::Point> int_flow_light_vertices;
+        int_flow_light_vertices.reserve(4);
+        for (auto & flow_light_vertice : flow_light_vertices) {
+            int_flow_light_vertices.push_back(cv::Point(static_cast<int>(flow_light_vertice.x), static_cast<int>(flow_light_vertice.y)));
+        }
+        cv::fillConvexPoly(hitting_light_mask, int_flow_light_vertices, cv::Scalar(0));
+        cv::ellipse(hitting_light_mask, aim_light, cv::Scalar(0), -1);
+    }
+
+    return signal_points_hitting;
 }
+std::vector<std::vector<cv::Point2f>> RuneDetector::processhitLights()
+{
+    // 查找轮廓
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
 
-std::tuple<cv::Point2f, cv::Mat>
-RuneDetector::detectRTag(const cv::Mat &img, int binary_thresh,
-                         const cv::Point2f &prior) {
-  if (prior.x < 0 || prior.x > img.cols || prior.y < 0 || prior.y > img.rows) {
-    return {prior, cv::Mat::zeros(cv::Size(200, 200), CV_8UC3)};
-  }
+    // 处理 arm_img
+    cv::findContours(arm_img, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
+    std::vector<cv::RotatedRect> arm_lights;
+    for (const auto& contour : contours) {
+        cv::RotatedRect rotated_rect = cv::minAreaRect(contour);
+        if(!isRightColor(rotated_rect)) continue;
+        double aspect_ratio = static_cast<double>(rotated_rect.size.width) / rotated_rect.size.height;
+        if (aspect_ratio < 1.0) {
+            aspect_ratio = 1.0 / aspect_ratio;
+        }
+        if (aspect_ratio >= 2.5 && aspect_ratio <= 7.0 && rotated_rect.size.area() >= 20) {
+            arm_lights.push_back(rotated_rect);
+        }
+    }
 
-  // Create ROI
-  cv::Rect roi = cv::Rect(prior.x - 100, prior.y - 100, 200, 200) &
-                 cv::Rect(0, 0, img.cols, img.rows);
-  const cv::Point2f prior_in_roi = prior - cv::Point2f(roi.tl());
+    // 清空并处理 hit_img
+    contours.clear();
+    cv::findContours(hit_img, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
+    std::vector<cv::RotatedRect> hit_lights;
+    for (size_t i = 0; i < contours.size(); i++) {
+        int child_count = 0;
+        for (int j = hierarchy[i][2]; j != -1; j = hierarchy[j][0]) {
+            child_count++;
+        }
+        // 检查是否有一个子轮廓并且轮廓点数 >=5
+        if (child_count == 1 && contours[i].size() >= 5 && contours[hierarchy[i][2]].size() >= 5) {
+            cv::RotatedRect ellipse_father = cv::fitEllipse(contours[i]);
+            if(!isRightColor(ellipse_father)) continue;
+            cv::RotatedRect ellipse_child = cv::fitEllipse(contours[hierarchy[i][2]]);
+            cv::RotatedRect ellipse;
+            ellipse.size = (ellipse_father.size + ellipse_child.size) / 2.0f;
+            ellipse.center = (ellipse_father.center + ellipse_child.center) / 2.0f;
+            ellipse.angle = (ellipse_father.angle + ellipse_child.angle) / 2.0f;
+            hit_lights.push_back(ellipse);
+        }
+    }
 
-  cv::Mat img_roi = img(roi);
+    // 进行匹配
+    std::vector<std::pair<cv::RotatedRect, cv::RotatedRect>> matched_arm_lights;
+    for (const auto& arm_light : arm_lights) {
+        double local_min_score = 1e9;
+        cv::RotatedRect matched_hit_light;
+        for(const auto& hit_light : hit_lights){
+            double score = calculateMatchScorehit(arm_light, hit_light);
+            if (score < local_min_score && score != -1) {
+                local_min_score = score;
+                matched_hit_light = hit_light;
+            }
+        }
+        if(local_min_score != 1e9) {
+            matched_arm_lights.push_back(std::make_pair(arm_light, matched_hit_light));
+        }
+        else if(arm_light.size.area() > 100){
+            cv::Rect roi = calculateROI(arm_light);
+            roi &= cv::Rect(0, 0, hit_img.cols, hit_img.rows);
+            cv::Mat roi_img = hit_img(roi);
+            cv::RotatedRect ellipse = detectBestEllipse(roi_img);
+            ellipse.center.x += roi.x;
+            ellipse.center.y += roi.y;
+            if(ellipse.size.area() == 0 || !isRightColor(ellipse)) continue;
+            if(calculateMatchScorehit(arm_light, ellipse) != -1){
+                matched_arm_lights.push_back(std::make_pair(arm_light, ellipse));
+            }
+        }
+    }
 
-  // Gray -> Binary -> Dilate
-  cv::Mat gray_img;
-  cv::cvtColor(img_roi, gray_img, cv::COLOR_BGR2GRAY);
-  cv::Mat binary_img;
-  cv::threshold(gray_img, binary_img, 0, 255,
+    // 绘制结果并保存关键点
+    std::vector<std::vector<cv::Point2f>> signal_points_hit;
+    for (const auto& matched_arm_light : matched_arm_lights) {
+        cv::RotatedRect arm_light = matched_arm_light.first;
+        cv::RotatedRect hit_light = matched_arm_light.second;
+
+        // 绘制匹配的灯条
+        cv::Point2f arm_light_vertices[4];
+        arm_light.points(arm_light_vertices);
+        for (int i = 0; i < 4; i++) {
+            cv::line(frame, arm_light_vertices[i], arm_light_vertices[(i + 1) % 4], cv::Scalar(0, 0, 255), 2);
+        }
+        // 绘制匹配的椭圆
+        cv::ellipse(frame, hit_light, cv::Scalar(0, 0, 255), 2);
+
+        // 获取关键点
+        signal_points_hit.push_back(getSignalPoints(hit_light, arm_light));
+    }
+
+    return signal_points_hit;
+}
+std::tuple<cv::Point2f, cv::Mat> RuneDetector::detectRTag(const cv::Mat &img, const cv::Point2f &prior) {
+    if (prior.x < 0 || prior.x > img.cols || prior.y < 0 || prior.y > img.rows) {
+        return {prior, cv::Mat::zeros(cv::Size(200, 200), CV_8UC3)};
+    }
+
+    // Create ROI
+    cv::Rect roi = cv::Rect(prior.x - 100, prior.y - 100, 200, 200) &
+                                 cv::Rect(0, 0, img.cols, img.rows);
+    const cv::Point2f prior_in_roi = prior - cv::Point2f(roi.tl());
+
+    cv::Mat img_roi = img(roi);
+
+    // Gray -> Binary -> Dilate
+    cv::Mat gray_img;
+    cv::cvtColor(img_roi, gray_img, cv::COLOR_BGR2GRAY);
+    cv::Mat binary_img;
+    cv::threshold(gray_img, binary_img, 0, 255,
                 cv::THRESH_BINARY | cv::THRESH_OTSU);
-  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-  cv::dilate(binary_img, binary_img, kernel);
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+    cv::dilate(binary_img, binary_img, kernel);
 
-  // Find contours
-  std::vector<std::vector<cv::Point>> contours;
-  cv::findContours(binary_img, contours, cv::RETR_EXTERNAL,
-                   cv::CHAIN_APPROX_NONE);
+    // Find contours
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(binary_img, contours, cv::RETR_EXTERNAL,
+                cv::CHAIN_APPROX_NONE);
 
-  auto it = std::find_if(
-      contours.begin(), contours.end(),
-      [p = prior_in_roi](const std::vector<cv::Point> &contour) -> bool {
-        return cv::boundingRect(contour).contains(p);
-      });
+    auto it = std::find_if(
+            contours.begin(), contours.end(),
+            [p = prior_in_roi](const std::vector<cv::Point> &contour) -> bool {
+                return cv::boundingRect(contour).contains(p);
+            });
 
-  // For visualization
-  cv::cvtColor(binary_img, binary_img, cv::COLOR_GRAY2BGR);
+    // For visualization
+    cv::cvtColor(binary_img, binary_img, cv::COLOR_GRAY2BGR);
 
-  if (it == contours.end()) {
-    return {prior, binary_img};
-  }
+    if (it == contours.end()) {
+        return {prior, binary_img};
+    }
 
-  cv::drawContours(binary_img, contours, it - contours.begin(),
-                   cv::Scalar(0, 255, 0), 2);
+    cv::drawContours(binary_img, contours, it - contours.begin(),
+        cv::Scalar(0, 255, 0), 2);
 
-  cv::Point2f center =
-      std::accumulate(it->begin(), it->end(), cv::Point(0, 0));
-  center /= static_cast<float>(it->size());
-  center += cv::Point2f(roi.tl());
+    cv::Point2f center =
+            std::accumulate(it->begin(), it->end(), cv::Point(0, 0));
+    center /= static_cast<float>(it->size());
+    center += cv::Point2f(roi.tl());
 
-  return {center, binary_img};
+    return {center, binary_img};
+}
+void RuneDetector::preprocess() {
+    cv::Mat gray;
+
+    // 转换为灰度图像
+    cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+
+    // 二值化
+    cv::threshold(gray, aim_img, 80, 255, cv::THRESH_BINARY);
+
+    // 定义结构元素
+    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::Mat element_erode = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+
+    // 流水灯，先膨胀后侵蚀
+    cv::dilate(aim_img, flow_img, element_dilate);
+    cv::erode(flow_img, flow_img, element_erode);
+
+    hitting_light_mask = cv::Mat::ones(aim_img.size(), aim_img.type()); // 击打灯条的蒙版初始化
+
+    cv::erode(aim_img, arm_img, element_dilate);//实心旋臂，侵蚀排除流水灯
+
+    cv::dilate(aim_img, hit_img, element_dilate);//击打完的目标灯，膨胀使圆闭合
+}
+// 计算角度差
+double RuneDetector::calculateAngleDifference(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse) {
+    cv::Point2f rect_center = rect.center;
+    cv::Point2f ellipse_center = ellipse.center;
+    cv::Point2f rect_vertices[4];
+    rect.points(rect_vertices);
+
+    // 计算矩形长边方向向量
+    cv::Point2f rect_long_edge = rect_vertices[1] - rect_vertices[0];
+    if (cv::norm(rect_vertices[2] - rect_vertices[1]) > cv::norm(rect_long_edge)) {
+        rect_long_edge = rect_vertices[2] - rect_vertices[1];
+    }
+
+    // 计算中心连线向量
+    cv::Point2f center_line = ellipse_center - rect_center;
+
+    // 计算角度
+    double rect_angle = std::atan2(rect_long_edge.y, rect_long_edge.x);
+    double center_line_angle = std::atan2(center_line.y, center_line.x);
+    double angle_diff = std::abs(rect_angle - center_line_angle);
+    angle_diff = std::min(angle_diff, CV_PI * 2 - angle_diff);
+    return std::min(angle_diff, CV_PI - angle_diff);
+}
+// 计算椭圆沿特定方向的轴的长度
+double RuneDetector::calculateAxisLength(const cv::RotatedRect& ellipse, const cv::Point2f& direction) {
+    // 椭圆的长轴和短轴长度
+    double a = ellipse.size.width / 2.0;  // 长轴的一半
+    double b = ellipse.size.height / 2.0; // 短轴的一半
+
+    // 椭圆的旋转角度（以弧度表示）
+    double theta = ellipse.angle * CV_PI / 180.0;
+
+    // 方向向量的单位化
+    cv::Point2f unit_direction = direction / cv::norm(direction);
+
+    // 计算旋转后的方向向量
+    double cos_theta = std::cos(theta);
+    double sin_theta = std::sin(theta);
+    double x_prime = unit_direction.x * cos_theta + unit_direction.y * sin_theta;
+    double y_prime = -unit_direction.x * sin_theta + unit_direction.y * cos_theta;
+
+    // 计算沿特定方向的弦的长度
+    double chord_length = 2 * a * b / std::sqrt(b * b * x_prime * x_prime + a * a * y_prime * y_prime);
+
+    return chord_length;
+}
+// 计算比例差
+double RuneDetector::calculateRatioDifferenceHitting(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse) {
+    double center_distance = cv::norm(rect.center - ellipse.center);
+    // 计算椭圆沿特定方向的轴的长度
+    cv::Point2f rect_vertices[4];
+    rect.points(rect_vertices);
+    cv::Point2f rect_long_edge = rect_vertices[1] - rect_vertices[0];
+    if (cv::norm(rect_vertices[2] - rect_vertices[1]) > cv::norm(rect_long_edge)) {
+        rect_long_edge = rect_vertices[2] - rect_vertices[1];
+    }
+    double ellipse_axis = calculateAxisLength(ellipse, rect_long_edge);
+
+    double ratio1 = ellipse_axis / cv::norm(rect_long_edge);
+    double ratio2 = cv::norm(rect_long_edge) / center_distance;
+
+    double target_ratio1 = 310.0 / 330.0;
+    double target_ratio2 = 330.0 / 355.0;
+
+    double ratio_diff1 = std::abs(ratio1 - target_ratio1);
+    double ratio_diff2 = std::abs(ratio2 - target_ratio2);
+
+    return ratio_diff1 + ratio_diff2;
 }
 
-} // namespace rm_auto_aim
+// 计算匹配程度
+double RuneDetector::calculateMatchScoreHitting(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse) {
+    double angle_diff = calculateAngleDifference(rect, ellipse);
+    double ratio_diff = calculateRatioDifferenceHitting(rect, ellipse);
+
+    // 归一化并计算总分
+    double angle_score = angle_diff / CV_PI;
+    double ratio_score = ratio_diff / 2.0; // 假设最大比例差为2
+
+    if(angle_diff < CV_PI / 12 && ratio_score < 0.2) return angle_score + ratio_score;
+    else return -1; // 不匹配
+}
+// 计算比例差
+double RuneDetector::calculateRatioDifferencehit(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse) {
+    double rect_long_edge = std::max(rect.size.width, rect.size.height);
+    double center_distance = cv::norm(rect.center - ellipse.center);
+    double ratio_score = rect_long_edge / center_distance;
+    double target_ratio = 330.0 / 355.0;
+    return std::abs(ratio_score - target_ratio);
+}
+// 计算匹配程度
+double RuneDetector::calculateMatchScorehit(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse) {
+    double angle_diff = calculateAngleDifference(rect, ellipse);
+    double ratio_diff = calculateRatioDifferencehit(rect, ellipse);
+
+    // 归一化并计算总分
+    double angle_score = angle_diff / CV_PI;
+    double ratio_score = ratio_diff; // 假设最大比例差为1
+    if(angle_diff < CV_PI / 12 && ratio_score < 0.2) return angle_score + ratio_score;
+    else return -1; // 不匹配
+}
+// 计算指定方向与椭圆的两个交点
+std::vector<cv::Point2f> RuneDetector::ellipseIntersections(const cv::RotatedRect& ellipse, const cv::Point2f& dir) {
+    // 单位化方向
+    cv::Point2f unit_dir = dir / cv::norm(dir);
+
+    // 椭圆长短轴半径
+    double a = ellipse.size.width * 0.5;
+    double b = ellipse.size.height * 0.5;
+
+    // 旋转角（弧度）
+    double theta = ellipse.angle * CV_PI / 180.0;
+    double cos_t = std::cos(theta);
+    double sin_t = std::sin(theta);
+
+    // 方向向量旋转到椭圆坐标系
+    double x =  unit_dir.x * cos_t + unit_dir.y * sin_t;
+    double y = -unit_dir.x * sin_t + unit_dir.y * cos_t;
+
+    // 计算半弦长
+    double half_len = (a * b) / std::sqrt(b * b * x * x + a * a * y * y);
+
+    // 椭圆中心
+    cv::Point2f c = ellipse.center;
+
+    // 原方向向量在图像坐标系下的分量（逆旋转）
+    // 为了得到在图像坐标系下 ±half_len 的坐标，需要将 (±x_, ±y_) 再旋转回来
+    // 可直接在单位化方向上乘以 half_len，分别正负即可
+    cv::Point2f dir_n = unit_dir * static_cast<float>(half_len);
+
+    // 交点1、交点2 = 椭圆中心 ± dir_n
+    std::vector<cv::Point2f> pts(2);
+    pts[0] = c + dir_n; 
+    pts[1] = c - dir_n;
+    return pts;
+}
+// 提取 6 个 signal points
+std::vector<cv::Point2f> RuneDetector::getSignalPoints(const cv::RotatedRect& ellipse, const cv::RotatedRect& rect){
+    // 最终返回的 76 个点
+    // [0]、[1] = 矩形两条短边的中心；[2] ~ [5] = 椭圆交点；(共 6 个)
+    std::vector<cv::Point2f> result(6, cv::Point2f(0,0));
+
+    // 1. 找矩形的两条短边中心
+    cv::Point2f pts[4];
+    rect.points(pts);
+    // 计算四条边长度
+    std::vector<std::pair<float,int>> edges; // (边长度, 起点索引)
+    for(int i=0; i<4; i++){
+        float len = cv::norm(pts[(i+1)%4] - pts[i]);
+        edges.push_back(std::make_pair(len, i));
+    }
+    // 按边长排序
+    std::sort(edges.begin(), edges.end(),
+              [](auto &a, auto &b){return a.first < b.first;});
+
+    // edges[0], edges[1] 即为两条短边
+    auto idx0 = edges[0].second; 
+    auto idx1 = edges[1].second; 
+    cv::Point2f mid0 = 0.5f * (pts[idx0] + pts[(idx0+1)%4]);
+    cv::Point2f mid1 = 0.5f * (pts[idx1] + pts[(idx1+1)%4]);
+
+    // 根据离椭圆中心距离判断谁放 0 号位
+    float d0 = cv::norm(mid0 - ellipse.center);
+    float d1 = cv::norm(mid1 - ellipse.center);
+    if(d0 > d1){
+        result[0] = mid0; 
+        result[1] = mid1;
+    } else {
+        result[0] = mid1; 
+        result[1] = mid0;
+    }
+
+    // 2. 计算椭圆中心与矩形中心之间的连线 dir
+    cv::Point2f dir = rect.center - ellipse.center;
+    // 垂直方向 dir_perp
+    cv::Point2f dir_perp(-dir.y, dir.x);
+
+    // 3. 分别计算这两条方向与椭圆的交点 (各自 2 个)
+    std::vector<cv::Point2f> pts_dir  = ellipseIntersections(ellipse, dir);
+    std::vector<cv::Point2f> pts_perp = ellipseIntersections(ellipse, dir_perp);
+
+    // 合并成 4 个点
+    std::vector<cv::Point2f> four_pts;
+    four_pts.insert(four_pts.end(), pts_dir.begin(),  pts_dir.end());
+    four_pts.insert(four_pts.end(), pts_perp.begin(), pts_perp.end());
+
+    // 4. 找到距离矩形中心最近的点放在位置 [2]，其余按顺时针顺序放 [3]、[4]、[5]
+    // 先找距离 rect.center 最近的点
+    float min_dist = 1e9f;
+    int   min_idx = 0;
+    for(int i=0; i<4; i++){
+        float dist = cv::norm(four_pts[i] - rect.center);
+        if(dist < min_dist){
+            min_dist = dist;
+            min_idx = i;
+        }
+    }
+    // 把最近的点放 2 号
+    result[2] = four_pts[min_idx];
+    
+    // 剩下 3 个点，按顺时针顺序放 [3],[4],[5]
+    // 可先把最近点移除，再以矩形中心为参考进行 atan2 排序
+    cv::Point2f base = rect.center;
+    std::vector<cv::Point2f> remain;
+    for(int i=0; i<4; i++){
+        if(i != min_idx) remain.push_back(four_pts[i]);
+    }
+    // 以矩形中心为参考，按顺时针(atan2)排序
+    std::sort(remain.begin(), remain.end(), 
+              [base](const cv::Point2f &p1, const cv::Point2f &p2){
+                  double a1 = std::atan2(p1.y - base.y, p1.x - base.x);
+                  double a2 = std::atan2(p2.y - base.y, p2.x - base.x);
+                  return a1 < a2;
+              });
+    result[3] = remain[0];
+    result[4] = remain[1];
+    result[5] = remain[2];
+
+    return result;
+}
+// 计算线段AB的两个可能的点B，并以B为中心计算正方形ROI
+cv::Rect RuneDetector::calculateROI(const cv::RotatedRect& rect) {
+    std::vector<cv::Rect> rois;
+
+    // 获取矩形的四个顶点
+    cv::Point2f rect_vertices[4];
+    rect.points(rect_vertices);
+
+    // 计算矩形长边方向向量
+    cv::Point2f rect_long_edge = rect_vertices[1] - rect_vertices[0];
+    if (cv::norm(rect_vertices[2] - rect_vertices[1]) > cv::norm(rect_long_edge)) {
+        rect_long_edge = rect_vertices[2] - rect_vertices[1];
+    }
+
+    // 计算长边长度
+    double long_edge_length = cv::norm(rect_long_edge);
+
+    // 计算线段AB的两个可能的点B
+    cv::Point2f rect_center = rect.center;
+    cv::Point2f b1 = rect_center + rect_long_edge * (400.0 / 330.0);
+    cv::Point2f b2 = rect_center - rect_long_edge * (400.0 / 330.0);
+    // 选择距离中心更远的点
+    cv::Point2f b = cv::norm(b1 - center) > cv::norm(b2 - center) ? b1 : b2;
+
+    // 计算正方形ROI的边长
+    double roi_side_length = long_edge_length * (400.0 / 330.0);
+
+    // 以B1为中心计算正方形ROI
+    cv::Rect roi(b.x - roi_side_length / 2, b.y - roi_side_length / 2, roi_side_length, roi_side_length);
+    return roi;
+}
+// 计算点到椭圆的距离
+double RuneDetector::pointToEllipseDistance(const cv::Point2f& point, const cv::RotatedRect& ellipse) {
+    // 将点从图像坐标系转换到椭圆坐标系
+    cv::Point2f centered = point - ellipse.center;
+    double angle = ellipse.angle * CV_PI / 180.0;
+    double cos_angle = std::cos(angle);
+    double sin_angle = std::sin(angle);
+    
+    // 旋转点到椭圆的主轴方向
+    double x = centered.x * cos_angle + centered.y * sin_angle;
+    double y = -centered.x * sin_angle + centered.y * cos_angle;
+    
+    // 计算椭圆的半长轴和半短轴
+    double a = ellipse.size.width * 0.5;
+    double b = ellipse.size.height * 0.5;
+    
+    // 计算点到椭圆的距离
+    double px = std::abs(x);
+    double py = std::abs(y);
+    
+    // 迭代求解最近点
+    double t = std::atan2(py * a, px * b);
+    double dx = a * std::cos(t);
+    double dy = b * std::sin(t);
+    
+    return std::sqrt((px - dx) * (px - dx) + (py - dy) * (py - dy));
+}
+// 修改后的RANSAC拟合椭圆函数
+cv::RotatedRect RuneDetector::fitEllipseRANSAC(const std::vector<cv::Point>& points) {
+    cv::RotatedRect best_ellipse;
+    int best_inliers = 0;
+    const int total_points = points.size();
+    if(total_points < 5) return cv::RotatedRect();
+    
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, points.size() - 1);
+    std::vector<cv::Point> best_points, inlier_points;
+
+    for (int iter = 0; iter < max_iterations; ++iter) {
+        inlier_points.clear();
+        // 随机选择5个点
+        std::vector<cv::Point> sample_points;
+        while (sample_points.size() < 5) {
+            int idx = dis(gen);
+            sample_points.push_back(points[idx]);
+        }
+
+        // 拟合椭圆
+        if (sample_points.size() >= 5) {
+            cv::RotatedRect ellipse = cv::fitEllipse(sample_points);
+
+            // 计算内点数量
+            int inliers = 0;
+            #pragma omp parallel for reduction(+:inliers)
+            for (const auto& point : points) {
+                if (pointToEllipseDistance(point, ellipse) < distance_threshold) {
+                    inliers++;
+                    inlier_points.push_back(point);
+                }
+            }
+            // 更新最佳椭圆
+            if (inliers > best_inliers) {
+                best_inliers = inliers;
+                best_ellipse = ellipse;
+                best_points = inlier_points;
+                if(best_inliers > total_points * 0.8) break;
+            }
+        }
+    }
+    // 重新拟合最佳椭圆
+    if(best_inliers > total_points * prob_threshold && best_points.size() >= 50){
+        best_ellipse = cv::fitEllipse(best_points);
+        if (best_ellipse.size.width > 0 && best_ellipse.size.height > 0 &&
+            !std::isnan(best_ellipse.center.x) && !std::isnan(best_ellipse.center.y) &&
+            !std::isnan(best_ellipse.angle)) {
+            return best_ellipse;
+        }
+    }
+    return cv::RotatedRect();
+}
+
+cv::RotatedRect RuneDetector::detectBestEllipse(const cv::Mat& src) {
+    cv::RotatedRect best_ellipse;
+    const int STANDARD_SIZE = 25; // 标准分辨率大小
+    
+    // 先进行形态学操作
+    cv::Mat processed;
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+    cv::erode(src, processed, element);
+    
+    // 计算缩放比例
+    float scale_x = static_cast<float>(STANDARD_SIZE) / src.cols;
+    float scale_y = static_cast<float>(STANDARD_SIZE) / src.rows;
+    
+    // 缩放处理后的图像到标准大小
+    cv::Mat resized;
+    cv::resize(processed, resized, cv::Size(STANDARD_SIZE, STANDARD_SIZE));
+    
+    // 收集点
+    std::vector<cv::Point> points;
+    for(int i = 0; i < STANDARD_SIZE; i++) {
+        for(int j = 0; j < STANDARD_SIZE; j++) {
+            if(resized.at<uchar>(i, j) > 0 && 
+               cv::norm(cv::Point(j, i) - cv::Point(STANDARD_SIZE/2, STANDARD_SIZE/2)) * 2 < STANDARD_SIZE) {
+                points.push_back(cv::Point(j, i));
+            }
+        }
+    }
+
+    // 使用 RANSAC 算法拟合椭圆
+    cv::RotatedRect standard_ellipse = fitEllipseRANSAC(points);
+    
+    // 将椭圆参数映射回原始尺寸
+    if(standard_ellipse.size.width > 0 && standard_ellipse.size.height > 0) {
+        best_ellipse = cv::RotatedRect(
+            cv::Point2f(standard_ellipse.center.x / scale_x, standard_ellipse.center.y / scale_y),
+            cv::Size2f(standard_ellipse.size.width / scale_x, standard_ellipse.size.height / scale_y),
+            standard_ellipse.angle
+        );
+    }
+
+    return best_ellipse;
+}
+
+bool RuneDetector::isRightColor(const cv::RotatedRect& rect){
+    if(frame.empty()) return false;
+    cv::Mat roi = frame(cv::Rect(rect.center.x - rect.size.width / 2, rect.center.y - rect.size.height / 2, rect.size.width, rect.size.height));
+    cv::Scalar mean_color = cv::mean(roi);
+    if(detect_color == EnemyColor::RED){
+        return mean_color[2] > mean_color[0] && mean_color[2] > mean_color[1];
+    } 
+    else if(detect_color == EnemyColor::BLUE){
+        return mean_color[0] > mean_color[1] && mean_color[0] > mean_color[2];
+    }
+    else if(detect_color == EnemyColor::WHITE){
+        return true;
+    }
+    return false;
+}
+
+}  // namespace rm_auto_aim

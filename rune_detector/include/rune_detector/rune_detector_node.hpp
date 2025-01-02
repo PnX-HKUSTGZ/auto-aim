@@ -46,9 +46,6 @@ private:
   std::unique_ptr<RuneDetector> initDetector();
 
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
-  void inferResultCallback(std::vector<RuneObject> &rune_objects,
-                           int64_t timestamp_nanosec,
-                           const cv::Mat &img);
 
   void createDebugPublishers();
   void destroyDebugPublishers();
@@ -73,12 +70,13 @@ private:
   rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
 
   // Rune detector
-  int requests_limit_;
-  std::queue<std::future<bool>> detect_requests_;
   std::unique_ptr<RuneDetector> rune_detector_;
 
   // Rune params
-  EnemyColor detect_color_;
+  int max_iterations_; // 最大迭代次数(RANSAC)
+  double distance_threshold_; // 距离阈值(RANSAC)
+  double prob_threshold_; // 可信度阈值(匹配)
+  EnemyColor detect_color_; // 检测颜色
   bool is_rune_;
   bool is_big_rune_;
 

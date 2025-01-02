@@ -44,7 +44,6 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions &options)
   frame_id_ = declare_parameter("frame_id", "camera_optical_frame");
   detect_r_tag_ = declare_parameter("detect_r_tag", true);
   binary_thresh_ = declare_parameter("min_lightness", 100);
-  requests_limit_ = declare_parameter("requests_limit", 5);
   detect_color_ = static_cast<EnemyColor>(declare_parameter("detect_color", 1)); 
 
   // 初始化检测器
@@ -70,54 +69,18 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions &options)
 
 // 初始化检测器
 std::unique_ptr<RuneDetector> RuneDetectorNode::initDetector() {
-  std::string model_path =
-    this->declare_parameter("detector.model", "package://rune_detector/model/yolox_rune_3.6m.onnx");
-  std::string device_type = this->declare_parameter("detector.device_type", "AUTO");
-  if (model_path.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "Model path is empty!");
-    rclcpp::shutdown();
-    return nullptr;
-  }
-  RCLCPP_INFO(this->get_logger(), "Model: %s, Device: %s", model_path.c_str(), device_type.c_str());
-
-  float conf_threshold = this->declare_parameter("detector.confidence_threshold", 0.50);
-  int top_k = this->declare_parameter("detector.top_k", 128);
-  float nms_threshold = this->declare_parameter("detector.nms_threshold", 0.3);
-
-  namespace fs = std::filesystem;
-  std::string resolved_path_str;
-  try {
-    resolved_path_str = resolveURL(model_path);
-  } catch (const std::exception &e) {
-    RCLCPP_ERROR(this->get_logger(), "Error resolving URL: %s", e.what());
-    rclcpp::shutdown();
-    return nullptr;
-  }
-
-  fs::path resolved_path = resolved_path_str;
-  if (!fs::exists(resolved_path)) {
-    RCLCPP_ERROR(this->get_logger(), "Model file not found: %s", resolved_path.string().c_str());
-    rclcpp::shutdown();
-    return nullptr;
-  }
-
   // 设置动态参数回调
   rcl_interfaces::msg::SetParametersResult onSetParameters(
     std::vector<rclcpp::Parameter> parameters);
   on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
     std::bind(&RuneDetectorNode::onSetParameters, this, std::placeholders::_1));
+  max_iterations_ = declare_parameter("max_iterations", 99);
+  distance_threshold_ = declare_parameter("distance_threshold", 2.0);
+  prob_threshold_ = declare_parameter("prob_threshold", 0.6);
 
   // 创建检测器
-  auto rune_detector = std::make_unique<RuneDetector>(
-    resolved_path, device_type, conf_threshold, top_k, nms_threshold);
-  // 设置检测回调
-  rune_detector->setCallback(std::bind(&RuneDetectorNode::inferResultCallback,
-                                       this,
-                                       std::placeholders::_1,
-                                       std::placeholders::_2,
-                                       std::placeholders::_3));
-  // 初始化检测器
-  rune_detector->init();
+  auto rune_detector = std::make_unique<RuneDetector>(max_iterations_, distance_threshold_, prob_threshold_, detect_color_);
+
   return rune_detector;
 }
 
@@ -127,37 +90,13 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     return;
   }
 
-  // 限制请求大小
-  while (detect_requests_.size() > static_cast<size_t>(requests_limit_)) {
-    detect_requests_.front().get();
-    detect_requests_.pop();
-  }
-
   timestamp = rclcpp::Time(msg->header.stamp);
   frame_id_ = msg->header.frame_id;
-  auto img = cv_bridge::toCvCopy(msg, "rgb8")->image;
+  auto src_img = cv_bridge::toCvCopy(msg, "rgb8")->image;
 
   // 将图像推送到检测器
-  detect_requests_.push(rune_detector_->pushInput(img, timestamp.nanoseconds()));
-}
+  std::vector<RuneObject> objs = rune_detector_->detectRune(src_img);
 
-// 动态参数设置回调函数
-rcl_interfaces::msg::SetParametersResult RuneDetectorNode::onSetParameters(
-  std::vector<rclcpp::Parameter> parameters) {
-  rcl_interfaces::msg::SetParametersResult result;
-  for (const auto &param : parameters) {
-    if (param.get_name() == "binary_thresh") {
-      binary_thresh_ = param.as_int();
-    }
-  }
-  result.successful = true;
-  return result;
-}
-
-// 推理结果回调函数
-void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
-                                           int64_t timestamp_nanosec,
-                                           const cv::Mat &src_img) {
   // 用于绘制调试信息
   cv::Mat debug_img;
   if (debug_) {
@@ -177,24 +116,26 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
     objs.end());
 
   if (!objs.empty()) {
-    // 按概率排序
-    std::sort(objs.begin(), objs.end(), [](const RuneObject &a, const RuneObject &b) {
-      return a.prob > b.prob;
-    });
 
     cv::Point2f r_tag;
     cv::Mat binary_roi = cv::Mat::zeros(1, 1, CV_8UC3);
     if (detect_r_tag_) {
       // 使用传统方法检测 R 标签
+      cv::Point2f prior = std::accumulate(objs.begin(),
+                              objs.end(),
+                              cv::Point2f(0, 0),
+                              [n = static_cast<float>(objs.size())](cv::Point2f p, auto &o) {
+                                return p + o.pts.getRCenter() / n;
+                              });
       std::tie(r_tag, binary_roi) =
-        rune_detector_->detectRTag(src_img, binary_thresh_, objs.at(0).pts.r_center);
+        rune_detector_->detectRTag(src_img, prior);
     } else {
       // 使用所有对象的平均中心作为 R 标签的中心
       r_tag = std::accumulate(objs.begin(),
                               objs.end(),
                               cv::Point2f(0, 0),
                               [n = static_cast<float>(objs.size())](cv::Point2f p, auto &o) {
-                                return p + o.pts.r_center / n;
+                                return p + o.pts.getRCenter() / n;
                               });
     }
     // 将 R 标签的中心分配给所有对象
@@ -208,10 +149,10 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
       cv::rectangle(debug_img, roi, cv::Scalar(150, 150, 150), 2);
     }
 
-    // 最终目标是未激活的概率最高的符文
+    // 最终目标是未激活的符文
     auto result_it =
-      std::find_if(objs.begin(), objs.end(), [c = detect_color_](const auto &obj) -> bool {
-        return obj.type == RuneType::INACTIVATED && obj.color == c;
+      std::find_if(objs.begin(), objs.end(), [](const auto &obj) -> bool {
+        return obj.type == RuneType::INACTIVATED;
       });
 
     if (result_it != objs.end()) {
@@ -219,14 +160,18 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
       rune_msg.is_lost = false;
       rune_msg.pts[0].x = result_it->pts.r_center.x;
       rune_msg.pts[0].y = result_it->pts.r_center.y;
-      rune_msg.pts[1].x = result_it->pts.bottom_left.x;
-      rune_msg.pts[1].y = result_it->pts.bottom_left.y;
-      rune_msg.pts[2].x = result_it->pts.top_left.x;
-      rune_msg.pts[2].y = result_it->pts.top_left.y;
-      rune_msg.pts[3].x = result_it->pts.top_right.x;
-      rune_msg.pts[3].y = result_it->pts.top_right.y;
-      rune_msg.pts[4].x = result_it->pts.bottom_right.x;
-      rune_msg.pts[4].y = result_it->pts.bottom_right.y;
+      rune_msg.pts[1].x = result_it->pts.arm_bottom.x; 
+      rune_msg.pts[1].y = result_it->pts.arm_bottom.y;
+      rune_msg.pts[2].x = result_it->pts.arm_top.x;
+      rune_msg.pts[2].y = result_it->pts.arm_top.y;
+      rune_msg.pts[3].x = result_it->pts.hit_bottom.x;
+      rune_msg.pts[3].y = result_it->pts.hit_bottom.y;
+      rune_msg.pts[4].x = result_it->pts.hit_left.x; 
+      rune_msg.pts[4].y = result_it->pts.hit_left.y; 
+      rune_msg.pts[5].x = result_it->pts.hit_top.x; 
+      rune_msg.pts[5].y = result_it->pts.hit_top.y; 
+      rune_msg.pts[6].x = result_it->pts.hit_right.x; 
+      rune_msg.pts[6].y = result_it->pts.hit_right.y; 
     } else {
       // 所有符文都已激活
       rune_msg.is_lost = true;
@@ -251,18 +196,11 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
 
       cv::Scalar line_color =
         obj.type == RuneType::INACTIVATED ? cv::Scalar(50, 255, 50) : cv::Scalar(255, 50, 255);
-      cv::putText(debug_img,
-                  fmt::format("{:.2f}", obj.prob),
-                  cv::Point2i(pts[1]),
-                  cv::FONT_HERSHEY_SIMPLEX,
-                  0.8,
-                  line_color,
-                  2);
       cv::polylines(debug_img, obj.pts.toVector2i(), true, line_color, 2);
       cv::circle(debug_img, aim_point, 5, line_color, -1);
 
       std::string rune_type = obj.type == RuneType::INACTIVATED ? "_HIT" : "_OK";
-      std::string rune_color = enemyColorToString(obj.color);
+      std::string rune_color = enemyColorToString(detect_color_);
       cv::putText(debug_img,
                   rune_color + rune_type,
                   cv::Point2i(pts[2]),
@@ -284,6 +222,19 @@ void RuneDetectorNode::inferResultCallback(std::vector<RuneObject> &objs,
                 2);
     result_img_pub_.publish(cv_bridge::CvImage(rune_msg.header, "rgb8", debug_img).toImageMsg());
   }
+}
+
+// 动态参数设置回调函数
+rcl_interfaces::msg::SetParametersResult RuneDetectorNode::onSetParameters(
+  std::vector<rclcpp::Parameter> parameters) {
+  rcl_interfaces::msg::SetParametersResult result;
+  for (const auto &param : parameters) {
+    if (param.get_name() == "binary_thresh") {
+      binary_thresh_ = param.as_int();
+    }
+  }
+  result.successful = true;
+  return result;
 }
 
 // 设置模式回调函数

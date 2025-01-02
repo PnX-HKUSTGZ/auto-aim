@@ -24,9 +24,11 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <opencv2/core/types.hpp>
 #include <string>
 #include <vector>
 #include <tuple>
+#include <random>
 // third party
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
@@ -35,59 +37,46 @@
 #include "rune_detector/types.hpp"
 
 namespace rm_auto_aim {
-struct GridAndStride {
-  int grid0;
-  int grid1;
-  int stride;
-};
 
 class RuneDetector {
 public:
-  using CallbackType = std::function<void(std::vector<RuneObject> &, int64_t, const cv::Mat &)>;
-
-public:
-  // Construct a new OpenVINO Detector object
-  explicit RuneDetector(const std::filesystem::path &model_path,
-                        const std::string &device_name,
-                        float conf_threshold = 0.25,
-                        int top_k = 128,
-                        float nms_threshold = 0.3,
-                        bool auto_init = false);
-
-  void init();
-
-  // Push an inference request to the detector
-  std::future<bool> pushInput(const cv::Mat &rgb_img, int64_t timestamp_nanosec);
-
-  void setCallback(CallbackType callback);
-
-  // Detect R tag using traditional method
-  // Return the center of the R tag and binary roi image (for debug)
-  std::tuple<cv::Point2f, cv::Mat> detectRTag(const cv::Mat &img,
-                                              int binary_thresh,
-                                              const cv::Point2f &prior);
+    // Construct a new OpenVINO Detector object
+    RuneDetector(int max_iterations, double distance_threshold, double prob_threshold, EnemyColor detect_color);
+    std::vector<cv::Point2f> processHittingLights(); // 处理击打灯条
+    std::vector<std::vector<cv::Point2f>> processhitLights(); // 处理 已击中灯条
+    std::tuple<cv::Point2f, cv::Mat> detectRTag(const cv::Mat &img, const cv::Point2f &prior); //检查R标
+    std::vector<RuneObject> detectRune(const cv::Mat &img); // 检测能量机关
 
 private:
-  // Do inference and call the infer_callback_ after inference
-  bool processCallback(const cv::Mat resized_img,
-                       Eigen::Matrix3f transform_matrix,
-                       int64_t timestamp_nanosec,
-                       const cv::Mat &src_img);
+    void preprocess(); // 预处理函数
+    double calculateAngleDifference(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算角度差
+    double calculateAxisLength(const cv::RotatedRect& ellipse, const cv::Point2f& direction); // 计算椭圆沿特定方向的轴的长度
+    double calculateRatioDifferenceHitting(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算比例差
+    double calculateMatchScoreHitting(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算匹配程度
+    double calculateRatioDifferencehit(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算比例差
+    double calculateMatchScorehit(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算匹配程度
+    std::vector<cv::Point2f> ellipseIntersections(const cv::RotatedRect& ellipse, const cv::Point2f& dir); // 计算指定方向与椭圆的两个交点
+    cv::Rect calculateROI(const cv::RotatedRect& rect); // 计算疑似打击目标的ROI
+    double pointToEllipseDistance(const cv::Point2f& point, const cv::RotatedRect& ellipse); // 计算点到椭圆的距离
+    cv::RotatedRect fitEllipseRANSAC(const std::vector<cv::Point>& points); // 修改后的RANSAC拟合椭圆函数
+    std::vector<cv::RotatedRect> detectEllipses(const cv::Mat& src); // 使用随机霍夫变换检测椭圆
+    cv::RotatedRect detectBestEllipse(const cv::Mat& src); // 检测最佳椭圆
+    std::vector<cv::Point2f> getSignalPoints(const cv::RotatedRect& ellipse, const cv::RotatedRect& rect); // 提取 6 个 signal points
+    bool isRightColor(const cv::RotatedRect& rect); // 判断颜色是否正确
 
-private:
-  std::string model_path_;
-  std::string device_name_;
-  float conf_threshold_;
-  int top_k_;
-  float nms_threshold_;
-  std::mutex mtx_;
-  std::vector<int> strides_;
-  std::vector<GridAndStride> grid_strides_;
+    //image
+    cv::Mat frame;
+    cv::Mat flow_img, arm_img, hit_img, aim_img; 
+    cv::Mat hitting_light_mask;
+    cv::Point2f center;
+    //parameters
+    int max_iterations; // 最大迭代次数(RANSAC)
+    double distance_threshold; // 距离阈值(RANSAC)
+    double prob_threshold; // 可信度阈值(RANSAC)
+    EnemyColor detect_color; // 检测颜色
 
-  CallbackType infer_callback_;
 
-  std::unique_ptr<ov::Core> ov_core_;
-  std::unique_ptr<ov::CompiledModel> compiled_model_;
+
 };
 }  // namespace rm_auto_aim
 #endif  // DETECTOR_HPP_
