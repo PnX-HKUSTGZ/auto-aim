@@ -122,8 +122,6 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         // rvec to 3x3 rotation matrix
         cv::Mat rotation_matrix;
         cv::Rodrigues(rvec, rotation_matrix);//将旋转向量转换为旋转矩阵
-        // show yaw pitch
-        armor.yaw = atan2(rotation_matrix.at<double>(1, 0), rotation_matrix.at<double>(0, 0));
 
         // rotation matrix to quaternion
         tf2::Matrix3x3 tf2_rotation_matrix(
@@ -135,6 +133,13 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         tf2::Quaternion tf2_q;
         tf2_rotation_matrix.getRotation(tf2_q);
         armor_msg.pose.orientation = tf2::toMsg(tf2_q);
+
+        // get yaw
+        double roll, pitch, yaw;
+        tf2::Quaternion given_quat;
+        given_quat.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
+        tf2::Matrix3x3(given_quat * tf2_q).getRPY(roll, pitch, yaw);
+        armor.yaw = yaw;
 
         // Fill the distance to image center
         armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
@@ -275,7 +280,7 @@ void ArmorDetectorNode::drawResults(
   // Show yaw
   for (const auto & armor : armors) {
     cv::putText(
-      img, std::to_string(armor.yaw), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 15), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, std::to_string(armor.yaw / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 15), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
   }
   // Draw camera center
