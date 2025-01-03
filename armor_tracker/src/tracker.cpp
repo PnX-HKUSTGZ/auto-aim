@@ -98,20 +98,21 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
         same_id_armors_count++;
         // Calculate the difference between the predicted position and the current armor position
         auto p = armor.pose.position;
+        double yaw = orientationToYaw(armor.pose.orientation, p); 
         Eigen::Vector3d position_vec(p.x, p.y, p.z);
         double position_diff_1 = (predicted_position1 - position_vec).norm(); 
         double position_diff_2 = (predicted_position2 - position_vec).norm();
         if (position_diff_1 <= position_diff_2) {
           // Find the closest armor
           min_position_diff_1 = position_diff_1;
-          yaw_diff_1 = calYawDiff(orientationToYaw(armor.pose.orientation), ekf_prediction(YAW1));
+          yaw_diff_1 = calYawDiff(yaw, ekf_prediction(YAW1));
           tracked_armor = armor;
           found_armors = found_armors | 1;
         }
         else{
           // Find the closest armor
           min_position_diff_2 = position_diff_2;
-          yaw_diff_2 = calYawDiff(orientationToYaw(armor.pose.orientation) , ekf_prediction(YAW2));
+          yaw_diff_2 = calYawDiff(yaw, ekf_prediction(YAW2));
           tracked_armor_2 = armor;
           found_armors = found_armors | 2;
         }
@@ -129,6 +130,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
       }
       if(found_armors != 3){
         RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
+        initEKFTwo(tracked_armor, tracked_armor_2);
       } 
       else{
         // Check if the distance and yaw difference of closest armor are within the threshold
@@ -142,9 +144,10 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
           double yaw_b = orientationToYaw(tracked_armor_2.pose.orientation); //四元数方向转换为偏航角
 
           measurement = Eigen::VectorXd(10); 
-          double A = (cos(yaw_a) * sin(yaw_b) + cos(yaw_b) * sin(yaw_a));
-          double r1 = -(cos(yaw_b) * (p1.x - p2.x) + sin(yaw_b) * (p1.y - p2.y)) / A; 
-          double r2 = -(cos(yaw_a) * (p1.x - p2.x) - sin(yaw_a) * (p1.y - p2.y)) / A;
+          double xa = p1.x, ya = p1.y, xb = p2.x, yb = p2.y;
+          double A = sin(yaw_b - yaw_a);
+          double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya))/A; 
+          double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya))/A;
           if(yaw_a < -M_PI / 2 || yaw_a > M_PI / 2) {
             p1.x += 2 * r1 * cos(yaw_a);
             p1.y += 2 * r1 * sin(yaw_a);
@@ -160,7 +163,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
             std::swap(yaw_a, yaw_b);
             std::swap(r1, r2);
           }
-          measurement << p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, yaw_a, yaw_b, r1, r2;
+          measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
           target_state = ekf.updateTwo(measurement);
           RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
         }
@@ -258,7 +261,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
   double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
   target_state(YAW1) = yaw_average - M_PI / 4;
   target_state(YAW2) = yaw_average + M_PI / 4;
-  if(target_state(YAW1) < M_PI){ //暂时不确定
+  if(target_state(YAW1) < -M_PI){ //暂时不确定
     target_state(YAW1) += M_PI;
     target_state(YAW2) += M_PI;
     ekf.setState(target_state);
@@ -349,11 +352,10 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
   yaw_b = yaw_avg + M_PI / 4; 
 
   target_state = Eigen::VectorXd::Zero(12);
-  double A = (cos(yaw_a) * sin(yaw_b) + cos(yaw_b) * sin(yaw_a));
-  double r1 = -(cos(yaw_b) * (xa - xb) + sin(yaw_b) * (ya - yb)) / A; 
-  double r2 = -(cos(yaw_a) * (xa - xb) - sin(yaw_a) * (ya - yb)) / A;
-  double xc = (xa * r1 + xb * r2) / (r1 + r2);
-  double yc = (ya * r1 + yb * r2) / (r1 + r2);
+  double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya)); 
+  double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya));
+  double xc = xa + r1 * cos(yaw_a);
+  double yc = ya + r1 * sin(yaw_a);
   if(yaw_a < -M_PI / 2 || yaw_a > M_PI / 2) {
     yaw_a = yaw_a < 0 ? yaw_a + M_PI : yaw_a - M_PI;
   }
@@ -405,14 +407,14 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
     Eigen::Vector3d center(target_state(XC), target_state(YC), target_state(ZC1));
     double r = sqrt(pow(position.x - center.x(), 2) + pow(position.y - center.y(), 2));
     if(yaw > M_PI / 2){
-      yaw -= M_PI;
       position.x += 2 * r * cos(yaw);
       position.y += 2 * r * sin(yaw);
+      yaw -= M_PI;
     }
     if(yaw < -M_PI / 2){
-      yaw += M_PI;
       position.x += 2 * r * cos(yaw);
       position.y += 2 * r * sin(yaw);
+      yaw += M_PI;
     }
   }
   

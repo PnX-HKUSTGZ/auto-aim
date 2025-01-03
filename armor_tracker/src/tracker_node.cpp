@@ -151,10 +151,10 @@ void ArmorTrackerNode::initializeEKF()
         double yaw = x(YAW1), r = x(R1);
         // clang-format off
         //    xc   v_xc yc   v_yc zc1  zc2  v_zc v_yaw r1  r2  yaw1 yaw2
-        h <<  1,   0,   0,   0,   0,   0,   0,   0,   r*sin(yaw), 0,   -cos(yaw), 0, // xa = xc - r1 * cos(yaw1)
-              0,   0,   1,   0,   0,   0,   0,   0,  -r*cos(yaw), 0,   -sin(yaw), 0, // ya = yc - r1 * sin(yaw1)
-              0,   0,   0,   0,   1,   0,   0,   0,          0,   0,          0, 0, // za = zc1
-              0,   0,   0,   0,   0,   0,   0,   0,          0,   0,          1, 0; // yaw = yaw1
+        h <<  1,   0,   0,   0,   0,   0,   0,   0,    -cos(yaw), 0,  r*sin(yaw), 0, // xa = xc - r1 * cos(yaw1)
+              0,   0,   1,   0,   0,   0,   0,   0,    -sin(yaw), 0, -r*cos(yaw), 0,  // ya = yc - r1 * sin(yaw1)
+              0,   0,   0,   0,   1,   0,   0,   0,          0,   0,           0, 0, // za = zc1
+              0,   0,   0,   0,   0,   0,   0,   0,          0,   0,           1, 0; // yaw = yaw1
         // clang-format on
         return h;
     };
@@ -174,8 +174,8 @@ void ArmorTrackerNode::initializeEKF()
         double yaw = x(YAW2), r = x(R2);
         // clang-format off
         //    xc   v_xc yc   v_yc zc1  zc2  v_zc v_yaw r1  r2  yaw1 yaw2
-        h <<  1,   0,   0,   0,   0,   0,   0,   0,   0, r*sin(yaw),  0,  -cos(yaw), // xa = xc - r2 * cos(yaw2)
-              0,   0,   1,   0,   0,   0,   0,   0,   0,-r*cos(yaw),  0,  -sin(yaw), // ya = yc - r2 * sin(yaw2)
+        h <<  1,   0,   0,   0,   0,   0,   0,   0,  0,    -cos(yaw), 0,  r*sin(yaw), // xa = xc - r2 * cos(yaw2)
+              0,   0,   1,   0,   0,   0,   0,   0,  0,    -sin(yaw), 0, -r*cos(yaw), // ya = yc - r2 * sin(yaw2)
               0,   0,   0,   0,   0,   1,   0,   0,          0,   0,          0, 0, // za = zc2
               0,   0,   0,   0,   0,   0,   0,   0,          0,   0,          0, 1; // yaw = yaw2
         // clang-format on
@@ -203,8 +203,8 @@ void ArmorTrackerNode::initializeEKF()
         double yaw1 = x(YAW1), yaw2 = x(YAW2), r1 = x(R1), r2 = x(R2);
         // clang-format off
         //    xc   v_xc yc   v_yc zc1  zc2  v_zc v_yaw r1  r2  yaw1 yaw2
-        h <<  1,   0,   0,   0,   0,   0,   0,   0,   r1*sin(yaw1), 0,   -cos(yaw1), 0, // xa1 = xc - r1 * cos(yaw1)
-              0,   0,   1,   0,   0,   0,   0,   0,  -r1*cos(yaw1), 0,   -sin(yaw1), 0, // ya1 = yc - r1 * sin(yaw1)
+        h <<  1,   0,   0,   0,   0,   0,   0,   0,   -cos(yaw1), 0, r1*sin(yaw1), 0,   // xa1 = xc - r1 * cos(yaw1)
+              0,   0,   1,   0,   0,   0,   0,   0,   -sin(yaw1), 0, -r1*cos(yaw1), 0,   // ya1 = yc - r1 * sin(yaw1)
               0,   0,   0,   0,   1,   0,   0,   0,          0,   0,          0, 0, // za1 = zc1
               0,   0,   0,   0,   0,   0,   0,   0,          1,   0,          0, 0, // yaw1 = yaw1
               1,   0,   0,   0,   0,   0,   0,   0,          0,   -cos(yaw2), 0, r2*sin(yaw2), // xa2 = xc - r2 * cos(yaw2)
@@ -230,18 +230,18 @@ void ArmorTrackerNode::initializeEKF()
         double q_r = pow(t, 4) / 4 * r;
         // clang-format off
         //    xc      v_xc    yc      v_yc    zc1     zc2     v_zc    v_yaw   r1      r2      yaw1    yaw2
-        q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,
-              q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,      0,      0,      0,
-              0,      0,      q_y_y,  q_y_vy, 0,      0,      0,      0,      0,      0,      0,      0,
-              0,      0,      q_y_vy, q_vy_vy,0,      0,      0,      0,      0,      0,      0,      0,
-              0,      0,      0,      0,      q_z_z,  q_z_vz, 0,      0,      0,      0,      0,      0,
-              0,      0,      0,      0,      q_z_vz, q_vz_vz,0,      0,      0,      0,      0,      0,
-              0,      0,      0,      0,      0,      0,      q_z_z,  q_z_vz, 0,      0,      0,      0,
-              0,      0,      0,      0,      0,      0,      q_z_vz, q_vz_vz,0,      0,      0,      0,
-              0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,      0,
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_yaw, q_yaw_vyaw,
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw, q_vyaw_vyaw;
+        q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,          0,      0,      0,         0,
+              q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,          0,      0,      0,         0,
+              0,      0,      q_y_y,  q_y_vy, 0,      0,      0,      0,          0,      0,      0,         0,
+              0,      0,      q_y_vy, q_vy_vy,0,      0,      0,      0,          0,      0,      0,         0,
+              0,      0,      0,      0,      q_z_z,  0,      q_z_vz, 0,          0,      0,      0,         0,
+              0,      0,      0,      0,      0,      q_z_z,  q_z_vz, 0,          0,      0,      0,         0,
+              0,      0,      0,      0,      q_z_vz, q_z_vz, q_vz_vz,0,          0,      0,      0,         0,
+              0,      0,      0,      0,      0,      0,      0,      q_vyaw_vyaw,0,      0,      q_yaw_vyaw,q_yaw_vyaw,
+              0,      0,      0,      0,      0,      0,      0,      0,          q_r,    0,      0,         0,
+              0,      0,      0,      0,      0,      0,      0,      0,          0,      q_r,    0,         0,
+              0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw, 0,      0,      q_yaw_yaw, 0,
+              0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw, 0,      0,      0,         q_yaw_yaw;
         // clang-format on
         return q;
     };
@@ -404,23 +404,23 @@ void ArmorTrackerNode::publishImg(
             double sin_pitch = sin(pitch);
 
             corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z + half_height * cos_pitch);
-
-            corners_world.emplace_back(
-                armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+                armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
                 armor_y + half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
                 armor_z + half_height * cos_pitch);
 
             corners_world.emplace_back(
                 armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+                armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+                armor_z + half_height * cos_pitch);
+
+            corners_world.emplace_back(
+                armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+                armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
                 armor_z - half_height * cos_pitch);
 
             corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+                armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+                armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
                 armor_z - half_height * cos_pitch);
 
             // 将装甲板的角点从世界坐标系转换到相机坐标系
