@@ -194,10 +194,10 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
 */
 std::vector<double> Ballistic::predictInfantryBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ)
 {
-    if(target_msg.v_yaw < min_v){
+    if(abs(target_msg.v_yaw) < min_v){
         return stategy_1(T);
     }
-    else if(target_msg.v_yaw > max_v){
+    else if(abs(target_msg.v_yaw) > max_v){
         return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0, -1.0}; 
     }
     else{
@@ -223,15 +223,15 @@ std::vector<double> Ballistic::stategy_1(double T)
         if (i > 0) {
             armors[i].yaw = armors[i - 1].yaw - pi / 2;
         }
+        // 设置装甲板的高度,半径
+        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
+
         armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
         armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
         armors[i].vecto_odom = {armors[i].x, armors[i].y};
-
-        // 设置装甲板的高度,半径
-        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
-        armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
     }
 
     // 计算每个装甲板的角度，并存入 map
@@ -272,15 +272,15 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         if (i > 0) {
             armors[i].yaw = armors[i - 1].yaw - pi / 2;
         }
+        // 设置装甲板的高度,半径
+        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
+
         armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
         armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
         armors[i].vecto_odom = {armors[i].x, armors[i].y};
-
-        // 设置装甲板的高度,半径
-        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
-        armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
     }
 
     // 计算每个装甲板的角度，并存入 map

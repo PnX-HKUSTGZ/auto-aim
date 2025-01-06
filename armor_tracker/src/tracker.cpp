@@ -10,6 +10,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/convert.h>
 
+#include <cmath>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -326,6 +327,7 @@ void Tracker::initEKF(const Armor & a)
     double xc = p.x + r * cos(yaw);
     double yc = p.y + r * sin(yaw);
     target_state(XC) = xc, target_state(YC) = yc, target_state(ZC1) = target_state(ZC2) = p.z;
+    target_state(VXC) = 0, target_state(VYC) = 0, target_state(VZC) = 0, target_state(VYAW) = 0;
     target_state(YAW2) = yaw, target_state(R2) = r;
     target_state(YAW1) = yaw - M_PI / 2, target_state(R1) = r;
     ekf.setState(target_state);
@@ -346,6 +348,10 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
     std::swap(xa, xb);
     std::swap(ya, yb);
     std::swap(za, zb);
+  }
+  if(yaw_b - yaw_a < M_PI / 3){
+    RCLCPP_ERROR(rclcpp::get_logger("tracker"), "Init failed");
+    return; 
   }
   double yaw_avg = (yaw_a + yaw_b) / 2;
   yaw_a = yaw_avg - M_PI / 4; 
@@ -368,6 +374,7 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
     std::swap(za, zb);
   }
   target_state(XC) = xc, target_state(YC) = yc, target_state(ZC1) = za, target_state(ZC2) = zb;
+  target_state(VXC) = 0, target_state(VYC) = 0, target_state(VZC) = 0, target_state(VYAW) = 0;
   target_state(YAW1) = yaw_a, target_state(YAW2) = yaw_b;
   target_state(R1) = r1, target_state(R2) = r2;
   ekf.setState(target_state);
@@ -389,9 +396,9 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
   tf2::Quaternion tf_q;
   tf2::fromMsg(q, tf_q);
   double roll, pitch, yaw;
-  tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw);
+  tf2::Matrix3x3(tf_q).getEulerYPR(yaw, pitch, roll);
   // Make yaw rang right (-pi~pi to -pi/2~pi/2)
-  if (tracker_state == LOST) {
+  if (tracker_state !=  TRACKING) {
     if (yaw > M_PI / 2) {
       position.x += 2 * 0.26 * cos(yaw);
       position.y += 2 * 0.26 * sin(yaw);
@@ -426,7 +433,7 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q)
   tf2::Quaternion tf_q;
   tf2::fromMsg(q, tf_q);
   double roll, pitch, yaw;
-  tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw);
+  tf2::Matrix3x3(tf_q).getEulerYPR(yaw, pitch, roll);
   return yaw;
 }
 

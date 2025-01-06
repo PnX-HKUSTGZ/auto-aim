@@ -36,7 +36,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K1  = this->declare_parameter("iteration_coeffcient_first",0.1);
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
-    BULLET_V = this->declare_parameter("bullet_speed",24.8);
+    BULLET_V = this->declare_parameter("bullet_speed",26.0);
     ifFireK = this->declare_parameter("ifFireK",0.05);
     min_v = this->declare_parameter("swich_stategy_1",30) * M_PI / 30;
     max_v = this->declare_parameter("swich_stategy_2",120) * M_PI / 30;
