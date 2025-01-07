@@ -34,7 +34,7 @@ struct Light : public cv::RotatedRect
     length = cv::norm(top - bottom);
     width = cv::norm(p[0] - p[1]);
 
-    tilt_angle = std::atan2(std::abs(top.x - bottom.x), std::abs(top.y - bottom.y));
+    tilt_angle = std::atan2(bottom.x - top.x, bottom.y - top.y);
     tilt_angle = tilt_angle / CV_PI * 180;
   }
 
@@ -61,6 +61,7 @@ struct Armor
   // Light pairs part
   Light left_light, right_light;
   cv::Point2f center;
+  bool sign = false;  // 灯条和y轴夹角，0指向右下，1指向左下
   ArmorType type;
 
   // Number part
@@ -68,7 +69,7 @@ struct Armor
   std::string number;
   float confidence;
   std::string classfication_result;
-  double yaw; 
+  double yaw, pitch, roll; 
 };
 
 }  // namespace rm_auto_aim

@@ -132,10 +132,19 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
           rotation_matrix.at<double>(2, 2));
         tf2::Quaternion tf2_q;
         tf2_rotation_matrix.getRotation(tf2_q);
-        armor_msg.pose.orientation = tf2::toMsg(tf2_q);
-        double temp_roll, temp_pitch, temp_yaw; 
-        tf2::Matrix3x3(tf2_q).getRPY(temp_roll, temp_pitch, temp_yaw);
-        armor.yaw = temp_yaw; 
+        // get yaw
+        double roll, pitch, yaw;
+        tf2::Quaternion given_quat;
+        given_quat.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
+        tf2::Matrix3x3(given_quat * tf2_q).getEulerYPR(yaw, pitch, roll);
+        if(armor.number == "outpost") yaw = armor.sign ? abs(yaw) : -abs(yaw); 
+        else yaw = armor.sign ? -abs(yaw) : abs(yaw);
+        
+        armor.yaw = yaw;
+        armor.pitch = pitch;
+        armor.roll = roll;
+        tf2_q.setRPY(roll, pitch, yaw);
+        armor_msg.pose.orientation = tf2::toMsg(given_quat.inverse() * tf2_q);
 
         // Fill the distance to image center
         armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
@@ -273,10 +282,16 @@ void ArmorDetectorNode::drawResults(
     return;
   }
   detector_->drawResults(img);
-  // Show yaw
+  // Show yaw, pitch, roll
   for (const auto & armor : armors) {
     cv::putText(
-      img, std::to_string(armor.yaw * 180 / CV_PI), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 15), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, "y: " + std::to_string(armor.yaw / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      cv::Scalar(0, 255, 255), 2);
+    cv::putText(
+      img, "p: " + std::to_string(armor.pitch / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 45), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      cv::Scalar(0, 255, 255), 2);
+    cv::putText(
+      img, "r: " + std::to_string(armor.roll / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 70), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
   }
   // Draw camera center

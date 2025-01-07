@@ -28,6 +28,7 @@ Ballistic(double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 3
 target target_msg;
 geometry_msgs::msg::Point robotcenter;
 geometry_msgs::msg::Vector3 velocity;
+double last_yaw; 
 double bulletV;
 double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
 double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
@@ -113,8 +114,6 @@ double optimizeTime2(double initial_guess , double& x , double& y);
 double dotProduct(const std::vector<double>& v1, const std::vector<double>& v2);
 
 double angleBetweenVectors(const std::vector<double>& v1, const std::vector<double>& v2);
-
-double sortFourdoubles(double a, double b, double c, double d);
 
 
 };
