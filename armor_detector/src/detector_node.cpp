@@ -132,16 +132,19 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
           rotation_matrix.at<double>(2, 2));
         tf2::Quaternion tf2_q;
         tf2_rotation_matrix.getRotation(tf2_q);
-        armor_msg.pose.orientation = tf2::toMsg(tf2_q);
-
         // get yaw
         double roll, pitch, yaw;
         tf2::Quaternion given_quat;
         given_quat.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
         tf2::Matrix3x3(given_quat * tf2_q).getEulerYPR(yaw, pitch, roll);
+        if(armor.number == "outpost") yaw = armor.sign ? abs(yaw) : -abs(yaw); 
+        else yaw = armor.sign ? -abs(yaw) : abs(yaw);
+        
         armor.yaw = yaw;
         armor.pitch = pitch;
         armor.roll = roll;
+        tf2_q.setRPY(roll, pitch, yaw);
+        armor_msg.pose.orientation = tf2::toMsg(given_quat.inverse() * tf2_q);
 
         // Fill the distance to image center
         armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);

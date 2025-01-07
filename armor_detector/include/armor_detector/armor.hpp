@@ -61,6 +61,7 @@ struct Armor
   // Light pairs part
   Light left_light, right_light;
   cv::Point2f center;
+  bool sign = false;  // 灯条和y轴夹角，0指向右下，1指向左下
   ArmorType type;
 
   // Number part
