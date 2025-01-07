@@ -108,13 +108,6 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
   rune_msg.header.stamp = timestamp;
   rune_msg.is_big_rune = is_big_rune_;
 
-  // 删除所有不匹配颜色的对象
-  objs.erase(
-    std::remove_if(objs.begin(),
-                   objs.end(),
-                   [c = detect_color_](const auto &obj) -> bool { return obj.color != c; }),
-    objs.end());
-
   if (!objs.empty()) {
 
     cv::Point2f r_tag;

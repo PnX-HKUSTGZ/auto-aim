@@ -48,10 +48,12 @@ constexpr double MAX_RUNE_DISTANCE = 9.0;
 // Rune object points
 // r_tag, bottom_left, top_left, top_right, bottom_right
 const std::vector<cv::Point3f> RUNE_OBJECT_POINTS = {cv::Point3f(0, 0, 0) / 1000,
-                                                     cv::Point3f(0, -541.5, 186) / 1000,
-                                                     cv::Point3f(0, -858.5, 160) / 1000,
-                                                     cv::Point3f(0, -858.5, -160) / 1000,
-                                                     cv::Point3f(0, -541.5, -186) / 1000};
+                                                     cv::Point3f(0, -184, 186) / 1000,
+                                                     cv::Point3f(0, -514, 0) / 1000,
+                                                     cv::Point3f(0, -550, 0) / 1000,
+                                                     cv::Point3f(0, -700, 150) / 1000,
+                                                     cv::Point3f(0, -700, -150) / 1000,
+                                                     cv::Point3f(0, -850, 0) / 1000};
 
 #define BIG_RUNE_CURVE(x, a, omega, b, c, d, sign) \
   ((-((a) / (omega) * ceres::cos((omega) * ((x) + (d)))) + (b) * ((x) + (d)) + (c)) * (sign))

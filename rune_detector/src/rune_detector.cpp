@@ -24,14 +24,14 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     }
     center = signal_points_hitting[0] + (signal_points_hitting[1] - signal_points_hitting[0]) * 0.5;
     std::vector<std::vector<cv::Point2f>> signal_points_hit = processhitLights();
-    for(int i = 0; i < signal_points_hit.size(); i++){
-        if(signal_points_hit[i].size() == 6){
-            rune_object.pts.arm_bottom = signal_points_hit[i][0];
-            rune_object.pts.arm_top = signal_points_hit[i][1];
-            rune_object.pts.hit_bottom = signal_points_hit[i][2];
-            rune_object.pts.hit_left = signal_points_hit[i][3];
-            rune_object.pts.hit_top = signal_points_hit[i][4];
-            rune_object.pts.hit_right = signal_points_hit[i][5];
+    for(auto & signal_point_hit : signal_points_hit){
+        if(signal_point_hit.size() == 6){
+            rune_object.pts.arm_bottom = signal_point_hit[0];
+            rune_object.pts.arm_top = signal_point_hit[1];
+            rune_object.pts.hit_bottom = signal_point_hit[2];
+            rune_object.pts.hit_left = signal_point_hit[3];
+            rune_object.pts.hit_top = signal_point_hit[4];
+            rune_object.pts.hit_right = signal_point_hit[5];
             rune_object.type = RuneType::INACTIVATED;
             rune_objects.push_back(rune_object);
         }
@@ -591,7 +591,6 @@ cv::RotatedRect RuneDetector::fitEllipseRANSAC(const std::vector<cv::Point>& poi
 
             // 计算内点数量
             int inliers = 0;
-            #pragma omp parallel for reduction(+:inliers)
             for (const auto& point : points) {
                 if (pointToEllipseDistance(point, ellipse) < distance_threshold) {
                     inliers++;
