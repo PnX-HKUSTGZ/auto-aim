@@ -34,7 +34,7 @@ struct Light : public cv::RotatedRect
     length = cv::norm(top - bottom);
     width = cv::norm(p[0] - p[1]);
 
-    tilt_angle = std::atan2(std::abs(top.x - bottom.x), std::abs(top.y - bottom.y));
+    tilt_angle = std::atan2(bottom.x - top.x, bottom.y - top.y);
     tilt_angle = tilt_angle / CV_PI * 180;
   }
 

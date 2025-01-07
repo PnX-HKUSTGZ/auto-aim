@@ -37,8 +37,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
     BULLET_V = this->declare_parameter("bullet_speed",26.0);
-    ifFireK = this->declare_parameter("ifFireK",0.05);
-    min_v = this->declare_parameter("swich_stategy_1",30) * M_PI / 30;
+    ifFireK = this->declare_parameter("ifFireK",0.02);
+    min_v = this->declare_parameter("swich_stategy_1",5) * M_PI / 30;
     max_v = this->declare_parameter("swich_stategy_2",120) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
 
@@ -91,9 +91,8 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
     t.transform.rotation.w);
     double roll, pitch, yaw;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-    
     //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-    return std::abs(pitch - targetpitch) < ifFireK && std::abs(yaw - targetyaw) < ifFireK;
+    return std::abs(pitch - targetpitch) < ifFireK && std::abs(-yaw - targetyaw) < ifFireK;
 
 }
 

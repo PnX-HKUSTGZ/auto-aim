@@ -96,7 +96,7 @@ bool Detector::isLight(const Light & light)//findlights中用于判断是否为�
   float ratio = light.width / light.length;
   bool ratio_ok = l.min_ratio < ratio && ratio < l.max_ratio;
 
-  bool angle_ok = light.tilt_angle < l.max_angle;
+  bool angle_ok = abs(light.tilt_angle) < l.max_angle;
 
   bool is_light = ratio_ok && angle_ok;
 
@@ -104,7 +104,7 @@ bool Detector::isLight(const Light & light)//findlights中用于判断是否为�
   auto_aim_interfaces::msg::DebugLight light_data;
   light_data.center_x = light.center.x;
   light_data.ratio = ratio;
-  light_data.angle = light.tilt_angle;
+  light_data.angle = abs(light.tilt_angle);
   light_data.is_light = is_light;
 
   this->debug_lights.data.emplace_back(light_data);
@@ -131,7 +131,7 @@ std::vector<Armor> Detector::matchLights(const std::vector<Light> & lights)//将
         auto armor = Armor(*light_1, *light_2);
         armor.type = type;
         double theta_1 = light_1->tilt_angle, theta_2 = light_2->tilt_angle;
-        armor.sign = (theta_1 + theta_2) / 2 <= 90;
+        armor.sign = (theta_1 + theta_2) / 2 <= 0;
         armors.emplace_back(armor);
       }
     }

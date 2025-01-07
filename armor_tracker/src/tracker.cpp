@@ -396,7 +396,7 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
   tf2::Quaternion tf_q;
   tf2::fromMsg(q, tf_q);
   double roll, pitch, yaw;
-  tf2::Matrix3x3(tf_q).getEulerYPR(yaw, pitch, roll);
+  tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw); 
   // Make yaw rang right (-pi~pi to -pi/2~pi/2)
   if (tracker_state !=  TRACKING) {
     if (yaw > M_PI / 2) {
@@ -412,15 +412,15 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
   }
   else{
     Eigen::Vector3d center(target_state(XC), target_state(YC), target_state(ZC1));
-    double r = sqrt(pow(position.x - center.x(), 2) + pow(position.y - center.y(), 2));
+    double r1 = target_state(R1), r2 = target_state(R2); 
     if(yaw > M_PI / 2){
-      position.x += 2 * r * cos(yaw);
-      position.y += 2 * r * sin(yaw);
+      position.x += 2 * r1 * cos(yaw);
+      position.y += 2 * r1 * sin(yaw);
       yaw -= M_PI;
     }
     if(yaw < -M_PI / 2){
-      position.x += 2 * r * cos(yaw);
-      position.y += 2 * r * sin(yaw);
+      position.x += 2 * r2 * cos(yaw);
+      position.y += 2 * r2 * sin(yaw);
       yaw += M_PI;
     }
   }
@@ -433,7 +433,7 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q)
   tf2::Quaternion tf_q;
   tf2::fromMsg(q, tf_q);
   double roll, pitch, yaw;
-  tf2::Matrix3x3(tf_q).getEulerYPR(yaw, pitch, roll);
+  tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw); 
   return yaw;
 }
 
