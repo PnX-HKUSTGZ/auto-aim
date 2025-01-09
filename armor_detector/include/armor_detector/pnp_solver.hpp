@@ -33,9 +33,9 @@ private:
   cv::Mat dist_coeffs_;
 
   // Unit: mm
-  static constexpr float SMALL_ARMOR_WIDTH = 133;
+  static constexpr float SMALL_ARMOR_WIDTH = 130;
   static constexpr float SMALL_ARMOR_HEIGHT = 47;
-  static constexpr float LARGE_ARMOR_WIDTH = 223;
+  static constexpr float LARGE_ARMOR_WIDTH = 220;
   static constexpr float LARGE_ARMOR_HEIGHT = 47;
 
   // Four vertices of armor in 3d

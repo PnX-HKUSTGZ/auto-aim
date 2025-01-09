@@ -66,12 +66,11 @@ private:
 
   void updateArmorsNum(const Armor & a);
 
-  double orientationToYaw(const geometry_msgs::msg::Quaternion & q, geometry_msgs::msg::Point & position);
+  double orientationToYaw(const geometry_msgs::msg::Quaternion & q, geometry_msgs::msg::Point & position, const double & yaw_target);
   double orientationToYaw(const geometry_msgs::msg::Quaternion & q); //overload
   double calYawDiff(double yaw1, double yaw2); 
 
-  Eigen::Vector3d getArmorPositionFromState1(const Eigen::VectorXd & x);
-  Eigen::Vector3d getArmorPositionFromState2(const Eigen::VectorXd & x);
+  std::vector<Eigen::Vector3d> getArmorPositionFromState(const Eigen::VectorXd & x);
 
   double max_match_distance_;
   double max_match_yaw_diff_;

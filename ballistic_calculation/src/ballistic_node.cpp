@@ -39,7 +39,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     BULLET_V = this->declare_parameter("bullet_speed",26.0);
     ifFireK = this->declare_parameter("ifFireK",0.02);
     min_v = this->declare_parameter("swich_stategy_1",5) * M_PI / 30;
-    max_v = this->declare_parameter("swich_stategy_2",120) * M_PI / 30;
+    max_v = this->declare_parameter("swich_stategy_2",30) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
 
     calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V);
@@ -92,7 +92,7 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
     double roll, pitch, yaw;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
     //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-    return std::abs(pitch - targetpitch) < ifFireK && std::abs(-yaw - targetyaw) < ifFireK;
+    return std::abs(-yaw - targetyaw) < ifFireK;
 
 }
 
