@@ -166,6 +166,19 @@ void BallisticCalculateNode::timerCallback()
             iffire_result = final_result;
         }
     }
+    else if (target_msg->armors_num == 3 ){
+        std::vector<double>hit_aim = calculator->predictOutpostBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
+        chosen_yaw = hit_aim[0];
+        z = hit_aim[1];  
+        r = hit_aim[2];
+        //返回的结果是4个，说明是第三种策略
+            std::vector<double>hit_aim_fire = calculator->stategy_1_HeroAimingOutpost(temp_t);
+            //计算是否开火
+            iffire_result = calculator->iteration2(THRES2 , temp_theta , temp_t , hit_aim_fire[0] , hit_aim_fire[1] , hit_aim_fire[2]);
+            //计算瞄准目标
+            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
+        
+    }
     else{
       RCLCPP_ERROR(this->get_logger(),"The number of armors is not 4");
     }

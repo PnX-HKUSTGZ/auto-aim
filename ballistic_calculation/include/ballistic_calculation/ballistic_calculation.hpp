@@ -28,7 +28,7 @@ Ballistic(double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 3
 target target_msg;
 geometry_msgs::msg::Point robotcenter;
 geometry_msgs::msg::Vector3 velocity;
-double last_yaw; 
+double last_yaw=0; 
 double bulletV;
 double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
 double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
@@ -49,7 +49,9 @@ struct armor_info{
     double r;
 };
 std::vector<double> predictInfantryBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ); 
+std::vector<double> predictOutpostBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ);
 std::vector<double> stategy_1(double T); 
+std::vector<double> stategy_1_HeroAimingOutpost(double T);
 std::vector<double> stategy_2(double T, double v_yaw_PTZ);
 double findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius); 
 
