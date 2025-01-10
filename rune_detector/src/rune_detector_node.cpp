@@ -16,6 +16,7 @@
 // ros2
 #include <cv_bridge/cv_bridge.h>
 #include <rmw/qos_profiles.h>
+#include <opencv2/highgui.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -93,6 +94,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
   timestamp = rclcpp::Time(msg->header.stamp);
   frame_id_ = msg->header.frame_id;
   auto src_img = cv_bridge::toCvCopy(msg, "rgb8")->image;
+  cv::cvtColor(src_img, src_img, cv::COLOR_BGR2RGB);
 
   // 将图像推送到检测器
   std::vector<RuneObject> objs = rune_detector_->detectRune(src_img);
@@ -145,7 +147,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     // 最终目标是未激活的符文
     auto result_it =
       std::find_if(objs.begin(), objs.end(), [](const auto &obj) -> bool {
-        return obj.type == RuneType::INACTIVATED;
+        return obj.type == RuneType::ACTIVATED;
       });
 
     if (result_it != objs.end()) {
@@ -185,14 +187,14 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     // 绘制检测结果
     for (auto &obj : objs) {
       auto pts = obj.pts.toVector2f();
-      cv::Point2f aim_point = std::accumulate(pts.begin() + 1, pts.end(), cv::Point2f(0, 0)) / 4;
+      cv::Point2f aim_point = std::accumulate(pts.begin() + 3, pts.end(), cv::Point2f(0, 0)) / 4;
 
       cv::Scalar line_color =
-        obj.type == RuneType::INACTIVATED ? cv::Scalar(50, 255, 50) : cv::Scalar(255, 50, 255);
+        obj.type == RuneType::ACTIVATED ? cv::Scalar(50, 255, 50) : cv::Scalar(255, 50, 255);
       cv::polylines(debug_img, obj.pts.toVector2i(), true, line_color, 2);
       cv::circle(debug_img, aim_point, 5, line_color, -1);
 
-      std::string rune_type = obj.type == RuneType::INACTIVATED ? "_HIT" : "_OK";
+      std::string rune_type = obj.type == RuneType::ACTIVATED ? "_HIT" : "_OK";
       std::string rune_color = enemyColorToString(detect_color_);
       cv::putText(debug_img,
                   rune_color + rune_type,
@@ -213,6 +215,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
                 0.8,
                 cv::Scalar(0, 255, 255),
                 2);
+    cv::cvtColor(debug_img, debug_img, cv::COLOR_BGR2RGB);
     result_img_pub_.publish(cv_bridge::CvImage(rune_msg.header, "rgb8", debug_img).toImageMsg());
   }
 }

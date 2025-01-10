@@ -194,6 +194,9 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
 
       // 转换到 odom 坐标系
       ps = tf2_buffer_->transform(ps, "odom");
+      double roll, pitch, yaw;
+      tf2::Quaternion quat_tf(ps.pose.orientation.x, ps.pose.orientation.y, ps.pose.orientation.z, ps.pose.orientation.w);
+      tf2::Matrix3x3(quat_tf).getRPY(roll, pitch, yaw);
 
       // 填充姿态
       pose(0, 3) = ps.pose.position.x;
@@ -224,7 +227,7 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
 double RuneSolver::getNormalAngle(const auto_aim_interfaces::msg::Rune::SharedPtr received_target) {
   auto center_point = cv::Point2f(received_target->pts[0].x, received_target->pts[0].y);
   std::array<cv::Point2f, ARMOR_KEYPOINTS_NUM> armor_points;
-  std::transform(received_target->pts.begin() + 1,
+  std::transform(received_target->pts.begin() + 3,
                  received_target->pts.end(),
                  armor_points.begin(),
                  [](const auto &pt) { return cv::Point2f(pt.x, pt.y); });
@@ -232,10 +235,7 @@ double RuneSolver::getNormalAngle(const auto_aim_interfaces::msg::Rune::SharedPt
   cv::Point2f armor_center = getCenterPoint(armor_points);
   double x_diff = armor_center.x - center_point.x;
   double y_diff = -(armor_center.y - center_point.y);
-  double tan_camera = y_diff / x_diff; //通过yaw角把相机坐标系下的roll转换到能量机关坐标系的roll
-  double cos_yaw = cos(ekf_state_(3));
-  double tan_roll = tan_camera * cos_yaw;
-  double normal_angle = std::atan2(tan_roll, 1);
+  double normal_angle = std::atan2(y_diff, x_diff);
   // 归一化角度
   normal_angle = angles::normalize_angle_positive(normal_angle);
 

@@ -1,4 +1,5 @@
 #include "rune_detector/rune_detector.hpp"
+#include <opencv2/highgui.hpp>
 #include "rune_detector/types.hpp"
 namespace rm_auto_aim {
 RuneDetector::RuneDetector(int max_iterations, double distance_threshold, double prob_threshold, EnemyColor detect_color): 
@@ -7,7 +8,24 @@ RuneDetector::RuneDetector(int max_iterations, double distance_threshold, double
 }
 std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     frame = img.clone(); 
-    preprocess(); 
+    cv::Mat gray;
+
+    // 转换为灰度图像
+    cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+
+    // 二值化
+    cv::threshold(gray, aim_img, 80, 255, cv::THRESH_BINARY);
+
+    // 定义结构元素
+    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::Mat element_erode = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+
+    // 流水灯，先膨胀后侵蚀
+    cv::dilate(aim_img, flow_img, element_dilate);
+    cv::erode(flow_img, flow_img, element_erode);
+
+    hitting_light_mask = cv::Mat::ones(aim_img.size(), aim_img.type()); // 击打灯条的蒙版初始化
+
     std::vector<RuneObject> rune_objects; 
     RuneObject rune_object;
     std::vector<cv::Point2f> signal_points_hitting = processHittingLights();
@@ -22,7 +40,12 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
         rune_object.type = RuneType::ACTIVATED;
         rune_objects.push_back(rune_object);
     }
+    
     center = signal_points_hitting[0] + (signal_points_hitting[1] - signal_points_hitting[0]) * 0.5;
+    aim_img = aim_img.mul(hitting_light_mask);
+    cv::erode(aim_img, arm_img, element_dilate);
+    cv::dilate(aim_img, hit_img, element_dilate);
+
     std::vector<std::vector<cv::Point2f>> signal_points_hit = processhitLights();
     for(auto & signal_point_hit : signal_points_hit){
         if(signal_point_hit.size() == 6){
@@ -263,29 +286,6 @@ std::tuple<cv::Point2f, cv::Mat> RuneDetector::detectRTag(const cv::Mat &img, co
 
     return {center, binary_img};
 }
-void RuneDetector::preprocess() {
-    cv::Mat gray;
-
-    // 转换为灰度图像
-    cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-
-    // 二值化
-    cv::threshold(gray, aim_img, 80, 255, cv::THRESH_BINARY);
-
-    // 定义结构元素
-    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
-    cv::Mat element_erode = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-
-    // 流水灯，先膨胀后侵蚀
-    cv::dilate(aim_img, flow_img, element_dilate);
-    cv::erode(flow_img, flow_img, element_erode);
-
-    hitting_light_mask = cv::Mat::ones(aim_img.size(), aim_img.type()); // 击打灯条的蒙版初始化
-
-    cv::erode(aim_img, arm_img, element_dilate);//实心旋臂，侵蚀排除流水灯
-
-    cv::dilate(aim_img, hit_img, element_dilate);//击打完的目标灯，膨胀使圆闭合
-}
 // 计算角度差
 double RuneDetector::calculateAngleDifference(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse) {
     cv::Point2f rect_center = rect.center;
@@ -475,34 +475,31 @@ std::vector<cv::Point2f> RuneDetector::getSignalPoints(const cv::RotatedRect& el
     // 4. 找到距离矩形中心最近的点放在位置 [2]，其余按顺时针顺序放 [3]、[4]、[5]
     // 先找距离 rect.center 最近的点
     float min_dist = 1e9f;
-    int   min_idx = 0;
     for(int i=0; i<4; i++){
         float dist = cv::norm(four_pts[i] - rect.center);
         if(dist < min_dist){
             min_dist = dist;
-            min_idx = i;
         }
     }
-    // 把最近的点放 2 号
-    result[2] = four_pts[min_idx];
     
     // 剩下 3 个点，按顺时针顺序放 [3],[4],[5]
-    // 可先把最近点移除，再以矩形中心为参考进行 atan2 排序
-    cv::Point2f base = rect.center;
-    std::vector<cv::Point2f> remain;
-    for(int i=0; i<4; i++){
-        if(i != min_idx) remain.push_back(four_pts[i]);
-    }
+    cv::Point2f base = ellipse.center;
     // 以矩形中心为参考，按顺时针(atan2)排序
-    std::sort(remain.begin(), remain.end(), 
+    std::sort(four_pts.begin(), four_pts.end(), 
               [base](const cv::Point2f &p1, const cv::Point2f &p2){
                   double a1 = std::atan2(p1.y - base.y, p1.x - base.x);
                   double a2 = std::atan2(p2.y - base.y, p2.x - base.x);
                   return a1 < a2;
               });
-    result[3] = remain[0];
-    result[4] = remain[1];
-    result[5] = remain[2];
+    for(int i = 0; i < 4; i++){
+        float dist = cv::norm(four_pts[i] - rect.center);
+        if(dist == min_dist){
+            for(int j = i; j < 4 + i; j++){
+                result[j - i + 2] = four_pts[j % 4];
+            }
+            break;
+        }
+    }
 
     return result;
 }
@@ -533,8 +530,16 @@ cv::Rect RuneDetector::calculateROI(const cv::RotatedRect& rect) {
     // 计算正方形ROI的边长
     double roi_side_length = long_edge_length * (400.0 / 330.0);
 
-    // 以B1为中心计算正方形ROI
-    cv::Rect roi(b.x - roi_side_length / 2, b.y - roi_side_length / 2, roi_side_length, roi_side_length);
+    // 计算 ROI 并检查边界
+    cv::Rect roi(
+        b.x - roi_side_length / 2, 
+        b.y - roi_side_length / 2, 
+        roi_side_length, 
+        roi_side_length
+    );
+    
+    // 确保 ROI 在图像范围内
+    roi &= cv::Rect(0, 0, hitting_light_mask.cols, hitting_light_mask.rows);
     return roi;
 }
 // 计算点到椭圆的距离
@@ -662,8 +667,19 @@ cv::RotatedRect RuneDetector::detectBestEllipse(const cv::Mat& src) {
 }
 
 bool RuneDetector::isRightColor(const cv::RotatedRect& rect){
-    if(frame.empty()) return false;
-    cv::Mat roi = frame(cv::Rect(rect.center.x - rect.size.width / 2, rect.center.y - rect.size.height / 2, rect.size.width, rect.size.height));
+    // 计算 ROI
+    cv::Rect roi_rect(
+        rect.center.x - rect.size.width / 2, 
+        rect.center.y - rect.size.height / 2, 
+        rect.size.width, 
+        rect.size.height
+    );
+    
+    // 边界检查
+    roi_rect &= cv::Rect(0, 0, frame.cols, frame.rows);
+    if(roi_rect.area() == 0) return false;
+    
+    cv::Mat roi = frame(roi_rect);
     cv::Scalar mean_color = cv::mean(roi);
     if(detect_color == EnemyColor::RED){
         return mean_color[2] > mean_color[0] && mean_color[2] > mean_color[1];

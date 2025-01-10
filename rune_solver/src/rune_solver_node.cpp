@@ -40,7 +40,7 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions &options) : Node("rune_
   auto rune_solver_params = RuneSolver::RuneSolverParams{
     .compensator_type = declare_parameter("compensator_type", "ideal"),
     .gravity = declare_parameter("gravity", 9.8),
-    .bullet_speed = declare_parameter("bullet_speet", 28.0),
+    .bullet_speed = declare_parameter("bullet_speet", 26.0),
     .angle_offset_thres = declare_parameter("angle_offset_thres", 0.78), 
     .lost_time_thres = declare_parameter("lost_time_thres", 0.5),
     .auto_type_determined = declare_parameter("auto_type_determined", true),
@@ -164,6 +164,7 @@ void RuneSolverNode::timerCallback() {
   rune_target.header.stamp = stamp; 
   rune_target.header.frame_id = "odom";
   rune_solver_->pubTargetPosition(rune_target);
+  rune_target_pub_->publish(rune_target);
 
   if (debug_) {
     // 发布拟合信息

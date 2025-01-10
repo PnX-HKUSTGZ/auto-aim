@@ -64,21 +64,23 @@ enum class RuneType { INACTIVATED = 0, ACTIVATED };
 
 struct FeaturePoints {
   FeaturePoints() {
+    r_center = cv::Point2f(-1, -1);
     arm_bottom = cv::Point2f(-1, -1); 
     arm_top = cv::Point2f(-1, -1);
     hit_bottom = cv::Point2f(-1, -1);
     hit_left = cv::Point2f(-1, -1);
-    hit_right = cv::Point2f(-1, -1);
     hit_top = cv::Point2f(-1, -1);
+    hit_right = cv::Point2f(-1, -1);
   }
 
   void reset() {
+    r_center = cv::Point2f(-1, -1);
     arm_bottom = cv::Point2f(-1, -1);
     arm_top = cv::Point2f(-1, -1);
     hit_bottom = cv::Point2f(-1, -1);
     hit_left = cv::Point2f(-1, -1);
-    hit_right = cv::Point2f(-1, -1);
     hit_top = cv::Point2f(-1, -1);
+    hit_right = cv::Point2f(-1, -1);
   }
 
   FeaturePoints operator+(const FeaturePoints &other) {
@@ -87,8 +89,8 @@ struct FeaturePoints {
     res.arm_top = arm_top + other.arm_top;
     res.hit_bottom = hit_bottom + other.hit_bottom;
     res.hit_left = hit_left + other.hit_left;
-    res.hit_right = hit_right + other.hit_right;
     res.hit_top = hit_top + other.hit_top;
+    res.hit_right = hit_right + other.hit_right;
     return res;
   }
 
@@ -104,10 +106,10 @@ struct FeaturePoints {
   }
 
   std::vector<cv::Point2f> toVector2f() const {
-    return {arm_bottom, arm_top, hit_bottom, hit_left, hit_right, hit_top};
+    return {r_center, arm_bottom, arm_top, hit_bottom, hit_left, hit_top, hit_right};
   }
   std::vector<cv::Point> toVector2i() const {
-    return {arm_bottom, arm_top, hit_bottom, hit_left, hit_right, hit_top};
+    return {r_center, hit_left, hit_top, hit_right};
   }
 
   cv::Point2f getRCenter() {
@@ -115,13 +117,13 @@ struct FeaturePoints {
     return r_center;
   }
 
+  cv::Point2f r_center;
   cv::Point2f arm_bottom; 
   cv::Point2f arm_top;
   cv::Point2f hit_bottom;
   cv::Point2f hit_left;
-  cv::Point2f hit_right;
   cv::Point2f hit_top;
-  cv::Point2f r_center;
+  cv::Point2f hit_right;
 };
 
 struct RuneObject {

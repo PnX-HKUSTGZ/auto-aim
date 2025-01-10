@@ -48,7 +48,6 @@ public:
     std::vector<RuneObject> detectRune(const cv::Mat &img); // 检测能量机关
 
 private:
-    void preprocess(); // 预处理函数
     double calculateAngleDifference(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算角度差
     double calculateAxisLength(const cv::RotatedRect& ellipse, const cv::Point2f& direction); // 计算椭圆沿特定方向的轴的长度
     double calculateRatioDifferenceHitting(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算比例差
