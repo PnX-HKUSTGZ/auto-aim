@@ -171,7 +171,7 @@ void BallisticCalculateNode::timerCallback()
         chosen_yaw = hit_aim[0];
         z = hit_aim[1];  
         r = hit_aim[2];
-        //返回的结果是4个，说明是第三种策略
+        //返回的结果是4个，是第三种策略
             std::vector<double>hit_aim_fire = calculator->stategy_1_HeroAimingOutpost(temp_t);
             //计算是否开火
             iffire_result = calculator->iteration2(THRES2 , temp_theta , temp_t , hit_aim_fire[0] , hit_aim_fire[1] , hit_aim_fire[2]);

@@ -278,7 +278,7 @@ std::vector<double> Ballistic::stategy_1_HeroAimingOutpost(double T)//4 armors -
     // C++
     const double pi = 3.1415926;
     std::vector<Ballistic::armor_info> armors(3);
-
+    double rr =0.325; // 前哨站专属半径
     // 计算未来 T 时间的中心位置
     double newyaw = target_msg.yaw + target_msg.v_yaw * T;
     double newxc = target_msg.position.x + target_msg.velocity.x * T;
@@ -293,7 +293,7 @@ std::vector<double> Ballistic::stategy_1_HeroAimingOutpost(double T)//4 armors -
             armors[i].yaw = armors[i - 1].yaw - (2*pi / 3);
         }
         // 设置装甲板的高度,半径
-        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        armors[i].r = rr;
         armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
 
         armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
