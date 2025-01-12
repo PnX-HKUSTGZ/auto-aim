@@ -13,10 +13,10 @@ PnPSolver::PnPSolver(
   dist_coeffs_(cv::Mat(1, 5, CV_64F, const_cast<double *>(dist_coeffs.data())).clone())
 {
   // Unit: m,是真实长度
-  constexpr double small_half_y = SMALL_ARMOR_WIDTH / 2.0 / 1000.0;
-  constexpr double small_half_z = SMALL_ARMOR_HEIGHT / 2.0 / 1000.0;
-  constexpr double large_half_y = LARGE_ARMOR_WIDTH / 2.0 / 1000.0;
-  constexpr double large_half_z = LARGE_ARMOR_HEIGHT / 2.0 / 1000.0;
+  constexpr double small_half_y = SMALL_ARMOR_WIDTH / 2.0;
+  constexpr double small_half_z = SMALL_ARMOR_HEIGHT / 2.0;
+  constexpr double large_half_y = LARGE_ARMOR_WIDTH / 2.0;
+  constexpr double large_half_z = LARGE_ARMOR_HEIGHT / 2.0;
   
   // Start from bottom left in clockwise order
   // Model coordinate: x forward, y left, z up
@@ -31,7 +31,7 @@ PnPSolver::PnPSolver(
   large_armor_points_.emplace_back(cv::Point3f(0, -large_half_y, 0));
 }
 
-bool PnPSolver::solvePnP(const Armor & armor, cv::Mat & rvec, cv::Mat & tvec)
+bool PnPSolver::solvePnP(const Armor & armor, std::vector<cv::Mat> & rvecs, std::vector<cv::Mat> & tvecs)
 {
   std::vector<cv::Point2f> image_armor_points;
   
@@ -48,7 +48,7 @@ bool PnPSolver::solvePnP(const Armor & armor, cv::Mat & rvec, cv::Mat & tvec)
   // Solve pnp
   auto object_points = armor.type == ArmorType::SMALL ? small_armor_points_ : large_armor_points_;
   return cv::solvePnP(
-    object_points, image_armor_points, camera_matrix_, dist_coeffs_, rvec, tvec, false,
+    object_points, image_armor_points, camera_matrix_, dist_coeffs_, rvecs, tvecs, false,
     cv::SOLVEPNP_IPPE);
 }
 

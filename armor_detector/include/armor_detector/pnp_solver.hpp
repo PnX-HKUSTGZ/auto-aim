@@ -23,7 +23,7 @@ public:
     const std::vector<double> & distortion_coefficients);
 
   // Get 3d position
-  bool solvePnP(const Armor & armor, cv::Mat & rvec, cv::Mat & tvec);
+  bool solvePnP(const Armor & armor, std::vector<cv::Mat> & rvecs, std::vector<cv::Mat> & tvecs);
 
   // Calculate the distance between armor center and image center
   float calculateDistanceToCenter(const cv::Point2f & image_point);
@@ -31,12 +31,6 @@ public:
 private:
   cv::Mat camera_matrix_;
   cv::Mat dist_coeffs_;
-
-  // Unit: mm
-  static constexpr float SMALL_ARMOR_WIDTH = 130;
-  static constexpr float SMALL_ARMOR_HEIGHT = 47;
-  static constexpr float LARGE_ARMOR_WIDTH = 220;
-  static constexpr float LARGE_ARMOR_HEIGHT = 47;
 
   // Four vertices of armor in 3d
   std::vector<cv::Point3f> small_armor_points_;
