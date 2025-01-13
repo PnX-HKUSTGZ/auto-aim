@@ -206,7 +206,15 @@ std::vector<double> Ballistic::predictInfantryBestArmor(double T, double min_v, 
 }
 std::vector<double> Ballistic::predictOutpostBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ)
 {
-   return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0, -1.0}; 
+    if(abs(target_msg.v_yaw) < min_v){
+        return stategy_1_Outpost(T);
+    }
+    else if(abs(target_msg.v_yaw) > max_v){
+        return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0, -1.0}; 
+    }
+    else{
+        return stategy_2_Outpost(T, v_yaw_PTZ);
+    }
 }
 std::vector<double> Ballistic::stategy_1(double T)
 {
@@ -365,6 +373,66 @@ std::vector<double> Ballistic::stategy_1_Outpost(double T)//4 armors -> 3 armors
     last_yaw = chosen_armor.yaw;
 
     return {chosen_armor.yaw - target_msg.v_yaw * T , chosen_armor.z, chosen_armor.r};
+}
+std::vector<double> Ballistic::stategy_2_Outpost(double T, double v_yaw_PTZ)
+{
+    // C++
+    const double pi = 3.1415926;
+    std::vector<Ballistic::armor_info> armors(3);
+     double rr =0.325; 
+    // 计算未来 T 时间的中心位置
+    double newyaw = target_msg.yaw + target_msg.v_yaw * T;
+    double newxc = target_msg.position.x + target_msg.velocity.x * T;
+    double newyc = target_msg.position.y + target_msg.velocity.y * T;
+
+    // 初始化第一个装甲板的偏航角
+    armors[0].yaw = newyaw;
+
+    // 按顺时针方向计算每个装甲板的 yaw，并计算其坐标
+    for (int i = 0; i < 4; ++i) {
+        if (i > 0) {
+            armors[i].yaw = armors[i - 1].yaw - pi / 2;
+        }
+        // 设置装甲板的高度,半径
+        armors[i].r = rr;
+        armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
+
+        armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
+        armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
+
+        armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
+        armors[i].vecto_odom = {armors[i].x, armors[i].y};
+    }
+
+    // 计算每个装甲板的角度，并存入 map
+    std::map<double, armor_info> armorlist_map;
+    std::vector<double> angles(4);
+    for (int i = 0; i < 4; ++i) {
+        angles[i] = angleBetweenVectors(armors[i].vec, armors[i].vecto_odom);
+        armorlist_map[angles[i]] = armors[i];
+    }
+
+    // 找到最小的角度对应的装甲板
+    sort(angles.begin(), angles.end());
+    armor_info chosen_armor = armorlist_map[angles[0]];
+    /*
+    yaw, yaw_PTZ未知
+    t = (pi/2 - 2*yaw)/v_yaw
+    2 * yaw_PTZ = t * v_yaw_PTZ
+    so:
+    2 * yaw_PTZ = (pi/2 - 2*yaw) / v_yaw * v_yaw_PTZ
+    sin(pi - yaw - yaw_PTZ) / distance = sin(yaw) / radius
+    联立解得yaw
+    */
+    double yaw = findYaw(target_msg.v_yaw, v_yaw_PTZ, sqrt(pow(newxc, 2) + pow(newyc, 2)), chosen_armor.r); // 通过迭代计算得到的 yaw
+    //std::cout << "giveup_yaw: " << yaw << std::endl;
+    if (chosen_armor.yaw > yaw) {
+        chosen_armor = armorlist_map[angles[1]]; 
+        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+    }
+    else {
+        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+    }
 }
 double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius) {
     // 常量定义

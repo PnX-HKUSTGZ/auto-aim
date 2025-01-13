@@ -135,7 +135,8 @@ void BallisticCalculateNode::timerCallback()
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
     double init_t = std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y) / (cos(init_pitch) * this->calculator->bulletV);
-    
+    //发布消息
+    firemsg fire_msg;
     
     std::pair<double,double> first_iteration_result = this->calculator->iteration1(THRES1 , init_pitch , init_t);
     
@@ -166,16 +167,20 @@ void BallisticCalculateNode::timerCallback()
             iffire_result = final_result;
         }
     }
-    else{
+    else if (target_msg->armors_num == 3)
+    {
+        //进入第二次大迭代
+        std :: vector<double>hit_aim = calculator->predictOutpostBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
+        chosen_yaw = hit_aim[0];
+        z = hit_aim[1];  
+        r = hit_aim[2];
+        final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
+        iffire_result = final_result;
+    }
+    else {
       RCLCPP_ERROR(this->get_logger(),"The number of armors is not 4");
     }
     
-    
-    
-    
-
-    //发布消息
-    firemsg fire_msg;
     fire_msg.header = target_msg->header;
     fire_msg.pitch = final_result.first;
     fire_msg.yaw = final_result.second;

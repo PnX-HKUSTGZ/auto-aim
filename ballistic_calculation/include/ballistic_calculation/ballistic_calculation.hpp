@@ -49,9 +49,10 @@ struct armor_info{
     double r;
 };
 std::vector<double> predictInfantryBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ); 
-std::vector<double> Ballistic::predictOutpostBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ);
+std::vector<double> predictOutpostBestArmor(double T, double min_v, double max_v, double v_yaw_PTZ);
 std::vector<double> stategy_1(double T); 
 std::vector<double> stategy_1_Outpost(double T);
+std::vector<double> stategy_2_Outpost(double T, double v_yaw_PTZ);
 std::vector<double> stategy_2(double T, double v_yaw_PTZ);
 double findYaw(double v_yaw, double v_yaw_PTZ, double distance, double radius); 
 
