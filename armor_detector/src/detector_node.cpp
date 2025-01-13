@@ -222,8 +222,8 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat>
   R_gimbal_camera_.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
   tf2::Matrix3x3(R_gimbal_camera_ * tf2_q).getRPY(roll, pitch, yaw);
   if(armor.number == "outpost") armor.sign = -armor.sign;
-  // armor.sign 为1则为右侧装甲板，为0则为左侧装甲板
-  if(armor.sign) {
+  // armor.sign 为0则为右侧装甲板，为1则为左侧装甲板
+  if(!armor.sign) {
     if(yaw > 0) rvec = rvecs[0], tvec = tvecs[0]; 
     else rvec = rvecs[1], tvec = tvecs[1];
   }
@@ -239,8 +239,8 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat>
     rmat.at<double>(2, 0), rmat.at<double>(2, 1), rmat.at<double>(2, 2));
   tf2::Quaternion tf2_rvec; 
   tf2_rmat.getRotation(tf2_rvec);
-  tf2::Matrix3x3(tf2_rvec).getRPY(roll, pitch, yaw);
-  if(roll < 15){
+  tf2::Matrix3x3(R_gimbal_camera_ * tf2_rvec).getRPY(roll, pitch, yaw);
+  if(roll < 0.26){
     Eigen::Matrix3d eigen_mat;
     Eigen::Vector3d eigen_tvec;
     cv::cv2eigen(rmat, eigen_mat);
