@@ -3,6 +3,7 @@
 #include "armor_detector/pnp_solver.hpp"
 
 #include <opencv2/calib3d.hpp>
+#include <iostream>
 #include <vector>
 
 namespace rm_auto_aim
@@ -47,7 +48,8 @@ bool PnPSolver::solvePnP(const Armor & armor, std::vector<cv::Mat> & rvecs, std:
   
   // Solve pnp
   auto object_points = armor.type == ArmorType::SMALL ? small_armor_points_ : large_armor_points_;
-  return cv::solvePnP(
+  rvecs.clear(); tvecs.clear();
+  return cv::solvePnPGeneric(
     object_points, image_armor_points, camera_matrix_, dist_coeffs_, rvecs, tvecs, false,
     cv::SOLVEPNP_IPPE);
 }
