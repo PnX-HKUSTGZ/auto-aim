@@ -158,7 +158,13 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
           double A = sin(yaw_b - yaw_a);
           double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya))/A; 
           double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya))/A;
-          measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
+          if(r1 < 0.15 || r1 > 0.4 || r2 < 0.15 || r2 > 0.4){
+            measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, target_state(R1), target_state(R2);
+          }
+          else{
+            measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
+          }
+          
           target_state = ekf.updateTwo(measurement);
           RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
         }

@@ -206,7 +206,7 @@ void ArmorTrackerNode::initializeEKF()
         h <<  1,   0,   0,   0,   0,   0,   0,   0,   -cos(yaw1), 0, r1*sin(yaw1), 0,   // xa1 = xc - r1 * cos(yaw1)
               0,   0,   1,   0,   0,   0,   0,   0,   -sin(yaw1), 0, -r1*cos(yaw1), 0,   // ya1 = yc - r1 * sin(yaw1)
               0,   0,   0,   0,   1,   0,   0,   0,          0,   0,          0, 0, // za1 = zc1
-              0,   0,   0,   0,   0,   0,   0,   0,          1,   0,          0, 0, // yaw1 = yaw1
+              0,   0,   0,   0,   0,   0,   0,   0,          0,   0,          1, 0, // yaw1 = yaw1
               1,   0,   0,   0,   0,   0,   0,   0,          0,   -cos(yaw2), 0, r2*sin(yaw2), // xa2 = xc - r2 * cos(yaw2)
               0,   0,   1,   0,   0,   0,   0,   0,          0,   -sin(yaw2), 0, -r2*cos(yaw2), // ya2 = yc - r2 * sin(yaw2)
               0,   0,   0,   0,   0,   1,   0,   0,          0,   0,          0, 0, // za2 = zc2
