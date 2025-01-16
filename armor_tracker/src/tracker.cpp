@@ -91,7 +91,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     int same_id_armors_count = 0, found_armors = 0;
     auto predicted_position = getArmorPositionFromState(ekf_prediction);//预测
     double min_position_diff_1 = DBL_MAX, min_position_diff_2 = DBL_MAX;//导入差值上限
-    double yaw_diff_1 = DBL_MAX, yaw_diff_2 = DBL_MAX;//导入差值上限
+    double min_yaw_diff_1 = DBL_MAX, min_yaw_diff_2 = DBL_MAX;//导入差值上限
     for (const auto & armor : armors_msg->armors) {//遍历所有观测到的装甲板
       // Only consider armors with the same id
       if (armor.number == tracked_id) {
@@ -101,22 +101,26 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
         auto p = armor.pose.position;
         double yaw = orientationToYaw(armor.pose.orientation); 
         Eigen::Vector3d position_vec(p.x, p.y, p.z);
+
         double position_diff_1 = fmin((predicted_position[0] - position_vec).norm(), (predicted_position[2] - position_vec).norm()); 
         double position_diff_2 = fmin((predicted_position[1] - position_vec).norm(), (predicted_position[3] - position_vec).norm());
-        if (position_diff_1 <= position_diff_2) {
+        double yaw_diff_1 = calYawDiff(yaw, ekf_prediction(YAW1));
+        double yaw_diff_2 = calYawDiff(yaw, ekf_prediction(YAW2));
+
+        if (yaw_diff_1 <= yaw_diff_2) {
           // Find the closest armor
-          if(position_diff_1 < min_position_diff_1){
+          if(yaw_diff_1 < min_yaw_diff_1){
             min_position_diff_1 = position_diff_1; 
-            yaw_diff_1 = calYawDiff(yaw, ekf_prediction(YAW1));
+            min_yaw_diff_1 = yaw_diff_1;
             tracked_armor = armor;
             found_armors = found_armors | 1;
           }
         }
         else{
           // Find the closest armor
-          if(position_diff_2 < min_position_diff_2){
+          if(yaw_diff_2 < min_yaw_diff_2){
             min_position_diff_2 = position_diff_2;
-            yaw_diff_2 = calYawDiff(yaw, ekf_prediction(YAW2));
+            min_yaw_diff_2 = yaw_diff_2;
             tracked_armor_2 = armor;
             found_armors = found_armors | 2;
           }
@@ -125,7 +129,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     }
     // Store tracker info
     info_position_diff = fmin(min_position_diff_1, min_position_diff_2);
-    info_yaw_diff = fmin(yaw_diff_1, yaw_diff_2);
+    info_yaw_diff = fmin(min_yaw_diff_1, min_yaw_diff_2);
     if(same_id_armors_count > 2){
       RCLCPP_ERROR(rclcpp::get_logger("tracker"), "More than two armor with same id found!");
     }
@@ -137,7 +141,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
       } 
       else{
         // Check if the distance and yaw difference of closest armor are within the threshold
-        if (min_position_diff_1 < max_match_distance_ && yaw_diff_1 < max_match_yaw_diff_ && min_position_diff_2 < max_match_distance_ && yaw_diff_2 < max_match_yaw_diff_) {
+        if (min_position_diff_1 < max_match_distance_ && min_yaw_diff_1 < max_match_yaw_diff_ && min_position_diff_2 < max_match_distance_ && min_yaw_diff_2 < max_match_yaw_diff_) {
           // Matched armor found
           matched = true;
           auto p1 = tracked_armor.pose.position;  
@@ -154,11 +158,17 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
           double A = sin(yaw_b - yaw_a);
           double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya))/A; 
           double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya))/A;
-          measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
+          if(r1 < 0.15 || r1 > 0.4 || r2 < 0.15 || r2 > 0.4){
+            measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, target_state(R1), target_state(R2);
+          }
+          else{
+            measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
+          }
+          
           target_state = ekf.updateTwo(measurement);
           RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
         }
-        else if (min_position_diff_1 < max_match_distance_ && yaw_diff_1 < max_match_yaw_diff_) {
+        else if (min_position_diff_1 < max_match_distance_ && min_yaw_diff_1 < max_match_yaw_diff_) {
           // Matched armor1 found
           matched = true;
           auto p = tracked_armor.pose.position;
@@ -168,7 +178,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
           target_state = ekf.update1(measurement);
           RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
         } 
-        else if (min_position_diff_2 < max_match_distance_ && yaw_diff_2 < max_match_yaw_diff_) {
+        else if (min_position_diff_2 < max_match_distance_ && min_yaw_diff_2 < max_match_yaw_diff_) {
           // Matched armor2 found
           matched = true;
           auto p = tracked_armor.pose.position;
@@ -187,7 +197,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     else if(same_id_armors_count == 1){
       if(found_armors == 1){
         // Check if the distance and yaw difference of closest armor are within the threshold
-        if (min_position_diff_1 < max_match_distance_ && yaw_diff_1 < max_match_yaw_diff_) {
+        if (min_position_diff_1 < max_match_distance_ && min_yaw_diff_1 < max_match_yaw_diff_) {
           // Matched armor1 found
           matched = true;
           auto p = tracked_armor.pose.position;
@@ -204,7 +214,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
       }
       else if(found_armors == 2){
         // Check if the distance and yaw difference of closest armor are within the threshold
-        if (min_position_diff_2 < max_match_distance_ && yaw_diff_2 < max_match_yaw_diff_) {
+        if (min_position_diff_2 < max_match_distance_ && min_yaw_diff_2 < max_match_yaw_diff_) {
           // Matched armor2 found
           matched = true;
           auto p = tracked_armor_2.pose.position;
