@@ -36,8 +36,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K1  = this->declare_parameter("iteration_coeffcient_first",0.1);
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
-    BULLET_V = this->declare_parameter("bullet_speed",26.0);
-    ifFireK = this->declare_parameter("ifFireK",0.02);
+    BULLET_V = this->declare_parameter("bullet_speed",23.0);
+    ifFireK = this->declare_parameter("ifFireK",0.05);
     min_v = this->declare_parameter("swich_stategy_1",5) * M_PI / 30;
     max_v = this->declare_parameter("swich_stategy_2",30) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
@@ -158,7 +158,7 @@ void BallisticCalculateNode::timerCallback()
             //计算是否开火
             iffire_result = calculator->iteration2(THRES2 , temp_theta , temp_t , hit_aim_fire[0] , hit_aim_fire[1] , hit_aim_fire[2]);
             //计算瞄准目标
-            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
+            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , hit_aim_fire[1] , r);
         }
         else{
             //进入第二次大迭代

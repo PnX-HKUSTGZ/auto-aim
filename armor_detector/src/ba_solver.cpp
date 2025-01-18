@@ -120,7 +120,7 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
 
   // Start optimizing
   optimizer_.initializeOptimization();
-  optimizer_.optimize(20);
+  optimizer_.optimize(2);
 
   // Get yaw angle after optimization
   double yaw_optimized = v_yaw->estimate();

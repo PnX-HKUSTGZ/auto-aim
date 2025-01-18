@@ -45,11 +45,11 @@ void EdgeProjection::computeError() {
   Sophus::SO3d R = R_camera_imu_ * R_yaw * R_pitch_;
 
   // Get the 3D point
-  Eigen::Vector3d p_3d =
+  const Eigen::Vector3d &p_3d =
       static_cast<g2o::VertexPointXYZ *>(_vertices[1])->estimate();
 
   // Get the observed 2D point
-  Eigen::Vector2d obs(_measurement);
+  const Eigen::Vector2d &obs(_measurement);
 
   // Project the 3D point to the 2D point
   Eigen::Vector3d p_2d = R * p_3d + t_;

@@ -163,9 +163,14 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
           rotation_matrix.at<double>(2, 2));
         tf2::Quaternion tf2_q;
         tf2_rotation_matrix.getRotation(tf2_q);
+        // Convert Eigen::Matrix3d to tf2::Matrix3x3
+        tf2::Matrix3x3 tf2_matrix(
+          imu_to_camera(0,0), imu_to_camera(0,1), imu_to_camera(0,2),
+          imu_to_camera(1,0), imu_to_camera(1,1), imu_to_camera(1,2),
+          imu_to_camera(2,0), imu_to_camera(2,1), imu_to_camera(2,2));
         tf2::Quaternion R_gimbal_camera_;
-        R_gimbal_camera_.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
-        tf2::Matrix3x3(R_gimbal_camera_ * tf2_q).getEulerYPR(armor.yaw, armor.pitch, armor.roll);
+        tf2_matrix.getRotation(R_gimbal_camera_);
+        tf2::Matrix3x3(R_gimbal_camera_ * tf2_q).getRPY(armor.roll, armor.pitch, armor.yaw);
         armor_msg.pose.orientation = tf2::toMsg(tf2_q);
 
         // Fill pose

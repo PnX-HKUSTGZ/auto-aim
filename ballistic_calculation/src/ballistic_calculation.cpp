@@ -294,6 +294,9 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
     // 找到最小的角度对应的装甲板
     sort(angles.begin(), angles.end());
     armor_info chosen_armor = armorlist_map[angles[0]];
+    if((chosen_armor.yaw < 0 && target_msg.v_yaw > 0) || (chosen_armor.yaw > 0 && target_msg.v_yaw < 0)) {
+        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+    }
     /*
     yaw, yaw_PTZ未知
     t = (pi/2 - 2*yaw)/v_yaw
@@ -303,7 +306,8 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
     sin(pi - yaw - yaw_PTZ) / distance = sin(yaw) / radius
     联立解得yaw
     */
-    double yaw = findYaw(target_msg.v_yaw, v_yaw_PTZ, sqrt(pow(newxc, 2) + pow(newyc, 2)), chosen_armor.r); // 通过迭代计算得到的 yaw
+    double yaw = findYaw(0, v_yaw_PTZ, sqrt(pow(newxc, 2) + pow(newyc, 2)), chosen_armor.r); // 通过迭代计算得到的 yaw
+    std::cerr << yaw << "\n"; 
     //std::cout << "giveup_yaw: " << yaw << std::endl;
     if (chosen_armor.yaw > yaw) {
         chosen_armor = armorlist_map[angles[1]]; 
