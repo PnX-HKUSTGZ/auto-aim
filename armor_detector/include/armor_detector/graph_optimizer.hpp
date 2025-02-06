@@ -36,20 +36,21 @@
 
 namespace rm_auto_aim {
 // Vertex of graph optimization algorithm for the yaw angle
-class VertexYaw : public g2o::BaseVertex<1, double> {
+class VertexYaw : public g2o::BaseVertex<1, double> { 
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
   VertexYaw() = default;
-   void setToOriginImpl() override { _estimate = 0; }
-   void oplusImpl(const double *update) override;
-
+   void setToOriginImpl() override { _estimate = 0; } // 重置
+   void oplusImpl(const double *update) override; // 更新
+   //不需要读写
    bool read(std::istream &in) override { return true; }
    bool write(std::ostream &out) const override { return true; }
 };
 
 // Edge of graph optimization algorithm for reporjection error calculation using
 // yaw angle and observation
+// 误差模型 模板参数：观测值维度，类型，连接顶点类型
 class EdgeProjection : public g2o::BaseBinaryEdge<2, Eigen::Vector2d, VertexYaw,
                                                   g2o::VertexPointXYZ> {
 public:
@@ -57,8 +58,8 @@ public:
   using InfoMatrixType = Eigen::Matrix<double, 2, 2>;
 
   EdgeProjection(const Sophus::SO3d &R_camera_imu, const Sophus::SO3d &R_pitch,
-                 const Eigen::Vector3d &t, const Eigen::Matrix3d &K);
-  void computeError() override;
+                 const Eigen::Vector3d &t, const Eigen::Matrix3d &K); 
+  void computeError() override; // 误差
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
