@@ -25,6 +25,7 @@
 // 3rd party
 #include <Eigen/Core>
 #include <opencv2/core/eigen.hpp>
+#include <rclcpp/clock.hpp>
 #include <sophus/se3.hpp>
 #include <sophus/so3.hpp>
 #include "rclcpp/rclcpp.hpp"
@@ -80,7 +81,6 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
   // Get the pitch angle of the armor
   double armor_pitch =
       armor.number == "outpost" ? -0.2618 : 0.2618;
-  Sophus::SO3d R_pitch = Sophus::SO3d::exp(Eigen::Vector3d(0, armor_pitch, 0));
 
   // Get the 3D points of the armor
   const auto armor_size =
@@ -92,6 +92,7 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
 
   // Fill the optimizer
   size_t id_counter = 0;
+  Sophus::SO3d R_pitch = Sophus::SO3d::exp(Eigen::Vector3d(0, armor_pitch, 0)); 
 
   VertexYaw *v_yaw = new VertexYaw();
   v_yaw->setId(id_counter++);
@@ -102,13 +103,13 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
   for (size_t i = 0; i < 4; i++) {
     g2o::VertexPointXYZ *v_point = new g2o::VertexPointXYZ();
     v_point->setId(id_counter++);
-    v_point->setEstimate(Eigen::Vector3d(
+    v_point->setEstimate(R_pitch * Eigen::Vector3d(
         object_points[i].x(), object_points[i].y(), object_points[i].z()));
     v_point->setFixed(true);
     optimizer_.addVertex(v_point);
 
     EdgeProjection *edge =
-        new EdgeProjection(R_camera_imu, R_pitch, t_camera_armor, K_);
+        new EdgeProjection(R_camera_imu, t_camera_armor, K_);
     edge->setId(id_counter++);
     edge->setVertex(0, v_yaw);
     edge->setVertex(1, v_point);
@@ -118,10 +119,9 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
     optimizer_.addEdge(edge);
   }
 
-  // Start optimizing
-  optimizer_.initializeOptimization();
-  optimizer_.optimize(2);
-
+    // 执行优化
+    optimizer_.initializeOptimization();
+    optimizer_.optimize(30);
   // Get yaw angle after optimization
   double yaw_optimized = v_yaw->estimate();
 
@@ -130,8 +130,8 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
     return R_camera_armor;
   }
 
-  Sophus::SO3d R_yaw = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw_optimized));
-  return (R_camera_imu * R_yaw * R_pitch).matrix();
+  Sophus::SO3d R_pitch_yaw = Sophus::SO3d::exp(Eigen::Vector3d(0, armor_pitch, yaw_optimized));
+  return (R_camera_imu * R_pitch_yaw).matrix();
 }
 
 } // namespace rm_auto_aim
