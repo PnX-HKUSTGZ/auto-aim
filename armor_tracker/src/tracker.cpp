@@ -409,7 +409,7 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
       position.y += 2 * r * sin(yaw);
       yaw -= M_PI;
     }
-    if(yaw < yaw_target){
+    else if(yaw < yaw_target){
       position.x += 2 * r * cos(yaw);
       position.y += 2 * r * sin(yaw);
       yaw += M_PI;
