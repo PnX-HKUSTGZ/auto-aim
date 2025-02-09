@@ -243,7 +243,10 @@ std::vector<double> Ballistic::stategy_1(double T)
     }
 
     // 找到最小的角度对应的装甲板
-    sort(angles.begin(), angles.end());
+    sort(angles.begin(), angles.end(), 
+    [](const double& a, const double& b) { 
+        return std::abs(a) < std::abs(b); 
+    });
     armor_info chosen_armor; 
     chosen_armor = armorlist_map[angles[0]];
     if(abs(angles[1]) - abs(angles[0]) < 15.0 * pi / 180.0  && abs(chosen_armor.yaw - last_yaw) > abs(armorlist_map[angles[1]].yaw - last_yaw)){
