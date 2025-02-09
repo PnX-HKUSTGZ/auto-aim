@@ -130,8 +130,8 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
     return R_camera_armor;
   }
 
-  Sophus::SO3d R_pitch_yaw = Sophus::SO3d::exp(Eigen::Vector3d(0, armor_pitch, yaw_optimized));
-  return (R_camera_imu * R_pitch_yaw).matrix();
+  Sophus::SO3d R_yaw = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw_optimized));
+  return (R_camera_imu * R_yaw * R_pitch).matrix();
 }
 
 } // namespace rm_auto_aim
