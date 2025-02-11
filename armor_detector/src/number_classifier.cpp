@@ -3,6 +3,7 @@
 
 // OpenCV
 #include <opencv2/core.hpp>
+#include <opencv2/core/cuda.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/dnn.hpp>
@@ -53,7 +54,7 @@ void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & 
     // Warp perspective transform
     cv::Point2f lights_vertices[4] = {
       armor.left_light.bottom, armor.left_light.top, armor.right_light.top,
-      armor.right_light.bottom};//获得原图像的四个角点
+      armor.right_light.bottom};  //获得原图像的四个角点
 
     const int top_light_y = (warp_height - light_length) / 2 - 1;
     const int bottom_light_y = top_light_y + light_length;
@@ -63,21 +64,21 @@ void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & 
       cv::Point(0, top_light_y),
       cv::Point(warp_width - 1, top_light_y),
       cv::Point(warp_width - 1, bottom_light_y),
-    };//获得目标变换图像
+    };  //获得目标变换图像
+    // 1) 计算透视变换矩阵
+    cv::Mat transform_matrix = cv::getPerspectiveTransform(lights_vertices, target_vertices);
+
+    // 2) 将原图上传到GPU
+    cv::cuda::GpuMat gpu_src, gpu_warped;
+    gpu_src.upload(src);
+
+    // 3) 使用CUDA进行warpPerspective
+    cv::cuda::warpPerspective(
+      gpu_src, gpu_warped, transform_matrix, cv::Size(warp_width, warp_height), cv::INTER_LINEAR,
+      cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+    // 4) 下载变换结果到CPU
     cv::Mat number_image;
-    auto rotation_matrix = cv::getPerspectiveTransform(lights_vertices, target_vertices);
-    //透视变换，计算从装甲板图像到标准化图像的透视变换矩阵
-    cv::warpPerspective(src, number_image, rotation_matrix, cv::Size(warp_width, warp_height));
-    //实行变换
-    // Get ROI
-    number_image =
-      number_image(cv::Rect(cv::Point((warp_width - roi_size.width) / 2, 0), roi_size));
-
-    // Binarize
-    cv::cvtColor(number_image, number_image, cv::COLOR_RGB2GRAY);
-    cv::threshold(number_image, number_image, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
-
-    armor.number_img = number_image;
+    gpu_warped.download(number_image);
   }
 }
 
@@ -88,7 +89,7 @@ void NumberClassifier::classify(std::vector<Armor> & armors)
     cv::Mat image = armor.number_img.clone();
 
     // Normalize
-    image = image / 255.0;//图像归一化，准备进行深度学习模型处理
+    image = image / 255.0;  //图像归一化，准备进行深度学习模型处理
 
     // Create blob from image
     cv::Mat blob;
