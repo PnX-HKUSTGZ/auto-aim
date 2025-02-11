@@ -16,17 +16,19 @@ namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;
 
-Ballistic::Ballistic(double k , double K1 , double K2 , double bulletV)    
+Ballistic::Ballistic(double k , double K1 , double K2 , double bulletV, Eigen::Vector3d odom2gun)
 {
     this->bulletV = bulletV;
     this->K1 = K1;
     this->K2 = K2;
     this->k = k;
-    
+    this->odom2gun = odom2gun;
 }
 
 std::pair<double,double> Ballistic::iteration1(double &thres , double &init_pitch , double &initT )
 {
+    Eigen::Vector3d robotcenter = {target_msg.position.x, target_msg.position.y, target_msg.position.z};
+    robotcenter = robotcenter - odom2gun;
     theta = init_pitch;
     
     double differ;
@@ -35,10 +37,10 @@ std::pair<double,double> Ballistic::iteration1(double &thres , double &init_pitc
     for(int i = 0 ; i < 100 ; i++){
 
         t = optimizeTime1(initT);
-        double fx = target_msg.position.x + target_msg.velocity.x * t;
-        double fy = target_msg.position.y + target_msg.velocity.y * t;
+        double fx = robotcenter.x() + target_msg.velocity.x * t;
+        double fy = robotcenter.y() + target_msg.velocity.y * t;
         double preddist = sqrt(fx * fx + fy * fy);
-        double predheight = target_msg.position.z + target_msg.velocity.z * t;
+        double predheight = robotcenter.z() + target_msg.velocity.z * t;
 
         updateTmpThetaT = fixTiteratPitch(preddist , predheight);
 
@@ -75,6 +77,7 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
         
         double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
+        fx -= odom2gun.x(), fy -= odom2gun.y(), predheight -= odom2gun.z();
         
         updateTmpThetaT = fixTiteratPitch(preddist , predheight);
         
@@ -91,6 +94,7 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
     double newyaw = yaw + target_msg.v_yaw * updateTmpThetaT.second;
     double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
     double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second + r * sin(newyaw);
+    fx -= odom2gun.x(), fy -= odom2gun.y();
     double predyaw = atan2(fy , fx);
     return std::make_pair( updateTmpThetaT.first , predyaw);
     

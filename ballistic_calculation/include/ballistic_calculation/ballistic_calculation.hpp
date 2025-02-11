@@ -11,7 +11,7 @@
 
 #include <vector>
 #include <utility>
-
+#include <Eigen/Dense>
 
 
 
@@ -23,7 +23,7 @@ class Ballistic
 {
 public:
 
-Ballistic(double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 30); //构造函数
+Ballistic(double k = 0.1 , double K1 = 0.3 , double K2 = 0.3, double bulletV = 30, Eigen::Vector3d odom2gun = Eigen::Vector3d(0,0,0)); //构造函数
 
 target target_msg;
 geometry_msgs::msg::Point robotcenter;
@@ -34,6 +34,7 @@ double K1;//第一次大迭代时的步长，需要parameter_declare来调整参
 double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
 double k; //空气阻力系数，需要parameter_declare来调整参数
 double theta;//计算t时变动的临时参数    
+Eigen::Vector3d odom2gun; //机器人坐标系到枪口坐标系的变换
 
 // 迭代中心,返回pitch和T，传入T和pitch的初始值
 std::pair<double,double> iteration1(double &thres , double &init_pitch , double &initT );
