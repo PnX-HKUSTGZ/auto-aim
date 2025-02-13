@@ -1,6 +1,8 @@
 // Copyright 2022 Chen Jun
 // Licensed under the MIT License.
 
+#include <Eigen/Core>
+#include <Eigen/Dense>
 #include <cv_bridge/cv_bridge.h>
 #include <rmw/qos_profiles.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -213,50 +215,42 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat>
   cv::Rodrigues(rvecs[0], rotation_matrix);//将旋转向量转换为旋转矩阵
 
   // rotation matrix to quaternion
-  tf2::Matrix3x3 tf2_rotation_matrix(
-    rotation_matrix.at<double>(0, 0), rotation_matrix.at<double>(0, 1),
-    rotation_matrix.at<double>(0, 2), rotation_matrix.at<double>(1, 0),
-    rotation_matrix.at<double>(1, 1), rotation_matrix.at<double>(1, 2),
-    rotation_matrix.at<double>(2, 0), rotation_matrix.at<double>(2, 1),
-    rotation_matrix.at<double>(2, 2));
-  tf2::Quaternion tf2_q;
-  tf2_rotation_matrix.getRotation(tf2_q);
+  Eigen::Matrix3d rotation_matrix_eigen;
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      rotation_matrix_eigen(i, j) = rotation_matrix.at<double>(i, j);
+    }
+  }
+  Eigen::Matrix3d R_gimbal_camera_eigen;
+  R_gimbal_camera_eigen = Eigen::AngleAxisd(-CV_PI / 2, Eigen::Vector3d::UnitZ()) *
+                          Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) *
+                          Eigen::AngleAxisd(-CV_PI / 2, Eigen::Vector3d::UnitX());
+  rotation_matrix_eigen = R_gimbal_camera_eigen * rotation_matrix_eigen;
   // get yaw
-  double roll, pitch, yaw;
-  tf2::Quaternion R_gimbal_camera_;
-  R_gimbal_camera_.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
-  tf2::Matrix3x3(R_gimbal_camera_ * tf2_q).getRPY(roll, pitch, yaw);
+  Eigen::Vector3d rpy = rotation_matrix_eigen.eulerAngles(0, 1, 2);
   if(armor.number == "outpost") armor.sign = -armor.sign;
   // armor.sign 为0则为右侧装甲板，为1则为左侧装甲板
-  if(!armor.sign) {
-    if(yaw > 0) rvec = rvecs[0], tvec = tvecs[0]; 
-    else rvec = rvecs[1], tvec = tvecs[1];
+  if(!armor.sign && rpy(2) < 0){
+    rpy = Eigen::Vector3d(rpy(0), rpy(1), -rpy(2));
   }
-  else{
-    if(yaw > 0) rvec = rvecs[1], tvec = tvecs[1]; 
-    else rvec = rvecs[0], tvec = tvecs[0];
+  else if(armor.sign && rpy(2) > 0){
+    rpy = Eigen::Vector3d(rpy(0), rpy(1), -rpy(2));
   }
-  cv::Mat rmat; 
-  cv::Rodrigues(rvec, rmat); 
-  tf2::Matrix3x3 tf2_rmat(
-    rmat.at<double>(0, 0), rmat.at<double>(0, 1), rmat.at<double>(0, 2),
-    rmat.at<double>(1, 0), rmat.at<double>(1, 1), rmat.at<double>(1, 2),
-    rmat.at<double>(2, 0), rmat.at<double>(2, 1), rmat.at<double>(2, 2));
-  tf2::Quaternion tf2_rvec; 
-  tf2_rmat.getRotation(tf2_rvec);
-  tf2::Matrix3x3(R_gimbal_camera_ * tf2_rvec).getRPY(roll, pitch, yaw);
-  if(roll < 0.26){
-    Eigen::Matrix3d eigen_mat;
+  Eigen::Matrix3d eigen_mat; 
+  eigen_mat = Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX()) *
+              Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY()) *
+              Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ());
+  eigen_mat = R_gimbal_camera_eigen.transpose() * eigen_mat;
+  if(rpy(0) < 0.26){
     Eigen::Vector3d eigen_tvec;
-    cv::cv2eigen(rmat, eigen_mat);
     eigen_tvec << tvec.at<double>(0), 
                   tvec.at<double>(1), 
                   tvec.at<double>(2);
     eigen_mat = ba_solver_->solveBa(armor, eigen_tvec, eigen_mat, imu_to_camera);
-    cv::eigen2cv(eigen_mat, rmat);
-    cv::Rodrigues(rmat, rvec); 
   }
-  
+  cv::Mat rmat;
+  cv::eigen2cv(eigen_mat, rmat);
+  cv::Rodrigues(rmat, rvec); 
 }
 std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 {
