@@ -313,16 +313,14 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
     2 * yaw_PTZ = t * v_yaw_PTZ
     so:
     2 * yaw_PTZ = (pi/2 - 2*yaw) / v_yaw * v_yaw_PTZ
-    sin(pi - yaw - yaw_PTZ) / distance = sin(yaw) / radius
+    sin(pi - yaw - yaw_PTZ) / distance = sin(yaw_PTZ) / radius
     联立解得yaw
     */
     double yaw = findYaw(abs(target_msg.v_yaw), v_yaw_PTZ, sqrt(pow(newxc, 2) + pow(newyc, 2)), chosen_armor.r); // 通过迭代计算得到的 yaw
     if(std::isnan(yaw)){
-        std::cerr << yaw << "\n"; 
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
-    //std::cout << "giveup_yaw: " << yaw << std::endl;
-    if (chosen_armor.yaw > yaw) {
+    if (abs(angles[0]) > yaw) {
         chosen_armor = armorlist_map[angles[1]]; 
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
@@ -346,17 +344,18 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
         // 计算方程左侧和右侧
         double left = sin(yaw + yaw_PTZ) / distance;
-        double right = sin(yaw) / radius;
+        double right = sin(yaw_PTZ) / radius;
         double f = left - right;
 
         // 判断是否收敛
         if (fabs(f) < epsilon) {
+            std::cerr << "yaw_PTZ: " << yaw_PTZ << std::endl;
             break;
         }
 
         // 计算导数 f'(yaw)
         double dyaw_PTZ = (-2 * v_yaw_PTZ) / denominator;
-        double df = (cos(yaw + yaw_PTZ) * (1 + dyaw_PTZ)) / distance - (cos(yaw) / radius);
+        double df = (cos(yaw + yaw_PTZ) * (1 + dyaw_PTZ)) / distance - (cos(yaw_PTZ) * dyaw_PTZ / radius);
 
         // 更新 yaw 值
         yaw -= f / df;
