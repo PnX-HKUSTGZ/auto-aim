@@ -36,6 +36,7 @@ void LightCornerCorrector::correctCorners(Armor &armor, const cv::Mat &gray_img)
     if (cv::Point2f b = findCorner(gray_img, armor.left_light, left_axis, "bottom"); b.x > 0) {
       armor.left_light.bottom = b;
     }
+    armor.left_light.tilt_angle = std::atan2(armor.left_light.bottom.x - armor.left_light.top.x, armor.left_light.bottom.y - armor.left_light.top.y) * 180 / CV_PI;
   }
 
   if (armor.right_light.width > PASS_OPTIMIZE_WIDTH) {
@@ -50,7 +51,10 @@ void LightCornerCorrector::correctCorners(Armor &armor, const cv::Mat &gray_img)
     if (cv::Point2f b = findCorner(gray_img, armor.right_light, right_axis, "bottom"); b.x > 0) {
       armor.right_light.bottom = b;
     }
+    armor.right_light.tilt_angle = std::atan2(armor.right_light.bottom.x - armor.right_light.top.x, armor.right_light.bottom.y - armor.right_light.top.y) * 180 / CV_PI;
   }
+  double theta_1 = armor.left_light.tilt_angle, theta_2 = armor.right_light.tilt_angle;
+  armor.sign = (theta_1 + theta_2) / 2 <= 0;
 }
 
 // 寻找灯条的对称轴

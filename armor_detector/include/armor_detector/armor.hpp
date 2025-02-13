@@ -15,9 +15,9 @@ namespace rm_auto_aim
 
 // Unit: mm
 static constexpr float SMALL_ARMOR_WIDTH = 138.0 / 1000.0;
-static constexpr float SMALL_ARMOR_HEIGHT = 45.0 / 1000.0;
+static constexpr float SMALL_ARMOR_HEIGHT = 48.0 / 1000.0;
 static constexpr float LARGE_ARMOR_WIDTH = 228.0 / 1000.0;
-static constexpr float LARGE_ARMOR_HEIGHT = 45.0 / 1000.0;
+static constexpr float LARGE_ARMOR_HEIGHT = 48.0 / 1000.0;
 
 //灯条和装甲板的结构体定义
 const int RED = 0;
