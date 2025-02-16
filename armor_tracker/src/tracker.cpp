@@ -152,13 +152,13 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
 
           measurement = Eigen::VectorXd(10); 
           double xa = p1.x, ya = p1.y, xb = p2.x, yb = p2.y;
-          double yaw_avg = (yaw_a + yaw_b) / 2;
-          yaw_a = yaw_a > yaw_avg ? yaw_avg + M_PI / 4 : yaw_avg - M_PI / 4;
-          yaw_b = yaw_b > yaw_avg ? yaw_avg + M_PI / 4 : yaw_avg - M_PI / 4;
+          // double yaw_avg = (yaw_a + yaw_b) / 2;
+          // yaw_a = yaw_a > yaw_avg ? yaw_avg + M_PI / 4 : yaw_avg - M_PI / 4;
+          // yaw_b = yaw_b > yaw_avg ? yaw_avg + M_PI / 4 : yaw_avg - M_PI / 4;
           double A = sin(yaw_b - yaw_a);
           double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya))/A; 
           double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya))/A;
-          if(r1 < 0.15 || r1 > 0.4 || r2 < 0.15 || r2 > 0.4){
+          if(0){
             measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, target_state(R1), target_state(R2);
           }
           else{
@@ -354,9 +354,9 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
     RCLCPP_ERROR(rclcpp::get_logger("tracker"), "Init failed");
     return; 
   }
-  double yaw_avg = (yaw_a + yaw_b) / 2;
-  yaw_a = yaw_avg - M_PI / 4; 
-  yaw_b = yaw_avg + M_PI / 4; 
+  // double yaw_avg = (yaw_a + yaw_b) / 2;
+  // yaw_a = yaw_avg - M_PI / 4; 
+  // yaw_b = yaw_avg + M_PI / 4; 
 
   target_state = Eigen::VectorXd::Zero(12);
   double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya)); 
@@ -377,7 +377,7 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
   target_state(XC) = xc, target_state(YC) = yc, target_state(ZC1) = za, target_state(ZC2) = zb;
   target_state(VXC) = 0, target_state(VYC) = 0, target_state(VZC) = 0, target_state(VYAW) = 0;
   target_state(YAW1) = yaw_a, target_state(YAW2) = yaw_b;
-  target_state(R1) = r1, target_state(R2) = r2;
+  target_state(R1) = 0.26, target_state(R2) = 0.26;
   ekf.setState(target_state);
 }
 
