@@ -109,7 +109,7 @@ void RuneBallisticNode::timerCallback()
     fire_msg.pitch = iteration_result.first;
     fire_msg.yaw = iteration_result.second;
     fire_msg.tracking = target_msg->tracking;
-    fire_msg.id = std::to_string(0); 
+    fire_msg.id = "rune"; 
     fire_msg.iffire = ifFire(iteration_result.first,iteration_result.second);
     publisher_->publish(fire_msg);
     

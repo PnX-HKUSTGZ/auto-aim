@@ -17,7 +17,7 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     cv::threshold(gray, aim_img, 80, 255, cv::THRESH_BINARY);
 
     // 定义结构元素
-    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(7, 7));
     cv::Mat element_erode = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
 
     // 流水灯，先膨胀后侵蚀
@@ -205,6 +205,7 @@ std::vector<std::vector<cv::Point2f>> RuneDetector::processhitLights()
         else if(arm_light.size.area() > 100){
             cv::Rect roi = calculateROI(arm_light);
             roi &= cv::Rect(0, 0, hit_img.cols, hit_img.rows);
+            if(roi.area() == 0) continue;
             cv::Mat roi_img = hit_img(roi);
             cv::RotatedRect ellipse = detectBestEllipse(roi_img);
             ellipse.center.x += roi.x;
