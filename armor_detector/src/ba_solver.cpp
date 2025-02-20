@@ -138,7 +138,7 @@ BaSolver::solveBa(const Armor &armor, Eigen::Vector3d &t_camera_armor,
   double area_expect = 0; 
   Eigen::Vector2d expect_points[4];
   for (size_t i = 0; i < 4; i++) {
-    expect_points[i] = K_ * ((R_camera_imu * R_yaw * R_pitch).matrix() * object_points[i] + t_camera_armor);
+    expect_points[i] = (K_ * ((R_camera_imu * R_yaw * R_pitch).matrix() * object_points[i] + t_camera_armor)).hnormalized();
   }
   l = sqrt(pow(expect_points[0].x() - expect_points[1].x(), 2) + pow(expect_points[0].y() - expect_points[1].y(), 2)) + sqrt(pow(expect_points[2].x() - expect_points[3].x(), 2) + pow(expect_points[2].y() - expect_points[3].y(), 2));
   w = sqrt(pow(expect_points[1].x() - expect_points[2].x(), 2) + pow(expect_points[1].y() - expect_points[2].y(), 2)) + sqrt(pow(expect_points[3].x() - expect_points[0].x(), 2) + pow(expect_points[3].y() - expect_points[0].y(), 2));
