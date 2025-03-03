@@ -17,7 +17,7 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     cv::threshold(gray, aim_img, 80, 255, cv::THRESH_BINARY);
 
     // 定义结构元素
-    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(7, 7));
+    cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(9, 9));
     cv::Mat element_erode = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
 
     // 流水灯，先膨胀后侵蚀
@@ -40,6 +40,7 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
         rune_object.type = RuneType::ACTIVATED;
         rune_objects.push_back(rune_object);
     }
+    lenth = cv::norm(signal_points_hitting[0] - signal_points_hitting[4]);
     
     center = signal_points_hitting[0] + (signal_points_hitting[1] - signal_points_hitting[0]) * 0.5;
     aim_img = aim_img.mul(hitting_light_mask);
@@ -48,7 +49,8 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
 
     std::vector<std::vector<cv::Point2f>> signal_points_hit = processhitLights();
     for(auto & signal_point_hit : signal_points_hit){
-        if(signal_point_hit.size() == 6){
+        double lenth_hit = cv::norm(signal_point_hit[0] - signal_point_hit[4]);
+        if(signal_point_hit.size() == 6 && (lenth_hit - lenth) / lenth < 0.2){
             rune_object.pts.arm_bottom = signal_point_hit[0];
             rune_object.pts.arm_top = signal_point_hit[1];
             rune_object.pts.hit_bottom = signal_point_hit[2];
@@ -160,7 +162,7 @@ std::vector<std::vector<cv::Point2f>> RuneDetector::processhitLights()
         if (aspect_ratio < 1.0) {
             aspect_ratio = 1.0 / aspect_ratio;
         }
-        if (aspect_ratio >= 2.5 && aspect_ratio <= 7.0 && rotated_rect.size.area() >= 20) {
+        if (aspect_ratio >= 2.5 && aspect_ratio <= 10.0 && rotated_rect.size.area() >= 20) {
             arm_lights.push_back(rotated_rect);
         }
     }
@@ -613,7 +615,7 @@ cv::RotatedRect RuneDetector::fitEllipseRANSAC(const std::vector<cv::Point>& poi
         }
     }
     // 重新拟合最佳椭圆
-    if(best_inliers > total_points * prob_threshold && best_points.size() >= 50){
+    if(best_inliers > total_points * prob_threshold){
         best_ellipse = cv::fitEllipse(best_points);
         if (best_ellipse.size.width > 0 && best_ellipse.size.height > 0 &&
             !std::isnan(best_ellipse.center.x) && !std::isnan(best_ellipse.center.y) &&

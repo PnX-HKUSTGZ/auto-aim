@@ -95,7 +95,7 @@ Eigen::Vector3d Ballistic::getTargetPosition(double angle_diff) {
         eulerToMatrix(Eigen::Vector3d{roll, pitch, yaw}, "XYZ");
 
     // Calculate the position of the armor in rune frame
-    Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff, Eigen::Vector3d::UnitX()).matrix() *
+    Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff * 0, Eigen::Vector3d::UnitX()).matrix() *
                             Eigen::Vector3d(0, -ARM_LENGTH, 0);
 
     // Transform to odom frame

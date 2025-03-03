@@ -285,7 +285,7 @@ Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
   Eigen::Vector3d t_odom_2_rune = ekf_state_.head(3);
 
   // 考虑到从 PnP 获取的方向存在较大的误差和抖动，
-  // 并且符文的位置在 odom 坐标系中是静态的，
+  // 并且符的位置在 odom 坐标系中是静态的，
   // 建议使用几何信息重新构建旋转矩阵
   double yaw = ekf_state_(3);
   double pitch = 0;

@@ -68,6 +68,7 @@ private:
     cv::Mat flow_img, arm_img, hit_img, aim_img; 
     cv::Mat hitting_light_mask;
     cv::Point2f center;
+    double lenth;
     //parameters
     int max_iterations; // 最大迭代次数(RANSAC)
     double distance_threshold; // 距离阈值(RANSAC)
