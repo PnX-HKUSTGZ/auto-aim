@@ -71,8 +71,8 @@ std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat &
         
         auto roi = rbg_img(rect);
         cv::Scalar mean_val = cv::mean(roi, binary_img(rect));
-        double mean_r = mean_val[2];
-        double mean_b = mean_val[0];
+        double mean_r = mean_val[0];
+        double mean_b = mean_val[2];
 
         // Sum of red pixels > sum of blue pixels ?
         light.color = mean_r > mean_b ? RED : BLUE;
