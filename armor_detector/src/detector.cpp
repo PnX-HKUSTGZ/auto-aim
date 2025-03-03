@@ -25,9 +25,9 @@ Detector::Detector(
 {
 }
 
-std::vector<Armor> Detector::detect(const cv::Mat & input)//侦测，分类装甲板的主函数
+std::vector<Armor> Detector::detect(const cv::Mat & input)  //侦测，分类装甲板的主函数
 {
-  preprocessImage(input); //生成二值化后的图片
+  preprocessImage(input);  //生成二值化后的图片
   lights_ = findLights(input, binary_img);
   armors_ = matchLights(lights_);
 
@@ -35,19 +35,22 @@ std::vector<Armor> Detector::detect(const cv::Mat & input)//侦测，分类装�
     classifier->extractNumbers(input, armors_);
     classifier->classify(armors_);
   }
-  
+
   return armors_;
 }
 
-void Detector::preprocessImage(const cv::Mat & rgb_img)//生成二值化后的图片
+void Detector::preprocessImage(const cv::Mat & rgb_img)
 {
-  cv::cvtColor(rgb_img, gray_img, cv::COLOR_RGB2GRAY);
-  
-  cv::threshold(gray_img, binary_img, binary_thres, 255, cv::THRESH_BINARY);
-
+  cv::cuda::GpuMat gpu_rgb, gpu_gray, gpu_binary;
+  gpu_rgb.upload(rgb_img);
+  cv::cuda::cvtColor(gpu_rgb, gpu_gray, cv::COLOR_RGB2GRAY);
+  cv::cuda::threshold(gpu_gray, gpu_binary, binary_thres, 255, cv::THRESH_BINARY);
+  gpu_gray.download(gray_img);
+  gpu_binary.download(binary_img);
 }
 
-std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat & binary_img)//找到灯条
+std::vector<Light> Detector::findLights(
+  const cv::Mat & rbg_img, const cv::Mat & binary_img)  //找到灯条
 {
   using std::vector;
   vector<vector<cv::Point>> contours;
@@ -68,18 +71,36 @@ std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat &
       if (  // Avoid assertion failed
         0 <= rect.x && 0 <= rect.width && rect.x + rect.width <= rbg_img.cols && 0 <= rect.y &&
         0 <= rect.height && rect.y + rect.height <= rbg_img.rows) {
-        int sum_r = 0, sum_b = 0;
-        auto roi = rbg_img(rect);
-        // Iterate through the ROI
+        // 优化后：使用 GPU 掩膜和通道操作
+        cv::Mat mask = cv::Mat::zeros(roi.size(), CV_8UC1);
         for (int i = 0; i < roi.rows; i++) {
           for (int j = 0; j < roi.cols; j++) {
             if (cv::pointPolygonTest(contour, cv::Point2f(j + rect.x, i + rect.y), false) >= 0) {
-              // if point is inside contour
-              sum_r += roi.at<cv::Vec3b>(i, j)[0];
-              sum_b += roi.at<cv::Vec3b>(i, j)[2];
+              mask.at<uchar>(i, j) = 255;
             }
           }
         }
+
+        std::vector<cv::Mat> channels;
+        cv::split(roi, channels);
+
+        cv::cuda::GpuMat gpu_mask, gpu_r, gpu_b, gpu_masked_r, gpu_masked_b;
+        gpu_mask.upload(mask);
+        gpu_r.upload(channels[0]);  // R channel
+        gpu_b.upload(channels[2]);  // B channel
+
+        gpu_masked_r = gpu_mask.clone();
+        gpu_masked_b = gpu_mask.clone();
+        gpu_masked_r.setTo(0, gpu_mask == 0);
+        gpu_masked_b.setTo(0, gpu_mask == 0);
+
+        cv::cuda::multiply(gpu_r, gpu_mask, gpu_masked_r, 1.0 / 255.0);
+        cv::cuda::multiply(gpu_b, gpu_mask, gpu_masked_b, 1.0 / 255.0);
+
+        cv::Scalar sum_r_scalar = cv::cuda::sum(gpu_masked_r);
+        cv::Scalar sum_b_scalar = cv::cuda::sum(gpu_masked_b);
+        int sum_r = sum_r_scalar[0];
+        int sum_b = sum_b_scalar[0];
         // Sum of red pixels > sum of blue pixels ?
         light.color = sum_r > sum_b ? RED : BLUE;
         lights.emplace_back(light);
@@ -90,7 +111,7 @@ std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat &
   return lights;
 }
 
-bool Detector::isLight(const Light & light)//findlights中用于判断是否为灯条的bool函数
+bool Detector::isLight(const Light & light)  //findlights中用于判断是否为灯条的bool函数
 {
   // The ratio of light (short side / long side)
   float ratio = light.width / light.length;
@@ -112,7 +133,8 @@ bool Detector::isLight(const Light & light)//findlights中用于判断是否为�
   return is_light;
 }
 
-std::vector<Armor> Detector::matchLights(const std::vector<Light> & lights)//将灯条合成装甲板的魔法，返回合格的装甲板
+std::vector<Armor> Detector::matchLights(
+  const std::vector<Light> & lights)  //将灯条合成装甲板的魔法，返回合格的装甲板
 {
   std::vector<Armor> armors;
   this->debug_armors.data.clear();
@@ -160,7 +182,8 @@ bool Detector::containLight(
   return false;
 }
 
-ArmorType Detector::isArmor(const Light & light_1, const Light & light_2)//应用在matchLights函数中，判断是否为一个装甲
+ArmorType Detector::isArmor(
+  const Light & light_1, const Light & light_2)  //应用在matchLights函数中，判断是否为一个装甲
 {
   // Ratio of the length of 2 lights (short side / long side)
   float light_length_ratio = light_1.length < light_2.length ? light_1.length / light_2.length
@@ -226,7 +249,7 @@ void Detector::drawResults(cv::Mat & img)
   for (const auto & light : lights_) {
     cv::circle(img, light.top, 3, cv::Scalar(255, 255, 255), 1);
     cv::circle(img, light.bottom, 3, cv::Scalar(255, 255, 255), 1);
-    auto line_color = light.color == RED ? cv::Scalar(0, 0, 255) : cv::Scalar(255 , 0, 0);
+    auto line_color = light.color == RED ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
     cv::line(img, light.top, light.bottom, line_color, 5);
   }
 
