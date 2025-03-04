@@ -1,6 +1,6 @@
-[submodule "/home/aurora/rmvision/src/auto-aim/third_party/g2o"]
-	path = /home/aurora/rmvision/src/auto-aim/third_party/g2o
+[submodule "third_party/g2o"]
+	path = third_party/g2o
 	url = https://github.com/cytochronne/g2o.git
-[submodule "/home/aurora/rmvision/src/auto-aim/third_party/Sophus"]
-	path = /home/aurora/rmvision/src/auto-aim/third_party/Sophus
+[submodule "third_party/Sophus"]
+	path = third_party/Sophus
 	url = https://github.com/cytochronne/Sophus.git
