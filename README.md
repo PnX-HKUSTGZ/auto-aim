@@ -59,3 +59,24 @@ Run the tests with
 - auto_aim_bringup
 
 	包含启动识别节点和处理节点的默认参数文件及 launch 文件
+
+- third_party
+	包含了BA优化所需的g2o，ceres，sophus库，编译项目前请先编译该三个库
+
+	编译sophus库要求cmake版本为3.24，使用cmake --version查看cmake版本，若需要升级cmake，可使用snap下载：sudo snap install cmake --classic并把snap的路径添加至PATH：在bashrc中添加：export PATH=/snap/bin:$PATH
+
+	然后进行库的编译
+	cd ros_ws
+	mkdir third_party_install
+	cd src/auto-aim/third_party
+
+	在g2o，ceres，sophus下分别执行
+	mkdir build
+	cd build
+	cmake ..
+	make -j (如果爆内存了改为make -j1)
+	make install
+
+	编译后的文件被安装到third_party_install中，防止直接安装到系统中与其他版本的ceres库冲突
+	编译完成后可删除third_party部分
+
