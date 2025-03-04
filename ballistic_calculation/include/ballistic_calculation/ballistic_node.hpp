@@ -60,6 +60,7 @@ void timerCallback();
     double min_v;//一级策略切换二级策略速度临界，需要parameter_declare来调整参数
     double max_v;//二级策略切换三级策略速度临界，需要parameter_declare来调整参数
     double v_yaw_PTZ;//云台最大yaw速度，需要parameter_declare来调整参数
+    std::vector<double> rpy_vec; //枪口的rpy角度
 
     bool ifstart = false;
     int rate = 1000;

@@ -30,19 +30,22 @@ using firemsg = auto_aim_interfaces::msg::Firecontrol;
 
 
 BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & options)
-: Node("ballistic_calculate", options)
+: Node("ballistic_calculation", options)
 {
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
     K1  = this->declare_parameter("iteration_coeffcient_first",0.1);
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
-    BULLET_V = this->declare_parameter("bullet_speed",26.0);
-    ifFireK = this->declare_parameter("ifFireK",0.02);
-    min_v = this->declare_parameter("swich_stategy_1",5) * M_PI / 30;
-    max_v = this->declare_parameter("swich_stategy_2",30) * M_PI / 30;
+    BULLET_V = this->declare_parameter("bullet_speed",23.0);
+    ifFireK = this->declare_parameter("ifFireK",0.05);
+    min_v = this->declare_parameter("swich_stategy_1",5.0) * M_PI / 30;
+    max_v = this->declare_parameter("swich_stategy_2",30.0) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
+    std::vector<double> xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
+    rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
+    Eigen::Vector3d odom2gun(xyz_vec[0], xyz_vec[1], xyz_vec[2]);
 
-    calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V);
+    calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V, odom2gun);
     
     //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());   
@@ -158,7 +161,7 @@ void BallisticCalculateNode::timerCallback()
             //计算是否开火
             iffire_result = calculator->iteration2(THRES2 , temp_theta , temp_t , hit_aim_fire[0] , hit_aim_fire[1] , hit_aim_fire[2]);
             //计算瞄准目标
-            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , z , r);
+            final_result = calculator->iteration2(THRES2 , temp_theta , temp_t , chosen_yaw , hit_aim_fire[1] , r);
         }
         else{
             //进入第二次大迭代
@@ -177,8 +180,8 @@ void BallisticCalculateNode::timerCallback()
     //发布消息
     firemsg fire_msg;
     fire_msg.header = target_msg->header;
-    fire_msg.pitch = final_result.first;
-    fire_msg.yaw = final_result.second;
+    fire_msg.pitch = final_result.first - rpy_vec[1];
+    fire_msg.yaw = final_result.second - rpy_vec[2];
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
     fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);

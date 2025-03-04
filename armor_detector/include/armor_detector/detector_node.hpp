@@ -14,6 +14,11 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/buffer_interface.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
+
 // STD
 #include <memory>
 #include <string>
@@ -22,6 +27,7 @@
 #include "armor_detector/detector.hpp"
 #include "armor_detector/number_classifier.hpp"
 #include "armor_detector/light_corner_corrector.hpp"
+#include "armor_detector/ba_solver.hpp"
 #include "armor_detector/pnp_solver.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 
@@ -44,6 +50,7 @@ private:
   void destroyDebugPublishers();
 
   void publishMarkers();
+  void chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs, cv::Mat & rvec, cv::Mat & tvec);
 
   // Light corner corrector
   LightCornerCorrector lcc;
@@ -70,9 +77,15 @@ private:
   cv::Point2f cam_center_;
   std::shared_ptr<sensor_msgs::msg::CameraInfo> cam_info_;
   std::unique_ptr<PnPSolver> pnp_solver_;
+  std::unique_ptr<BaSolver> ba_solver_;
 
   // Image subscrpition
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+
+  // tf2
+  std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
+  Eigen::Matrix3d imu_to_camera;
 
   // Debug information
   bool debug_;

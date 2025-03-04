@@ -154,8 +154,6 @@ std::vector<Armor> Detector::matchLights(
       if (type != ArmorType::INVALID) {
         auto armor = Armor(*light_1, *light_2);
         armor.type = type;
-        double theta_1 = light_1->tilt_angle, theta_2 = light_2->tilt_angle;
-        armor.sign = (theta_1 + theta_2) / 2 <= 0;
         armors.emplace_back(armor);
       }
     }

@@ -16,17 +16,19 @@ namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;
 
-Ballistic::Ballistic(double k , double K1 , double K2 , double bulletV)    
+Ballistic::Ballistic(double k , double K1 , double K2 , double bulletV, Eigen::Vector3d odom2gun)
 {
     this->bulletV = bulletV;
     this->K1 = K1;
     this->K2 = K2;
     this->k = k;
-    
+    this->odom2gun = odom2gun;
 }
 
 std::pair<double,double> Ballistic::iteration1(double &thres , double &init_pitch , double &initT )
 {
+    Eigen::Vector3d robotcenter = {target_msg.position.x, target_msg.position.y, target_msg.position.z};
+    robotcenter = robotcenter - odom2gun;
     theta = init_pitch;
     
     double differ;
@@ -35,10 +37,10 @@ std::pair<double,double> Ballistic::iteration1(double &thres , double &init_pitc
     for(int i = 0 ; i < 100 ; i++){
 
         t = optimizeTime1(initT);
-        double fx = target_msg.position.x + target_msg.velocity.x * t;
-        double fy = target_msg.position.y + target_msg.velocity.y * t;
+        double fx = robotcenter.x() + target_msg.velocity.x * t;
+        double fy = robotcenter.y() + target_msg.velocity.y * t;
         double preddist = sqrt(fx * fx + fy * fy);
-        double predheight = target_msg.position.z + target_msg.velocity.z * t;
+        double predheight = robotcenter.z() + target_msg.velocity.z * t;
 
         updateTmpThetaT = fixTiteratPitch(preddist , predheight);
 
@@ -75,6 +77,7 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
         
         double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
+        fx -= odom2gun.x(), fy -= odom2gun.y(), predheight -= odom2gun.z();
         
         updateTmpThetaT = fixTiteratPitch(preddist , predheight);
         
@@ -91,6 +94,7 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
     double newyaw = yaw + target_msg.v_yaw * updateTmpThetaT.second;
     double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
     double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second + r * sin(newyaw);
+    fx -= odom2gun.x(), fy -= odom2gun.y();
     double predyaw = atan2(fy , fx);
     return std::make_pair( updateTmpThetaT.first , predyaw);
     
@@ -243,7 +247,10 @@ std::vector<double> Ballistic::stategy_1(double T)
     }
 
     // 找到最小的角度对应的装甲板
-    sort(angles.begin(), angles.end());
+    sort(angles.begin(), angles.end(), 
+    [](const double& a, const double& b) { 
+        return std::abs(a) < std::abs(b); 
+    });
     armor_info chosen_armor; 
     chosen_armor = armorlist_map[angles[0]];
     if(abs(angles[1]) - abs(angles[0]) < 15.0 * pi / 180.0  && abs(chosen_armor.yaw - last_yaw) > abs(armorlist_map[angles[1]].yaw - last_yaw)){
@@ -287,25 +294,33 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
     std::map<double, armor_info> armorlist_map;
     std::vector<double> angles(4);
     for (int i = 0; i < 4; ++i) {
-        angles[i] = angleBetweenVectors(armors[i].vec, armors[i].vecto_odom);
+        angles[i] = angleBetweenVectors(armors[i].vecto_odom, armors[i].vec);
         armorlist_map[angles[i]] = armors[i];
     }
 
     // 找到最小的角度对应的装甲板
-    sort(angles.begin(), angles.end());
+    std::sort(angles.begin(), angles.end(), 
+        [](const double& a, const double& b) { 
+            return std::abs(a) < std::abs(b); 
+        });
     armor_info chosen_armor = armorlist_map[angles[0]];
+    if((angles[0] < 0 && target_msg.v_yaw > 0) || (angles[0] > 0 && target_msg.v_yaw < 0)) {
+        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+    }
     /*
     yaw, yaw_PTZ未知
     t = (pi/2 - 2*yaw)/v_yaw
     2 * yaw_PTZ = t * v_yaw_PTZ
     so:
     2 * yaw_PTZ = (pi/2 - 2*yaw) / v_yaw * v_yaw_PTZ
-    sin(pi - yaw - yaw_PTZ) / distance = sin(yaw) / radius
+    sin(pi - yaw - yaw_PTZ) / distance = sin(yaw_PTZ) / radius
     联立解得yaw
     */
-    double yaw = findYaw(target_msg.v_yaw, v_yaw_PTZ, sqrt(pow(newxc, 2) + pow(newyc, 2)), chosen_armor.r); // 通过迭代计算得到的 yaw
-    //std::cout << "giveup_yaw: " << yaw << std::endl;
-    if (chosen_armor.yaw > yaw) {
+    double yaw = findYaw(abs(target_msg.v_yaw), v_yaw_PTZ, sqrt(pow(newxc, 2) + pow(newyc, 2)), chosen_armor.r); // 通过迭代计算得到的 yaw
+    if(std::isnan(yaw)){
+        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+    }
+    if (abs(angles[0]) > yaw) {
         chosen_armor = armorlist_map[angles[1]]; 
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
@@ -329,17 +344,18 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
         // 计算方程左侧和右侧
         double left = sin(yaw + yaw_PTZ) / distance;
-        double right = sin(yaw) / radius;
+        double right = sin(yaw_PTZ) / radius;
         double f = left - right;
 
         // 判断是否收敛
         if (fabs(f) < epsilon) {
+            std::cerr << "yaw_PTZ: " << yaw_PTZ << std::endl;
             break;
         }
 
         // 计算导数 f'(yaw)
         double dyaw_PTZ = (-2 * v_yaw_PTZ) / denominator;
-        double df = (cos(yaw + yaw_PTZ) * (1 + dyaw_PTZ)) / distance - (cos(yaw) / radius);
+        double df = (cos(yaw + yaw_PTZ) * (1 + dyaw_PTZ)) / distance - (cos(yaw_PTZ) * dyaw_PTZ / radius);
 
         // 更新 yaw 值
         yaw -= f / df;
@@ -366,6 +382,7 @@ double Ballistic::magnitude(const std::vector<double>& v) {
     return std::sqrt(sum);
 }
 
+
 double Ballistic::angleBetweenVectors(const std::vector<double>& v1, const std::vector<double>& v2) {
     double dot = dotProduct(v1, v2);
     double magV1 = magnitude(v1);
@@ -374,10 +391,15 @@ double Ballistic::angleBetweenVectors(const std::vector<double>& v1, const std::
     // 计算余弦值
     double cosAngle = dot / (magV1 * magV2);
     
-    // 将余弦值转换为弧度
+    // 确保数值在有效范围内
+    cosAngle = std::min(1.0, std::max(-1.0, cosAngle));
+    
+    // 计算叉积的z分量来确定方向
+    double cross_z = v1[0] * v2[1] - v1[1] * v2[0];
+    
+    // 使用叉积符号确定角度方向
     double angleRadians = std::acos(cosAngle);
-
-    return angleRadians;
+    return cross_z >= 0 ? angleRadians : -angleRadians;
 }
 
 

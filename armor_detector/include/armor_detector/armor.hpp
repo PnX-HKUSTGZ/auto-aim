@@ -13,6 +13,12 @@
 namespace rm_auto_aim
 {
 
+// Unit: mm
+static constexpr float SMALL_ARMOR_WIDTH = 138.0 / 1000.0;
+static constexpr float SMALL_ARMOR_HEIGHT = 48.0 / 1000.0;
+static constexpr float LARGE_ARMOR_WIDTH = 228.0 / 1000.0;
+static constexpr float LARGE_ARMOR_HEIGHT = 48.0 / 1000.0;
+
 //灯条和装甲板的结构体定义
 const int RED = 0;
 const int BLUE = 1;
@@ -56,6 +62,18 @@ struct Armor
       left_light = l2, right_light = l1;
     }
     center = (left_light.center + right_light.center) / 2;
+  }
+
+    template <typename PointType>
+  static inline std::vector<PointType> buildObjectPoints(const double &w,
+                                                         const double &h) {
+  return {PointType(0, w / 2, -h / 2),
+          PointType(0, w / 2, h / 2),
+          PointType(0, -w / 2, h / 2),
+          PointType(0, -w / 2, -h / 2)};
+  }
+  std::vector<cv::Point2f> landmarks() const {
+    return {left_light.bottom, left_light.top, right_light.top, right_light.bottom};
   }
 
   // Light pairs part

@@ -217,15 +217,16 @@ void ArmorTrackerNode::initializeEKF()
         return h;
     };
     // update_Q - process noise covariance matrix
-    s2qxyz_ = declare_parameter("ekf.sigma2_q_xyz", 20.0);
+    s2qxy_ = declare_parameter("ekf.sigma2_q_xy", 20.0);
+    s2qz_ = declare_parameter("ekf.sigma2_q_z", 20.0);
     s2qyaw_ = declare_parameter("ekf.sigma2_q_yaw", 100.0);
     s2qr_ = declare_parameter("ekf.sigma2_q_r", 800.0);
     auto u_q = [this]() {
         Eigen::MatrixXd q(12, 12);
-        double t = dt_, x = s2qxyz_, y = s2qyaw_, r = s2qr_;
+        double t = dt_, x = s2qxy_, z = s2qz_, y = s2qyaw_, r = s2qr_;
         double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x, q_vx_vx = pow(t, 2) * x;
         double q_y_y = pow(t, 4) / 4 * x, q_y_vy = pow(t, 3) / 2 * x, q_vy_vy = pow(t, 2) * x;
-        double q_z_z = pow(t, 4) / 4 * x, q_z_vz = pow(t, 3) / 2 * x, q_vz_vz = pow(t, 2) * x;
+        double q_z_z = pow(t, 4) / 4 * z, q_z_vz = pow(t, 3) / 2 * z, q_vz_vz = pow(t, 2) * z;
         double q_yaw_yaw = pow(t, 4) / 4 * y, q_yaw_vyaw = pow(t, 3) / 2 * y, q_vyaw_vyaw = pow(t, 2) * y;
         double q_r = pow(t, 4) / 4 * r;
         // clang-format off
@@ -290,7 +291,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
         std::remove_if(
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
-                return abs(armor.pose.position.z) > 1.2 ||
+                return armor.pose.position.z > 0 || armor.pose.position.z < -0.5 ||
                         Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
                             max_armor_distance_;
             }),
