@@ -10,6 +10,9 @@
 #include <image_transport/image_transport.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
+#include <opencv2/cudaarithm.hpp>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudawarping.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/duration.hpp>
 #include <rclcpp/qos.hpp>
@@ -84,7 +87,7 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
       cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
       cam_info_ = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
       pnp_solver_ = std::make_unique<PnPSolver>(camera_info->k, camera_info->d);
-      cam_info_sub_.reset();//取消订阅
+      cam_info_sub_.reset();  //取消订阅
     });
   //收到图像信息后回调imageCallback函数
   img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
@@ -94,8 +97,8 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
-  if (debug_)armors_msg_.image = *img_msg;
-  cv::Mat img; 
+  if (debug_) armors_msg_.image = *img_msg;
+  cv::Mat img;
   auto armors = detectArmors(img_msg, img);
 
   if (pnp_solver_ != nullptr) {
@@ -108,9 +111,8 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     auto_aim_interfaces::msg::Armor armor_msg;
     for (auto & armor : armors) {
       cv::Mat rvec, tvec;
-      bool success = pnp_solver_->solvePnP(armor, rvec, tvec);//获得两个矩阵
+      bool success = pnp_solver_->solvePnP(armor, rvec, tvec);  //获得两个矩阵
       if (success) {
-
         // Fill basic info
         armor_msg.type = ARMOR_TYPE_STR[static_cast<int>(armor.type)];
         armor_msg.number = armor.number;
@@ -121,7 +123,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         armor_msg.pose.position.z = tvec.at<double>(2);
         // rvec to 3x3 rotation matrix
         cv::Mat rotation_matrix;
-        cv::Rodrigues(rvec, rotation_matrix);//将旋转向量转换为旋转矩阵
+        cv::Rodrigues(rvec, rotation_matrix);  //将旋转向量转换为旋转矩阵
 
         // rotation matrix to quaternion
         tf2::Matrix3x3 tf2_rotation_matrix(
@@ -137,9 +139,11 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         tf2::Quaternion given_quat;
         given_quat.setRPY(-CV_PI / 2, 0, -CV_PI / 2);
         tf2::Matrix3x3(given_quat * tf2_q).getEulerYPR(yaw, pitch, roll);
-        if(armor.number == "outpost") yaw = armor.sign ? abs(yaw) : -abs(yaw); 
-        else yaw = armor.sign ? -abs(yaw) : abs(yaw);
-        
+        if (armor.number == "outpost")
+          yaw = armor.sign ? abs(yaw) : -abs(yaw);
+        else
+          yaw = armor.sign ? -abs(yaw) : abs(yaw);
+
         armor.yaw = yaw;
         armor.pitch = pitch;
         armor.roll = roll;
@@ -177,8 +181,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
 
 std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 {
-
-  rcl_interfaces::msg::ParameterDescriptor param_desc;//用于描述填充参数
+  rcl_interfaces::msg::ParameterDescriptor param_desc;  //用于描述填充参数
   //设置二值化参数
   param_desc.integer_range.resize(1);
   param_desc.integer_range[0].step = 1;
@@ -192,11 +195,11 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
   auto detect_color = declare_parameter("detect_color", RED, param_desc);
   //填充light和armor类所需要的参数
   Detector::LightParams l_params = {
-    
+
     .min_ratio = declare_parameter("light.min_ratio", 0.1),
     .max_ratio = declare_parameter("light.max_ratio", 0.4),
     .max_angle = declare_parameter("light.max_angle", 40.0)};
-  
+
   Detector::ArmorParams a_params = {
     .min_light_ratio = declare_parameter("armor.min_light_ratio", 0.7),
     .min_small_center_distance = declare_parameter("armor.min_small_center_distance", 0.8),
@@ -212,13 +215,11 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
   auto model_path = pkg_path + "/model/mlp.onnx";
   auto label_path = pkg_path + "/model/label.txt";
   double threshold = this->declare_parameter("classifier_threshold", 0.7);
-  std::vector<std::string> ignore_classes =
-    this->declare_parameter("ignore_classes", std::vector<std::string>{"negative"});////这里的this并非必须
-    
+  std::vector<std::string> ignore_classes = this->declare_parameter(
+    "ignore_classes", std::vector<std::string>{"negative"});  ////这里的this并非必须
+
   detector->classifier =
     std::make_unique<NumberClassifier>(model_path, label_path, threshold, ignore_classes);
-  
-
 
   return detector;
 }
@@ -228,19 +229,19 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
 {
   // Convert ROS img to cv::Mat
   img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-  
+
   // Update params
   detector_->binary_thres = get_parameter("binary_thres").as_int();
   detector_->detect_color = get_parameter("detect_color").as_int();
   detector_->classifier->threshold = get_parameter("classifier_threshold").as_double();
-  
+
   //   //动态调参
   // param_callback_handle_ = this->add_on_set_parameters_callback(
   //   std::bind(&ArmorDetectorNode::onParameterChanged, this, std::placeholders::_1)
   // );
 
   auto armors = detector_->detect(img);
-  for(auto & armor : armors){
+  for (auto & armor : armors) {
     lcc.correctCorners(armor, detector_->gray_img);
   }
   //计算延迟
@@ -273,26 +274,31 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
   return armors;
 }
 void ArmorDetectorNode::drawResults(
-  const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img, const std::vector<Armor> & armors){
+  const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img,
+  const std::vector<Armor> & armors)
+{
   //计算延迟
   auto final_time = this->now();
   auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
   RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
-  if(!debug_){
+  if (!debug_) {
     return;
   }
   detector_->drawResults(img);
   // Show yaw, pitch, roll
   for (const auto & armor : armors) {
     cv::putText(
-      img, "y: " + std::to_string(armor.yaw / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-      cv::Scalar(0, 255, 255), 2);
+      img, "y: " + std::to_string(armor.yaw / CV_PI * 180),
+      cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20),
+      cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
     cv::putText(
-      img, "p: " + std::to_string(armor.pitch / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 45), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-      cv::Scalar(0, 255, 255), 2);
+      img, "p: " + std::to_string(armor.pitch / CV_PI * 180),
+      cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 45),
+      cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
     cv::putText(
-      img, "r: " + std::to_string(armor.roll / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 70), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-      cv::Scalar(0, 255, 255), 2);
+      img, "r: " + std::to_string(armor.roll / CV_PI * 180),
+      cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 70),
+      cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
   }
   // Draw camera center
   cv::circle(img, cam_center_, 5, cv::Scalar(255, 0, 0), 2);
@@ -353,7 +359,7 @@ void ArmorDetectorNode::drawResults(
 //     {
 //       detector_->a.max_angle = param.as_double();
 //     }
-    
+
 //     else if(param.get_name() == "classifier_threshold")
 //     {
 //       detector_->classifier->threshold = param.as_double();
