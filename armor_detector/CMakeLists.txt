@@ -15,7 +15,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #######################
 ## Find dependencies ##
 #######################
+get_filename_component(ABS_INSTALL_PREFIX "../../../third_party_install" ABSOLUTE)
+set(CMAKE_INSTALL_PREFIX ${ABS_INSTALL_PREFIX})
 
+# Add third_party_install to CMAKE_PREFIX_PATH
+list(APPEND CMAKE_PREFIX_PATH ${ABS_INSTALL_PREFIX})
 set(EXTERNAL_INCLUDE_DIRS ${G2O_INCLUDE_DIR})
 set(EXTERNAL_LIBS ${G2O_LIBRARIES})
 
