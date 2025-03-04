@@ -81,6 +81,14 @@ void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & 
     // 4) 下载变换结果到CPU
     cv::Mat number_image;
     gpu_warped.download(number_image);
+    number_image =
+      number_image(cv::Rect(cv::Point((warp_width - roi_size.width) / 2, 0), roi_size));
+
+    // Binarize
+    cv::cvtColor(number_image, number_image, cv::COLOR_RGB2GRAY);
+    cv::threshold(number_image, number_image, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+
+    armor.number_img = number_image;
   }
 }
 

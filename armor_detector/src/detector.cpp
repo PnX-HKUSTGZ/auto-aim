@@ -73,38 +73,13 @@ std::vector<Light> Detector::findLights(
       if (  // Avoid assertion failed
         0 <= rect.x && 0 <= rect.width && rect.x + rect.width <= rbg_img.cols && 0 <= rect.y &&
         0 <= rect.height && rect.y + rect.height <= rbg_img.rows) {
-        // 优化后：使用 GPU 掩膜和通道操作
-        cv::Mat mask = cv::Mat::zeros(roi.size(), CV_8UC1);
-        for (int i = 0; i < roi.rows; i++) {
-          for (int j = 0; j < roi.cols; j++) {
-            if (cv::pointPolygonTest(contour, cv::Point2f(j + rect.x, i + rect.y), false) >= 0) {
-              mask.at<uchar>(i, j) = 255;
-            }
-          }
-        }
+        auto roi = rbg_img(rect);
+        cv::Scalar mean_val = cv::mean(roi, binary_img(rect));
+        double mean_r = mean_val[2];
+        double mean_b = mean_val[0];
 
-        std::vector<cv::Mat> channels;
-        cv::split(roi, channels);
-
-        cv::cuda::GpuMat gpu_mask, gpu_r, gpu_b, gpu_masked_r, gpu_masked_b;
-        gpu_mask.upload(mask);
-        gpu_r.upload(channels[0]);  // R channel
-        gpu_b.upload(channels[2]);  // B channel
-
-        gpu_masked_r = gpu_mask.clone();
-        gpu_masked_b = gpu_mask.clone();
-        gpu_masked_r.setTo(0, gpu_mask == 0);
-        gpu_masked_b.setTo(0, gpu_mask == 0);
-
-        cv::cuda::multiply(gpu_r, gpu_mask, gpu_masked_r, 1.0 / 255.0);
-        cv::cuda::multiply(gpu_b, gpu_mask, gpu_masked_b, 1.0 / 255.0);
-
-        cv::Scalar sum_r_scalar = cv::cuda::sum(gpu_masked_r);
-        cv::Scalar sum_b_scalar = cv::cuda::sum(gpu_masked_b);
-        int sum_r = sum_r_scalar[0];
-        int sum_b = sum_b_scalar[0];
         // Sum of red pixels > sum of blue pixels ?
-        light.color = sum_r > sum_b ? RED : BLUE;
+        light.color = mean_r > mean_b ? RED : BLUE;
         lights.emplace_back(light);
       }
     }
