@@ -161,7 +161,7 @@ cv::Point2f LightCornerCorrector::findCorner(const cv::Mat &gray_img,
 
       prev = cur;
     }
-
+    
     if (has_corner) {
       candidates.emplace_back(corner);
     }
