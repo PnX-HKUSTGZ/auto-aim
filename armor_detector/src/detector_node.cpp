@@ -219,7 +219,7 @@ void ArmorDetectorNode::chooseBestPose(
   // rvec to 3x3 rotation matrix
   cv::Mat rotation_matrix;
   cv::Rodrigues(rvecs[0], rotation_matrix);  //将旋转向量转换为旋转矩阵
-
+  cv::cv2eigen(rotation_matrix, eigen_mat);
   // rotation matrix to quaternion
   Eigen::Matrix3d rotation_matrix_eigen;
   cv::cv2eigen(rotation_matrix, rotation_matrix_eigen);
@@ -247,18 +247,16 @@ void ArmorDetectorNode::chooseBestPose(
   } else if (armor.sign && rpy(2) > 0) {
     rpy = Eigen::Vector3d(rpy(0), rpy(1), -rpy(2));
   }
-
-  Eigen::Vector3d eigen_tvec;
-  eigen_tvec << tvecs[0].at<double>(0), tvecs[0].at<double>(1), tvecs[0].at<double>(2);
-
-  if (rpy(0) < 0.26 && ba_solver_ != nullptr) {
+  q_rotation = Eigen::Quaterniond(Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX())) *
+               Eigen::Quaterniond(Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY())) *
+               Eigen::Quaterniond(Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()));
+  q_rotation = q_gimbal_camera.conjugate() * q_rotation;
+  Eigen::Matrix3d eigen_mat = q_rotation.toRotationMatrix();
+  if (rpy(0) < 0.26) {
+    Eigen::Vector3d eigen_tvec;
+    eigen_tvec << tvecs[0].at<double>(0), tvecs[0].at<double>(1), tvecs[0].at<double>(2);
     eigen_mat = ba_solver_->solveBa(armor, eigen_tvec, eigen_mat, imu_to_camera);
   }
-
-  cv::Mat rmat;
-  cv::eigen2cv(eigen_mat, rmat);
-  cv::Rodrigues(rmat, rvec);
-  tvec = tvecs[0].clone();  // Clone to ensure a deep copy
   cv::Mat rmat;
   cv::eigen2cv(eigen_mat, rmat);
   cv::Rodrigues(rmat, rvec);
