@@ -93,8 +93,10 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
       cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
       cam_info_ = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
       pnp_solver_ = std::make_unique<PnPSolver>(camera_info->k, camera_info->d);
+      ba_solver_ = std::make_unique<BaSolver>(camera_info->k, camera_info->d);
       cam_info_sub_.reset();  //取消订阅
     });
+
   //收到图像信息后回调imageCallback函数
   img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "/image_raw", rclcpp::SensorDataQoS(),
