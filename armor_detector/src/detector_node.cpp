@@ -110,11 +110,11 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
-  // Get the transform from odom to gimbal
+  // Get the transform from odom_aim to gimbal
   try {
     rclcpp::Time target_time = img_msg->header.stamp;
     auto odom_to_gimbal = tf2_buffer_->lookupTransform(
-        "odom", img_msg->header.frame_id, target_time,
+        "odom_aim", img_msg->header.frame_id, target_time,
         rclcpp::Duration::from_seconds(0.01));
     auto msg_q = odom_to_gimbal.transform.rotation;
     tf2::Quaternion tf_q;
@@ -180,6 +180,8 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         armor_msg.pose.position.x = tvec.at<double>(0);
         armor_msg.pose.position.y = tvec.at<double>(1);
         armor_msg.pose.position.z = tvec.at<double>(2);
+
+
 
         // Fill the distance to image center
         armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
