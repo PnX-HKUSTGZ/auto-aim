@@ -51,7 +51,7 @@ public:
 
   // Solve the armor pose using the BA algorithm, return the optimized rotation
   Eigen::Matrix3d solveBa(const Armor &armor,
-                          const Eigen::Vector3d &t_camera_armor,
+                          Eigen::Vector3d &t_camera_armor,
                           const Eigen::Matrix3d &R_camera_armor,
                           const Eigen::Matrix3d &R_imu_camera) noexcept;
 

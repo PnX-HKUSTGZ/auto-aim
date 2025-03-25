@@ -58,7 +58,7 @@ BaSolver::BaSolver(const std::array<double, 9> &camera_matrix,
 }
 
 Eigen::Matrix3d
-BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
+BaSolver::solveBa(const Armor &armor, Eigen::Vector3d &t_camera_armor,
                   const Eigen::Matrix3d &R_camera_armor,
                   const Eigen::Matrix3d &R_imu_camera) noexcept {
   // Reset optimizer
@@ -131,6 +131,20 @@ BaSolver::solveBa(const Armor &armor, const Eigen::Vector3d &t_camera_armor,
   }
 
   Sophus::SO3d R_yaw = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw_optimized));
+  double area_measure = 0, l = 0, w = 0;
+  l = sqrt(pow(landmarks[0].x - landmarks[1].x, 2) + pow(landmarks[0].y - landmarks[1].y, 2)) + sqrt(pow(landmarks[2].x - landmarks[3].x, 2) + pow(landmarks[2].y - landmarks[3].y, 2));
+  w = sqrt(pow(landmarks[1].x - landmarks[2].x, 2) + pow(landmarks[1].y - landmarks[2].y, 2)) + sqrt(pow(landmarks[3].x - landmarks[0].x, 2) + pow(landmarks[3].y - landmarks[0].y, 2));
+  area_measure = l * w / 4;
+  double area_expect = 0; 
+  Eigen::Vector2d expect_points[4];
+  for (size_t i = 0; i < 4; i++) {
+    expect_points[i] = (K_ * ((R_camera_imu * R_yaw * R_pitch).matrix() * object_points[i] + t_camera_armor)).hnormalized();
+  }
+  l = sqrt(pow(expect_points[0].x() - expect_points[1].x(), 2) + pow(expect_points[0].y() - expect_points[1].y(), 2)) + sqrt(pow(expect_points[2].x() - expect_points[3].x(), 2) + pow(expect_points[2].y() - expect_points[3].y(), 2));
+  w = sqrt(pow(expect_points[1].x() - expect_points[2].x(), 2) + pow(expect_points[1].y() - expect_points[2].y(), 2)) + sqrt(pow(expect_points[3].x() - expect_points[0].x(), 2) + pow(expect_points[3].y() - expect_points[0].y(), 2));
+  area_expect = l * w / 4;
+  t_camera_armor *= sqrt(area_expect / area_measure);
+  
   return (R_camera_imu * R_yaw * R_pitch).matrix();
 }
 
