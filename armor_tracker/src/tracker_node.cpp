@@ -23,9 +23,25 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     // Tracker
     double max_match_distance = this->declare_parameter("tracker.max_match_distance", 0.15);
     double max_match_yaw_diff = this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
-    tracker_ = std::make_unique<Tracker>(max_match_distance, max_match_yaw_diff);
-    tracker_->tracking_thres = this->declare_parameter("tracker.tracking_thres", 5);
-    lost_time_thres_ = this->declare_parameter("tracker.lost_time_thres", 0.3);
+    
+
+    // 初始化追踪器管理器替代单一追踪器
+    tracker_manager_ = std::make_unique<TrackerManager>(
+        cam_center_,
+        max_match_distance,
+        max_match_yaw_diff,
+        this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
+        this->declare_parameter("tracker.lost_time_thres", 0.3), 
+        this->declare_parameter("tracker.switch_cooldown", 1.0));
+        
+    // 设置评分权重参数
+    tracker_manager_->setWeights(
+        this->declare_parameter("score.w_distance", 0.3),
+        this->declare_parameter("score.w_velocity", 0.2),
+        this->declare_parameter("score.w_tracking", 0.3),
+        this->declare_parameter("score.w_size", 0.1),
+        this->declare_parameter("score.w_confidence", 0.05),
+        this->declare_parameter("score.w_history", 0.05));
 
     // Initialize EKF
     initializeEKF();
@@ -35,7 +51,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         "/tracker/reset", [this](
                             const std_srvs::srv::Trigger::Request::SharedPtr,
                             std_srvs::srv::Trigger::Response::SharedPtr response) {
-            tracker_->tracker_state = Tracker::LOST;
+            tracker_manager_->reset();
             response->success = true;
             RCLCPP_INFO(this->get_logger(), "Tracker reset!");
             return;
@@ -297,56 +313,80 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             }),
         armors_msg->armors.end());
 
-    // Init message
-    auto_aim_interfaces::msg::TrackerInfo info_msg;
-    auto_aim_interfaces::msg::Target target_msg;
+    // 计算时间差
     rclcpp::Time time = armors_msg->header.stamp;
+    dt_ = (time - last_time_).seconds();
+    last_time_ = time;
+
+    // 使用 TrackerManager 更新所有追踪器
+    tracker_manager_->update(armors_msg);
+    
+    // 清理不活跃的追踪器
+    tracker_manager_->cleanInactiveTrackers(lost_time_thres_);
+    
+    // 获取当前追踪目标
+    auto target_msg = tracker_manager_->getCurrentTarget();
     target_msg.header.stamp = time;
     target_msg.header.frame_id = target_frame_;
-
-    // Update tracker
-    if (tracker_->tracker_state == Tracker::LOST) {
-        tracker_->init(armors_msg);
-        target_msg.tracking = false;
-    } else {
-        dt_ = (time - last_time_).seconds();
-        tracker_->lost_thres = static_cast<int>(lost_time_thres_ / dt_);
-        tracker_->update(armors_msg);
-
-        // Publish Info
-        info_msg.position_diff = tracker_->info_position_diff;
-        info_msg.yaw_diff = tracker_->info_yaw_diff;
-        info_msg.position.x = tracker_->measurement(0);
-        info_msg.position.y = tracker_->measurement(1);
-        info_msg.position.z = tracker_->measurement(2);
-        info_msg.yaw = tracker_->measurement(3);
-        info_pub_->publish(info_msg);
-
-        if (tracker_->tracker_state == Tracker::DETECTING) {
-            target_msg.tracking = false;
-        } else if (
-            tracker_->tracker_state == Tracker::TRACKING ||
-            tracker_->tracker_state == Tracker::TEMP_LOST) {
-            target_msg.tracking = true;
-            // Fill target message
-            const auto & state = tracker_->target_state;
-            target_msg.id = tracker_->tracked_id;
-            target_msg.armors_num = static_cast<int>(tracker_->tracked_armors_num);
-            target_msg.position.x = state(XC);
-            target_msg.velocity.x = state(VXC);
-            target_msg.position.y = state(YC);
-            target_msg.velocity.y = state(VYC);
-            target_msg.position.z = state(ZC1);
-            target_msg.velocity.z = state(VZC);
-            target_msg.yaw = state(YAW1);
-            target_msg.v_yaw = state(VYAW);
-            target_msg.radius_1 = state(R1);
-            target_msg.radius_2 = state(R2);
-            target_msg.dz = state(ZC2) - state(ZC1);
+    // 如果跟踪状态有效，发布 TrackerInfo 消息
+    if (target_msg.tracking) {
+        // 获取当前活跃的追踪器
+        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+        if (current_tracker) {
+            // 发布 TrackerInfo
+            auto_aim_interfaces::msg::TrackerInfo info_msg;
+            info_msg.position_diff = current_tracker->info_position_diff;
+            info_msg.yaw_diff = current_tracker->info_yaw_diff;
+            info_msg.position.x = current_tracker->measurement(0);
+            info_msg.position.y = current_tracker->measurement(1);
+            info_msg.position.z = current_tracker->measurement(2);
+            info_msg.yaw = current_tracker->measurement(3);
+            info_pub_->publish(info_msg);
         }
     }
 
-    last_time_ = time;
+    // // Update tracker
+    // if (tracker_->tracker_state == Tracker::LOST) {
+    //     tracker_->init(armors_msg);
+    //     target_msg.tracking = false;
+    // } else {
+    //     dt_ = (time - last_time_).seconds();
+    //     tracker_->lost_thres = static_cast<int>(lost_time_thres_ / dt_);
+    //     tracker_->update(armors_msg);
+
+    //     // Publish Info
+    //     info_msg.position_diff = tracker_->info_position_diff;
+    //     info_msg.yaw_diff = tracker_->info_yaw_diff;
+    //     info_msg.position.x = tracker_->measurement(0);
+    //     info_msg.position.y = tracker_->measurement(1);
+    //     info_msg.position.z = tracker_->measurement(2);
+    //     info_msg.yaw = tracker_->measurement(3);
+    //     info_pub_->publish(info_msg);
+
+    //     if (tracker_->tracker_state == Tracker::DETECTING) {
+    //         target_msg.tracking = false;
+    //     } else if (
+    //         tracker_->tracker_state == Tracker::TRACKING ||
+    //         tracker_->tracker_state == Tracker::TEMP_LOST) {
+    //         target_msg.tracking = true;
+    //         // Fill target message
+    //         const auto & state = tracker_->target_state;
+    //         target_msg.id = tracker_->tracked_id;
+    //         target_msg.armors_num = static_cast<int>(tracker_->tracked_armors_num);
+    //         target_msg.position.x = state(XC);
+    //         target_msg.velocity.x = state(VXC);
+    //         target_msg.position.y = state(YC);
+    //         target_msg.velocity.y = state(VYC);
+    //         target_msg.position.z = state(ZC1);
+    //         target_msg.velocity.z = state(VZC);
+    //         target_msg.yaw = state(YAW1);
+    //         target_msg.v_yaw = state(VYAW);
+    //         target_msg.radius_1 = state(R1);
+    //         target_msg.radius_2 = state(R2);
+    //         target_msg.dz = state(ZC2) - state(ZC1);
+    //     }
+    // }
+
 
     target_pub_->publish(target_msg);//发布target信息
     if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
