@@ -28,14 +28,15 @@ namespace rm_auto_aim
 {
 // 构造追踪器为空的状态
 Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
-: tracker_state(LOST),
+  :tracker_state(LOST),
   tracked_id(std::string("")),
   measurement(Eigen::VectorXd::Zero(4)),
   target_state(Eigen::VectorXd::Zero(9)),
-  max_match_distance_(max_match_distance),
-  max_match_yaw_diff_(max_match_yaw_diff),
+  last_update_time_(rclcpp::Clock().now()),
   tracking_duration_(0.0),
-  avg_innovation_(0.0)
+  avg_innovation_(0.0),
+  max_match_distance_(max_match_distance),
+  max_match_yaw_diff_(max_match_yaw_diff)
 {
   velocity_history_.clear();
 }
@@ -466,19 +467,23 @@ TrackerManager::TrackerManager(
   int tracking_thres,
   double lost_time_thres,
   double switch_cooldown)
-  : max_match_distance_(max_match_distance),
-    max_match_yaw_diff_(max_match_yaw_diff),
-    tracking_thres_(tracking_thres),
-    lost_time_thres_(lost_time_thres),
-    switch_cooldown_(switch_cooldown),
-    last_switch_time_(rclcpp::Clock().now()),
-    w_distance_(0.3),
-    w_velocity_(0.2),
-    w_tracking_(0.3),
-    w_size_(0.1),
-    w_confidence_(0.05),
-    w_history_(0.05),
-    clock_(RCL_SYSTEM_TIME)
+  : trackers_(),
+  current_tracked_id_(""),
+  scores_history_(),
+  last_switch_time_(rclcpp::Clock().now()),
+  switch_cooldown_(switch_cooldown),
+  max_match_distance_(max_match_distance),
+  max_match_yaw_diff_(max_match_yaw_diff),
+  tracking_thres_(tracking_thres),
+  lost_time_thres_(lost_time_thres),
+  lost_thres_(0),
+  w_distance_(0.3),
+  w_velocity_(0.2),
+  w_tracking_(0.3),
+  w_size_(0.1),
+  w_confidence_(0.05),
+  w_history_(0.05),
+  clock_(RCL_SYSTEM_TIME)
 {}
 void TrackerManager::setWeights(
   double w_distance,
@@ -499,10 +504,15 @@ void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr& a
   // 计算时间差
   double dt = 0.0;
   if (!trackers_.empty()) {
-      for (auto& [_, tracker] : trackers_) {
-          dt = (armors_msg->header.stamp - tracker->last_update_time_).seconds();
-          break;  // 只需要从任一追踪器中获取时间差
-      }
+    for (auto& [_, tracker] : trackers_) {
+        // 使用 fromMsg 转换时间格式
+        rclcpp::Time msg_time = rclcpp::Time(armors_msg->header.stamp);
+        dt = (msg_time - tracker->last_update_time_).seconds();
+        break;
+    }
+  }
+  if (dt <= 0) {
+    dt = 0.01;
   }
   
   // 根据时间差计算lost_thres
@@ -529,8 +539,11 @@ void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr& a
           
           // 更新对应ID的追踪器
           tracker->update(id_armors_msg);
-          tracker->tracking_duration_ += (armors_msg->header.stamp - tracker->last_update_time_).seconds();
-          tracker->last_update_time_ = armors_msg->header.stamp;
+          tracker->tracking_duration_ += 
+          (rclcpp::Time(armors_msg->header.stamp) - tracker->last_update_time_).seconds();
+          tracker->last_update_time_ = rclcpp::Time(armors_msg->header.stamp);
+          
+    
           
           // 记录已处理的ID
           armors_by_id.erase(id);
@@ -575,7 +588,7 @@ void TrackerManager::initNewTracker(const std::string& id, const std::vector<aut
 }
 
 void TrackerManager::cleanInactiveTrackers(double inactive_threshold) {
-  auto now = clock_->now();
+  auto now = clock_.now();
   std::vector<std::string> ids_to_remove;
   
   for (const auto& [id, tracker] : trackers_) {
@@ -673,11 +686,12 @@ double TrackerManager::calculateScore(const std::string& id, const std::shared_p
   double velocity_score = tracker->getVelocityStability();
   
   // 追踪时长分数 (最多贡献1分，追踪超过5秒获得满分)
-  double duration_score = std::min(tracker->tracking_duration_ / 5.0, 1.0);
+  double duration_score = std::min(tracker->tracking_duration_ / 3.0, 1.0);
   
   // 装甲板类型和置信度分数
   double type_score = tracker->tracked_armor.type == "large" ? 1.0 : 0.8;
-  double confidence_score = tracker->tracked_armor.confidence / 100.0;  // 假设置信度在0-100范围内
+  
+  double confidence_score = 0.5;
   
   // 历史评分
   double history_score = scores_history_.count(id) ? scores_history_[id] : 0.0;
@@ -688,7 +702,8 @@ double TrackerManager::calculateScore(const std::string& id, const std::shared_p
                 w_velocity_ * velocity_score +
                 w_size_ * type_score +
                 w_confidence_ * confidence_score +
-                w_history_ * history_score;
+                w_history_ * history_score+
+                0.1*duration_score;
   
   return score;
 }

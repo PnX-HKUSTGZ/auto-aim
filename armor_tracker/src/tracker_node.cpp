@@ -27,7 +27,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // 初始化追踪器管理器替代单一追踪器
     tracker_manager_ = std::make_unique<TrackerManager>(
-        cam_center_,
         max_match_distance,
         max_match_yaw_diff,
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres

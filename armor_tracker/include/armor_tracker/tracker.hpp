@@ -10,6 +10,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 // STD
 #include <memory>
@@ -69,6 +70,21 @@ public:
   
   // 获取状态和指标
   double getVelocityStability() const;
+  enum CarState
+  {
+    XC = 0,
+    VXC,
+    YC,
+    VYC,
+    ZC1,
+    ZC2, 
+    VZC,
+    VYAW,
+    R1,
+    R2, 
+    YAW1,
+    YAW2 // 11
+  };
   
 
 private:
@@ -88,21 +104,7 @@ private:
 
   int detect_count_;
   int lost_count_;
-  enum CarState
-  {
-    XC = 0,
-    VXC,
-    YC,
-    VYC,
-    ZC1,
-    ZC2, 
-    VZC,
-    VYAW,
-    R1,
-    R2, 
-    YAW1,
-    YAW2 // 11
-  };
+  
 };
 
 class TrackerManager {
@@ -122,6 +124,7 @@ class TrackerManager {
       double max_match_distance_;
       double max_match_yaw_diff_;
       int tracking_thres_;
+      double lost_time_thres_;
       int lost_thres_;
       
       // 权重参数
@@ -141,7 +144,6 @@ class TrackerManager {
         double w_confidence,
         double w_history);
       TrackerManager(
-          const cv::Point2f& image_center,
           double max_match_distance,
           double max_match_yaw_diff,
           int tracking_thres,
