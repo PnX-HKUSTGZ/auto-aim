@@ -134,6 +134,9 @@ class TrackerManager {
       double w_size_;        // 装甲板大小权重
       double w_confidence_;  // 置信度权重
       double w_history_;     // 历史评分权重
+      // EKF 模板，用于初始化新的 Tracker
+      ExtendedKalmanFilter ekf_template_;
+      
       
   public:
       void setWeights(
@@ -143,6 +146,10 @@ class TrackerManager {
         double w_size,
         double w_confidence,
         double w_history);
+      // 添加一个方法来设置 EKF 模板
+      void setEKFTemplate(const ExtendedKalmanFilter& ekf_template) {
+        ekf_template_ = ekf_template;
+      }
       TrackerManager(
           double max_match_distance,
           double max_match_yaw_diff,

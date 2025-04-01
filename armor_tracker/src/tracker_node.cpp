@@ -281,7 +281,9 @@ void ArmorTrackerNode::initializeEKF()
     // P - error estimate covariance matrix
     Eigen::DiagonalMatrix<double, 12> p0;
     p0.setIdentity();
-    tracker_->ekf = ExtendedKalmanFilter{f, h1, h2, h_two, j_f, j_h1, j_h2, j_h_two, u_q, u_r, u_r_two, p0};
+    // 创建 EKF 并设置到 TrackerManager 中
+    ExtendedKalmanFilter ekf{f, h1, h2, h_two, j_f, j_h1, j_h2, j_h_two, u_q, u_r, u_r_two, p0};
+    tracker_manager_->setEKFTemplate(ekf);
 }
 
 void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_msg)
@@ -412,6 +414,18 @@ void ArmorTrackerNode::publishImg(
         cam_info_.d[0], cam_info_.d[1], cam_info_.d[2], cam_info_.d[3], cam_info_.d[4]);
 
     if(target_msg.tracking){
+        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+        if (!current_tracker) {
+            // 如果找不到当前跟踪器，不绘制装甲板
+            cv::circle(image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
+            auto latency = (this->now() - rclcpp::Time(image_msg.header.stamp)).seconds() * 1000; 
+            std::stringstream text;
+            text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+            cv::putText(image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+            auto processed_image_msg = cv_bridge::CvImage(image_msg.header, "bgr8", image).toImageMsg();
+            tracker_img_pub_.publish(*processed_image_msg);
+            return;
+        }
         // 计算装甲板的位姿
         double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
         double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
@@ -436,7 +450,7 @@ void ArmorTrackerNode::publishImg(
 
             // 计算装甲板的四个角点
             std::vector<cv::Point3d> corners_world = {};
-            double half_width = 0.5 * (tracker_->tracked_armor.type == "small" ? 0.135 : 0.23);
+            double half_width = 0.5 * (current_tracker->tracked_armor.type == "small" ? 0.135 : 0.23);
             double half_height = 0.5 * 0.125;
 
             // 计算四个角点的世界坐标，考虑pitch
@@ -532,6 +546,22 @@ void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & t
 
     visualization_msgs::msg::MarkerArray marker_array;
     if (target_msg.tracking) {
+        // 获取当前跟踪器
+        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+        if (!current_tracker) {
+            // 如果找不到当前跟踪器，则清空所有标记
+            position_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            linear_v_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            angular_v_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            armor_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            marker_array.markers.emplace_back(position_marker_);
+            marker_array.markers.emplace_back(linear_v_marker_);
+            marker_array.markers.emplace_back(angular_v_marker_);
+            marker_array.markers.emplace_back(armor_marker_);
+            marker_pub_->publish(marker_array);
+            return;
+        }
+
         double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
         double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
         double vx = target_msg.velocity.x, vy = target_msg.velocity.y, vz = target_msg.velocity.z;
@@ -559,7 +589,7 @@ void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & t
         angular_v_marker_.points.emplace_back(arrow_end);
 
         armor_marker_.action = visualization_msgs::msg::Marker::ADD;
-        armor_marker_.scale.y = tracker_->tracked_armor.type == "small" ? 0.135 : 0.23;
+        armor_marker_.scale.y = current_tracker->tracked_armor.type == "small" ? 0.135 : 0.23;
         bool is_current_pair = true;
         size_t a_n = target_msg.armors_num;
         geometry_msgs::msg::Point p_a;

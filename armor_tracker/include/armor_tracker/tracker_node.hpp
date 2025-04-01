@@ -61,7 +61,7 @@ private:
   double s2qxy_, s2qz_, s2qyaw_, s2qr_;
   double r_xyz_factor, r_yaw, r_radius;
   double lost_time_thres_;
-  std::unique_ptr<TrackerManager> tracker_manager_;std::unique_ptr<Tracker> tracker_;
+  std::unique_ptr<TrackerManager> tracker_manager_;
   
 
   // Reset tracker service

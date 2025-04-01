@@ -567,6 +567,9 @@ void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr& a
 void TrackerManager::initNewTracker(const std::string& id, const std::vector<auto_aim_interfaces::msg::Armor>& armors) {
   auto tracker = std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_);
   tracker->tracking_thres = tracking_thres_;
+
+  // 复制 EKF 模板
+  tracker->ekf = ekf_template_;
   
   // 创建仅含特定ID装甲板的消息
   auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
