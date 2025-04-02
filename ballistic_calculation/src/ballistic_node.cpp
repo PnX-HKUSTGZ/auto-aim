@@ -188,8 +188,6 @@ void BallisticCalculateNode::timerCallback()
     publisher_->publish(fire_msg);
     
     
-    //新图像数据未到来，进行预测
-
   
 }
 
