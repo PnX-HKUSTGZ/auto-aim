@@ -17,11 +17,12 @@ namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::RuneTarget;
 
-Ballistic::Ballistic(double k , double K , double bulletV, Eigen::Vector3d odom2gun) {
+Ballistic::Ballistic(double k , double K , double bulletV, Eigen::Vector3d odom2gunxyz, Eigen::Vector3d odom2gunrpy) {
     this->bulletV = bulletV;
     this->K = K;
     this->k = k;
-    this->odom2gun = odom2gun;
+    this->odom2gunxyz = odom2gunxyz; 
+    this->odom2gunrpy = odom2gunrpy;
 }
 
 Eigen::Vector3d Ballistic::getTarget(double time) {
@@ -29,7 +30,10 @@ Eigen::Vector3d Ballistic::getTarget(double time) {
 
     // Get the predicted position
     Eigen::Vector3d target_position_odom = getTargetPosition(predict_angle_diff);
-    Eigen::Vector3d target_position_gun = target_position_odom - odom2gun;
+    // Transform to gun frame
+    // The gun frame is rotated by odom2gunrpy and translated by odom2gunxyz
+    Eigen::Matrix3d R_odom2gun = eulerToMatrix(odom2gunrpy, EulerOrder::XYZ);
+    Eigen::Vector3d target_position_gun = R_odom2gun * target_position_odom + odom2gunxyz;
     
     return target_position_gun;
 }
@@ -92,30 +96,16 @@ Eigen::Vector3d Ballistic::getTargetPosition(double angle_diff) {
     double pitch = 0;
     double roll = target_msg.roll;
     Eigen::Matrix3d R_odom_2_rune =
-        eulerToMatrix(Eigen::Vector3d{roll, pitch, yaw}, "XYZ");
+        eulerToMatrix(Eigen::Vector3d{roll, pitch, yaw}, EulerOrder::XYZ);
 
     // Calculate the position of the armor in rune frame
-    Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff * 0, Eigen::Vector3d::UnitX()).matrix() *
+    Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff, Eigen::Vector3d::UnitX()).matrix() *
                             Eigen::Vector3d(0, -ARM_LENGTH, 0);
 
     // Transform to odom frame
     Eigen::Vector3d p_odom = R_odom_2_rune * p_rune + t_odom_2_rune;
 
     return p_odom;
-}
-Eigen::Matrix3d Ballistic::eulerToMatrix(const Eigen::Vector3d &euler, const std::string &order) {
-  Eigen::Matrix3d rotation_matrix = Eigen::Matrix3d::Identity();
-  if (order == "XYZ") {
-    rotation_matrix = Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()).toRotationMatrix() *
-                      Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()).toRotationMatrix() *
-                      Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ()).toRotationMatrix();
-  } else if (order == "ZYX") {
-    rotation_matrix = Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ()).toRotationMatrix() *
-                      Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()).toRotationMatrix() *
-                      Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()).toRotationMatrix();
-  }
-  // 可以根据需要添加其他顺序
-  return rotation_matrix;
 }
 std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , double& height)
 {

@@ -37,9 +37,10 @@ RuneBallisticNode::RuneBallisticNode(const rclcpp::NodeOptions & options)
     k   = this->declare_parameter("air_resistence",0.1);
     BULLET_V = this->declare_parameter("bullet_speed",24.8);
     ifFireK = this->declare_parameter("ifFireK",0.05);
-    std::vector<double> odom2gun_vec = this->declare_parameter("odom2gun", std::vector<double>{0.0, 0.0, 0.0});
-    Eigen::Vector3d odom2gun(odom2gun_vec[0], odom2gun_vec[1], odom2gun_vec[2]);
-    calculator = std::make_unique<rm_auto_aim::Ballistic>(k , K , BULLET_V, odom2gun);
+    std::vector<double> odom2gun_vec = this->declare_parameter("odom2gun", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+    Eigen::Vector3d odom2gunxyz(odom2gun_vec[0], odom2gun_vec[1], odom2gun_vec[2]);
+    Eigen::Vector3d odom2gunrpy(odom2gun_vec[3], odom2gun_vec[4], odom2gun_vec[5]);
+    calculator = std::make_unique<rm_auto_aim::Ballistic>(k , K , BULLET_V, odom2gunxyz, odom2gunrpy);
     
     //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());   
@@ -111,7 +112,6 @@ void RuneBallisticNode::timerCallback()
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = "rune"; 
     fire_msg.iffire = ifFire(iteration_result.first,iteration_result.second);
-    std::cerr << "fire_msg.if_fire: " << fire_msg.iffire << std::endl;
     publisher_->publish(fire_msg);
     
     

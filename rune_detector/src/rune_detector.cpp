@@ -44,13 +44,19 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     
     center = signal_points_hitting[0] + (signal_points_hitting[1] - signal_points_hitting[0]) * 0.5;
     aim_img = aim_img.mul(hitting_light_mask);
-    cv::erode(aim_img, arm_img, element_dilate);
-    cv::dilate(aim_img, hit_img, element_dilate);
+    cv::dilate(aim_img, hit_img, element_erode);
+    arm_img = aim_img.clone();
 
     std::vector<std::vector<cv::Point2f>> signal_points_hit = processhitLights();
+    std::sort(signal_points_hit.begin(), signal_points_hit.end(), [this](const std::vector<cv::Point2f> &a, const std::vector<cv::Point2f> &b){
+        double lenth_a = cv::norm(a[0] - a[4]);
+        double lenth_b = cv::norm(b[0] - b[4]);
+        return abs(lenth_a - lenth) < abs(lenth_b - lenth);
+    });
+    int index = 0;
     for(auto & signal_point_hit : signal_points_hit){
         double lenth_hit = cv::norm(signal_point_hit[0] - signal_point_hit[4]);
-        if(signal_point_hit.size() == 6 && (lenth_hit - lenth) / lenth < 0.2){
+        if(signal_point_hit.size() == 6 && abs(lenth_hit - lenth) / lenth < 0.2){
             rune_object.pts.arm_bottom = signal_point_hit[0];
             rune_object.pts.arm_top = signal_point_hit[1];
             rune_object.pts.hit_bottom = signal_point_hit[2];
@@ -59,7 +65,9 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
             rune_object.pts.hit_right = signal_point_hit[5];
             rune_object.type = RuneType::INACTIVATED;
             rune_objects.push_back(rune_object);
+            index++;
         }
+        if(index == 4) break;
     }
 
     return rune_objects;
@@ -192,19 +200,20 @@ std::vector<std::vector<cv::Point2f>> RuneDetector::processhitLights()
     // 进行匹配
     std::vector<std::pair<cv::RotatedRect, cv::RotatedRect>> matched_arm_lights;
     for (const auto& arm_light : arm_lights) {
-        double local_min_score = 1e9;
-        cv::RotatedRect matched_hit_light;
-        for(const auto& hit_light : hit_lights){
-            double score = calculateMatchScorehit(arm_light, hit_light);
-            if (score < local_min_score && score != -1) {
-                local_min_score = score;
-                matched_hit_light = hit_light;
-            }
-        }
-        if(local_min_score != 1e9) {
-            matched_arm_lights.push_back(std::make_pair(arm_light, matched_hit_light));
-        }
-        else if(arm_light.size.area() > 100){
+        // double local_min_score = 1e9;
+        // cv::RotatedRect matched_hit_light;
+        // for(const auto& hit_light : hit_lights){
+        //     double score = calculateMatchScorehit(arm_light, hit_light);
+        //     if (score < local_min_score && score != -1) {
+        //         local_min_score = score;
+        //         matched_hit_light = hit_light;
+        //     }
+        // }
+        // if(local_min_score != 1e9) {
+        //     matched_arm_lights.push_back(std::make_pair(arm_light, matched_hit_light));
+        // }
+        // else 
+        if(arm_light.size.area() > 100){
             cv::Rect roi = calculateROI(arm_light);
             roi &= cv::Rect(0, 0, hit_img.cols, hit_img.rows);
             if(roi.area() == 0) continue;
@@ -427,7 +436,7 @@ std::vector<cv::Point2f> RuneDetector::ellipseIntersections(const cv::RotatedRec
 }
 // 提取 6 个 signal points
 std::vector<cv::Point2f> RuneDetector::getSignalPoints(const cv::RotatedRect& ellipse, const cv::RotatedRect& rect){
-    // 最终返回的 76 个点
+    // 最终返回的 6 个点
     // [0]、[1] = 矩形两条短边的中心；[2] ~ [5] = 椭圆交点；(共 6 个)
     std::vector<cv::Point2f> result(6, cv::Point2f(0,0));
 

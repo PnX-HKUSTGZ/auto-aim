@@ -72,7 +72,7 @@ public:
                           rvec,
                           tvec,
                           false,
-                          method_);
+                          cv::SOLVEPNP_IPPE);
     } else {
       return false;
     }

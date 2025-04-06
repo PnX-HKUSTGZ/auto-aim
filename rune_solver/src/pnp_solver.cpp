@@ -16,6 +16,7 @@
 #include "rune_solver/pnp_solver.hpp"
 
 #include <opencv2/calib3d.hpp>
+#include <iostream>
 
 namespace rm_auto_aim {
 PnPSolver::PnPSolver(const std::array<double, 9> &camera_matrix,

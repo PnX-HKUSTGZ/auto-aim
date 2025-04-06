@@ -58,8 +58,8 @@ double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received
 
     // 过滤掉异常值
     Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
-    if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE) {
-      RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
+    if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE || t == Eigen::Vector3d::Zero()) {
+      RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
       return 0;
     }
 
@@ -102,8 +102,8 @@ double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr receiv
 
       // 过滤掉异常值
       Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
-      if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE) {
-        RCLCPP_ERROR(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
+      if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE || t == Eigen::Vector3d::Zero()) {
+        RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
         return 0;
       }
 
@@ -169,6 +169,10 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
   if (pnp_solver && pnp_solver->solvePnP(image_points, rvec, tvec, "rune")) {
     // 获取从 rune 到 odom 的变换矩阵
     try {
+      if (pnp_solver->calculateReprojectionError(image_points, rvec, tvec, "rune") > 200) {
+        RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Reprojection error is too large");
+        return Eigen::Matrix4d::Zero();
+      }
       // 从 rvec 获取旋转矩阵
       cv::Mat rmat;
       cv::Rodrigues(rvec, rmat);

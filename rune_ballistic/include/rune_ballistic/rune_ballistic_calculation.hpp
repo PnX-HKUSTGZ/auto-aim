@@ -22,7 +22,9 @@ using target = auto_aim_interfaces::msg::RuneTarget;
 class Ballistic
 {
 public:
-    Ballistic(double k = 0.1 , double K = 0.3, double bulletV = 30, Eigen::Vector3d odom2gun = Eigen::Vector3d(0,0,0)); //构造函数
+    Ballistic(double k = 0.1 , double K = 0.3, double bulletV = 30
+            , Eigen::Vector3d odom2gunxyz = Eigen::Vector3d(0,0,0)
+            , Eigen::Vector3d odom2gunrpy = Eigen::Vector3d(0,0,0)); //构造函数
     target target_msg;
     // 迭代,返回pitch和T，传入T和pitch的初始值
     std::pair<double,double> iteration(double &thres , double &init_pitch , double &initT);
@@ -39,7 +41,8 @@ private:
     double bulletV;
     double K;//迭代时的步长，需要parameter_declare来调整参数
     double k; //空气阻力系数，需要parameter_declare来调整参数
-    Eigen::Vector3d odom2gun; //枪口坐标, 需要parameter_declare来调整参数
+    Eigen::Vector3d odom2gunxyz; //枪口坐标, 需要parameter_declare来调整参数
+    Eigen::Vector3d odom2gunrpy; //枪口坐标, 需要parameter_declare来调整参数
 
     //预测角度
     double predictAngle(double time); 
@@ -68,6 +71,28 @@ private:
             return true;
         }
     };
+    enum class EulerOrder { XYZ, XZY, YXZ, YZX, ZXY, ZYX };
+    Eigen::Matrix3d eulerToMatrix(const Eigen::Vector3d &euler, EulerOrder order = EulerOrder::XYZ) const {
+        auto r = Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX());
+        auto p = Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY());
+        auto y = Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ());
+        switch (order) {
+        case EulerOrder::XYZ:
+            return (y * p * r).matrix();
+        case EulerOrder::XZY:
+            return (p * y * r).matrix();
+        case EulerOrder::YXZ:
+            return (y * r * p).matrix();
+        case EulerOrder::YZX:
+            return (r * y * p).matrix();
+        case EulerOrder::ZXY:
+            return (p * r * y).matrix();
+        case EulerOrder::ZYX:
+            return (r * p * y).matrix();
+        default:
+            return Eigen::Matrix3d::Identity();
+        }
+    }
 };
 
 }//namespace rm_auto_aim

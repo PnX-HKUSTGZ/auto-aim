@@ -162,7 +162,7 @@ void RuneSolverNode::timerCallback() {
   Eigen::Vector3d cur_pos = rune_solver_->getTargetPosition(0);
   auto_aim_interfaces::msg::RuneTarget rune_target; 
   rune_target.header.stamp = stamp; 
-  rune_target.header.frame_id = "odom";
+  rune_target.header.frame_id = "odom"; 
   rune_solver_->pubTargetPosition(rune_target);
   rune_target_pub_->publish(rune_target);
 
