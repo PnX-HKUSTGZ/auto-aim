@@ -100,6 +100,11 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "/image_raw", rclcpp::SensorDataQoS(),
     std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
+  // set_mode
+  set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
+    "armor_detector/set_mode",
+    std::bind(
+      &ArmorDetectorNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
 
   tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
@@ -110,6 +115,9 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
+  if(!enable_){
+    return;
+  }
   // Get the transform from odom to gimbal
   try {
     rclcpp::Time target_time = img_msg->header.stamp;
@@ -311,7 +319,6 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
 {
   // Convert ROS img to cv::Mat
   img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-  
   // Update params
   detector_->binary_thres = get_parameter("binary_thres").as_int();
   detector_->detect_color = get_parameter("detect_color").as_int();
@@ -478,6 +485,36 @@ void ArmorDetectorNode::publishMarkers()
   armor_marker_.action = armors_msg_.armors.empty() ? Marker::DELETE : Marker::ADD;
   marker_array_.markers.emplace_back(armor_marker_);
   marker_pub_->publish(marker_array_);
+}
+
+void ArmorDetectorNode::setModeCallback(
+  const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+  std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response) {
+  response->success = true;
+
+  VisionMode mode = static_cast<VisionMode>(request->mode);
+  std::string mode_name = visionModeToString(mode);
+  if (mode_name == "UNKNOWN") {
+    RCLCPP_ERROR(this->get_logger(), "Invalid mode: %d", request->mode);
+    return;
+  }
+
+  switch (mode) {
+    case VisionMode::AUTO_AIM_FLAT:{
+      is_flat_mode_ = true;
+      enable_ = true;
+    }
+    case VisionMode::AUTO_AIM_SLOPE:{
+      is_flat_mode_ = false;
+      enable_ = true;
+    }
+    default: {
+      enable_ = false;
+      break;
+    }
+  }
+
+  RCLCPP_WARN(this->get_logger(), "Set Car Mode: %s", visionModeToString(mode).c_str());
 }
 
 }  // namespace rm_auto_aim
