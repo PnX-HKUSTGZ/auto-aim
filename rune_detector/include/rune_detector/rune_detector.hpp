@@ -32,7 +32,6 @@
 // third party
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
-#include <openvino/openvino.hpp>
 // project
 #include "rune_detector/types.hpp"
 
