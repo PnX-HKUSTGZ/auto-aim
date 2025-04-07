@@ -46,15 +46,18 @@ private:
 
   void publishMarkers(const auto_aim_interfaces::msg::Target & target_msg);
 
-  void publishImg(
+  
+
+  void publishImgAll(
     const auto_aim_interfaces::msg::Target & target_msg,
-    const sensor_msgs::msg::Image & image_msg);
+    cv::Mat & image,
+    bool is_primary_target);
 
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
 
   // The time when the last message was received
-  rclcpp::Time last_time_;
+  rclcpp::Time last_time_ = rclcpp::Time(0);
   double dt_;
 
   // Armor tracker

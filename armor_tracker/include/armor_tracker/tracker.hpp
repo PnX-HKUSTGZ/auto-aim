@@ -125,7 +125,7 @@ class TrackerManager {
       double max_match_yaw_diff_;
       int tracking_thres_;
       double lost_time_thres_;
-      int lost_thres_;
+
       
       // 权重参数
       double w_distance_;    // 距离图像中心的权重
@@ -168,9 +168,11 @@ class TrackerManager {
       }
       // 获取当前目标
       auto_aim_interfaces::msg::Target getCurrentTarget() const;
+      auto_aim_interfaces::msg::Target getIDTarget(std::string input_tracked_id_) const ;
+      std::vector<std::string> getActiveTrackerIDs() const;
       
       // 清理不活跃的追踪器
-      void cleanInactiveTrackers(double inactive_threshold);
+      void cleanInactiveTrackers(rclcpp::Time now);
       
       // 重置所有追踪器
       void reset();
@@ -184,7 +186,9 @@ class TrackerManager {
       void selectBestTarget();
       
       // 初始化新追踪器
-      void initNewTracker(const std::string& id, const std::vector<auto_aim_interfaces::msg::Armor>& armors);
+      void initNewTracker(const std::string& id
+                        , const std::vector<auto_aim_interfaces::msg::Armor>& armors
+                        , rclcpp::Time msg_time);
   };
 
 }  // namespace rm_auto_aim

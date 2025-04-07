@@ -7,6 +7,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
+#include <iostream>
 #include <sstream>
 #include <vector>
 
@@ -44,7 +45,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Initialize EKF
     initializeEKF();
-
     // Reset tracker service
     reset_tracker_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "/tracker/reset", [this](
@@ -55,7 +55,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             RCLCPP_INFO(this->get_logger(), "Tracker reset!");
             return;
         });
-
     // Camera info subscription
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         "/camera_info", rclcpp::SensorDataQoS(),
@@ -64,7 +63,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             cam_info_sub_.reset();
         });
-
     // TF2 setup
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
@@ -316,15 +314,18 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
 
     // 计算时间差
     rclcpp::Time time = armors_msg->header.stamp;
-    dt_ = (time - last_time_).seconds();
+    try {
+        dt_ = (time - last_time_).seconds();
+    }
+    catch (const std::exception & e) {
+        RCLCPP_WARN(this->get_logger(), "last_time_ has not been initialized");
+    }
     last_time_ = time;
 
     // 使用 TrackerManager 更新所有追踪器
     tracker_manager_->update(armors_msg);
-    
     // 清理不活跃的追踪器
-    tracker_manager_->cleanInactiveTrackers(lost_time_thres_);
-    
+    tracker_manager_->cleanInactiveTrackers( this->now());
     // 获取当前追踪目标
     auto target_msg = tracker_manager_->getCurrentTarget();
     target_msg.header.stamp = time;
@@ -345,6 +346,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             info_pub_->publish(info_msg);
         }
     }
+
 
     // // Update tracker
     // if (tracker_->tracker_state == Tracker::LOST) {
@@ -387,22 +389,64 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     //         target_msg.dz = state(ZC2) - state(ZC1);
     //     }
     // }
-
+    
+    std::cerr<<"target_msg: "<<target_msg.id<<"|"<<target_msg.tracking<<std::endl;
+    
 
     target_pub_->publish(target_msg);//发布target信息
     if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
         publishMarkers(target_msg);//发布可视化信息
-        publishImg(target_msg, armors_msg->image); //发布图像信息
+        
+        // 获取所有活跃的跟踪器ID
+        std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
+        std::cerr<<"active_ids: "<<active_ids.size()<<std::endl;
+        
+        // 创建一个副本用于绘制
+        cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
+        
+        // 首先绘制当前活跃的主要目标
+        if (target_msg.tracking) {
+            publishImgAll(target_msg, combined_image, true); // true表示是主要目标，可以用不同颜色标识
+        }
+        
+        // 然后绘制其他活跃的目标
+        for (const auto& id : active_ids) {
+            if (id != target_msg.id && id != "") {  // 排除当前已处理的ID和空ID
+                // 获取该ID的目标信息
+                auto id_target_msg = tracker_manager_->getIDTarget(id);
+                
+                // 在相同图像上绘制此ID的装甲板
+                publishImgAll(id_target_msg, combined_image, false); // false表示不是主要目标
+                std::cerr<<"id_for_print: "<<id<<std::endl;
+            }
+        }
+        
+        // 添加通用信息（如相机中心、延迟等）
+        cv::circle(combined_image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
+        auto latency = (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000; 
+        std::stringstream text; 
+        text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+        cv::putText(combined_image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+        
+        // 发布最终的组合图像
+        auto processed_image_msg = cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
+        tracker_img_pub_.publish(*processed_image_msg);
+        
         last_img_time_ = armors_msg->image.header.stamp;
+        //publishImg(target_msg, armors_msg->image); //发布图像信息
+        //last_img_time_ = armors_msg->image.header.stamp;
     } 
 }
-void ArmorTrackerNode::publishImg(
-    const auto_aim_interfaces::msg::Target & target_msg,
-    const sensor_msgs::msg::Image & image_msg)
-{
-    // 将 ROS 图像消息转换为 OpenCV 图像
-    cv::Mat image = cv_bridge::toCvCopy(image_msg, "bgr8")->image;
 
+void ArmorTrackerNode::publishImgAll(
+    const auto_aim_interfaces::msg::Target & target_msg,
+    cv::Mat & image,
+    bool is_primary_target)
+{
+    if (!target_msg.tracking) {
+        return;
+    }
+    
     // 获取相机内参矩阵
     cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << 
         cam_info_.k[0], cam_info_.k[1], cam_info_.k[2],
@@ -412,129 +456,138 @@ void ArmorTrackerNode::publishImg(
     // 获取相机畸变系数
     cv::Mat dist_coeffs = (cv::Mat_<double>(1, 5) << 
         cam_info_.d[0], cam_info_.d[1], cam_info_.d[2], cam_info_.d[3], cam_info_.d[4]);
-
-    if(target_msg.tracking){
-        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
-        if (!current_tracker) {
-            // 如果找不到当前跟踪器，不绘制装甲板
-            cv::circle(image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
-            auto latency = (this->now() - rclcpp::Time(image_msg.header.stamp)).seconds() * 1000; 
-            std::stringstream text;
-            text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-            cv::putText(image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-            auto processed_image_msg = cv_bridge::CvImage(image_msg.header, "bgr8", image).toImageMsg();
-            tracker_img_pub_.publish(*processed_image_msg);
-            return;
+    
+    // 选择颜色：主要目标使用绿色，其他目标使用不同颜色
+    cv::Scalar color;
+    if (is_primary_target) {
+        color = cv::Scalar(0, 255, 0); // 绿色
+    } else {
+        // 基于ID生成不同的颜色
+        int id_hash = 0;
+        for (char c : target_msg.id) {
+            id_hash += c;
         }
-        // 计算装甲板的位姿
-        double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
-        double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
-        double dz = target_msg.dz;
-        double pitch = target_msg.id == "outpost" ? -0.26 : 0.26;
+        // 使用简单的哈希生成不同颜色
+        color = cv::Scalar(
+            (id_hash * 90) % 255,  // B
+            (id_hash * 50) % 255,  // G
+            (id_hash * 140) % 255  // R
+        );
+    }
+    
+    auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+    if (!current_tracker) {
+        return;
+    }
+    
+    // 计算装甲板的位姿
+    double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
+    double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
+    double dz = target_msg.dz;
+    double pitch = target_msg.id == "outpost" ? -0.26 : 0.26;
 
-        bool is_current_pair = true;
-        size_t a_n = target_msg.armors_num;
-        double r = 0;
-        for (size_t i = 0; i < a_n; i++) {
-            double tmp_yaw = yaw + i * (2 * M_PI / a_n);
-            // Only 4 armors has 2 radius and height
-            double armor_z = za + (is_current_pair ? 0 : dz);
-            if (a_n == 4) {
-                r = is_current_pair ? r1 : r2;
-                is_current_pair = !is_current_pair;
-            } else {
-                r = r1;
-            }
-            double armor_x = xc - r * cos(tmp_yaw);
-            double armor_y = yc - r * sin(tmp_yaw);
+    // 在图像右上角添加目标ID
+    cv::putText(image, "ID: " + target_msg.id, 
+                cv::Point(image.cols - 150, is_primary_target ? 30 : 60 + (std::hash<std::string>{}(target_msg.id) % 5) * 30), 
+                cv::FONT_HERSHEY_SIMPLEX, 0.8, color, 2);
 
-            // 计算装甲板的四个角点
-            std::vector<cv::Point3d> corners_world = {};
-            double half_width = 0.5 * (current_tracker->tracked_armor.type == "small" ? 0.135 : 0.23);
-            double half_height = 0.5 * 0.125;
+    bool is_current_pair = true;
+    size_t a_n = target_msg.armors_num;
+    double r = 0;
+    for (size_t i = 0; i < a_n; i++) {
+        double tmp_yaw = yaw + i * (2 * M_PI / a_n);
+        // Only 4 armors has 2 radius and height
+        double armor_z = za + (is_current_pair ? 0 : dz);
+        if (a_n == 4) {
+            r = is_current_pair ? r1 : r2;
+            is_current_pair = !is_current_pair;
+        } else {
+            r = r1;
+        }
+        double armor_x = xc - r * cos(tmp_yaw);
+        double armor_y = yc - r * sin(tmp_yaw);
 
-            // 计算四个角点的世界坐标，考虑pitch
-            double cos_pitch = cos(pitch);
-            double sin_pitch = sin(pitch);
+        // 计算装甲板的四个角点
+        std::vector<cv::Point3d> corners_world = {};
+        double half_width = 0.5 * (current_tracker->tracked_armor.type == "small" ? 0.135 : 0.23);
+        double half_height = 0.5 * 0.125;
 
-            corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y + half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z + half_height * cos_pitch);
+        // 计算四个角点的世界坐标，考虑pitch
+        double cos_pitch = cos(pitch);
+        double sin_pitch = sin(pitch);
 
-            corners_world.emplace_back(
-                armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z + half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y + half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z + half_height * cos_pitch);
 
-            corners_world.emplace_back(
-                armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z - half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z + half_height * cos_pitch);
 
-            corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z - half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z - half_height * cos_pitch);
 
-            // 将装甲板的角点从世界坐标系转换到相机坐标系
-            std::vector<cv::Point2d> corners_image;
-            cv::Mat rvec, tvec;
-            // ROS 坐标系到 OpenCV 坐标系的变换矩阵
-            cv::Mat ros_to_cv = (cv::Mat_<double>(3,3) <<
-                0,-1, 0,
-                0, 0,-1,
-                1, 0, 0);
-            try {
-                geometry_msgs::msg::TransformStamped transform_stamped = tf2_buffer_->lookupTransform("camera_link", "odom", tf2::TimePointZero);
-                tf2::Quaternion quat(
-                    transform_stamped.transform.rotation.x,
-                    transform_stamped.transform.rotation.y,
-                    transform_stamped.transform.rotation.z,
-                    transform_stamped.transform.rotation.w);
+        corners_world.emplace_back(
+            armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z - half_height * cos_pitch);
 
-                tf2::Matrix3x3 mat(quat);
-                // 原始旋转矩阵
-                cv::Mat rotation_matrix = (cv::Mat_<double>(3, 3) <<
-                    mat[0][0], mat[0][1], mat[0][2],
-                    mat[1][0], mat[1][1], mat[1][2],
-                    mat[2][0], mat[2][1], mat[2][2]);
-                // 调整后的旋转矩阵
-                rotation_matrix = ros_to_cv * rotation_matrix;
+        // 将装甲板的角点从世界坐标系转换到相机坐标系
+        std::vector<cv::Point2d> corners_image;
+        cv::Mat rvec, tvec;
+        // ROS 坐标系到 OpenCV 坐标系的变换矩阵
+        cv::Mat ros_to_cv = (cv::Mat_<double>(3,3) <<
+            0,-1, 0,
+            0, 0,-1,
+            1, 0, 0);
+        try {
+            geometry_msgs::msg::TransformStamped transform_stamped = tf2_buffer_->lookupTransform("camera_link", "odom", tf2::TimePointZero);
+            tf2::Quaternion quat(
+                transform_stamped.transform.rotation.x,
+                transform_stamped.transform.rotation.y,
+                transform_stamped.transform.rotation.z,
+                transform_stamped.transform.rotation.w);
 
-                cv::Rodrigues(rotation_matrix, rvec);
+            tf2::Matrix3x3 mat(quat);
+            // 原始旋转矩阵
+            cv::Mat rotation_matrix = (cv::Mat_<double>(3, 3) <<
+                mat[0][0], mat[0][1], mat[0][2],
+                mat[1][0], mat[1][1], mat[1][2],
+                mat[2][0], mat[2][1], mat[2][2]);
+            // 调整后的旋转矩阵
+            rotation_matrix = ros_to_cv * rotation_matrix;
 
-                // 原始平移向量
-                tvec = (cv::Mat_<double>(3, 1) <<
-                    transform_stamped.transform.translation.x,
-                    transform_stamped.transform.translation.y,
-                    transform_stamped.transform.translation.z);
+            cv::Rodrigues(rotation_matrix, rvec);
 
-                // 调整后的平移向量
-                tvec = ros_to_cv * tvec;
-            } catch (tf2::TransformException &ex) {
-                RCLCPP_WARN(this->get_logger(), "Could NOT transform: %s", ex.what());
-                continue;
-            }
-            
-            cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
-            // 在图像上绘制四边形
-            for (size_t j = 0; j < corners_image.size(); ++j) {
-                cv::line(image, corners_image[j], corners_image[(j + 1) % corners_image.size()], cv::Scalar(0, 255, 0), 2); 
-            }
+            // 原始平移向量
+            tvec = (cv::Mat_<double>(3, 1) <<
+                transform_stamped.transform.translation.x,
+                transform_stamped.transform.translation.y,
+                transform_stamped.transform.translation.z);
+
+            // 调整后的平移向量
+            tvec = ros_to_cv * tvec;
+        } catch (tf2::TransformException &ex) {
+            RCLCPP_WARN(rclcpp::get_logger("tracker_node"), "Could NOT transform: %s", ex.what());
+            continue;
+        }
+        
+        cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
+        // 在图像上绘制四边形，使用不同颜色区分不同目标
+        for (size_t j = 0; j < corners_image.size(); ++j) {
+            cv::line(
+                image, 
+                corners_image[j], 
+                corners_image[(j + 1) % corners_image.size()], 
+                color, 
+                is_primary_target ? 2 : 1.5  // 主要目标线条更粗
+            ); 
         }
     }
-    // Draw camera center
-    cv::circle(image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
-    auto latency = (this->now() - rclcpp::Time(image_msg.header.stamp)).seconds() * 1000; 
-    std::stringstream text; 
-    text  << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-    cv::putText(image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-    // 将处理后的 OpenCV 图像转换回 ROS 图像消息
-    auto processed_image_msg = cv_bridge::CvImage(image_msg.header, "bgr8", image).toImageMsg();
-
-    // 发布处理后的图像
-    tracker_img_pub_.publish(*processed_image_msg);
 }
 
 void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & target_msg)
