@@ -503,10 +503,12 @@ void ArmorDetectorNode::setModeCallback(
     case VisionMode::AUTO_AIM_FLAT:{
       is_flat_mode_ = true;
       enable_ = true;
+      break; 
     }
     case VisionMode::AUTO_AIM_SLOPE:{
       is_flat_mode_ = false;
       enable_ = true;
+      break; 
     }
     default: {
       enable_ = false;
@@ -514,7 +516,7 @@ void ArmorDetectorNode::setModeCallback(
     }
   }
 
-  RCLCPP_WARN(this->get_logger(), "Set Car Mode: %s", visionModeToString(mode).c_str());
+  RCLCPP_INFO(this->get_logger(), "Set Car Mode: %s", visionModeToString(mode).c_str());
 }
 
 }  // namespace rm_auto_aim
