@@ -41,11 +41,13 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     min_v = this->declare_parameter("swich_stategy_1",5.0) * M_PI / 30;
     max_v = this->declare_parameter("swich_stategy_2",30.0) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
+    stop_fire_time = this->declare_parameter("stop_fire_time", 0.1);
     std::vector<double> xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
     rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
     Eigen::Vector3d odom2gun(xyz_vec[0], xyz_vec[1], xyz_vec[2]);
 
     calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V, odom2gun);
+    calculator->fire_delay = this->declare_parameter("fire_delay", 0.0);
     
     //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());   
@@ -134,7 +136,8 @@ void BallisticCalculateNode::timerCallback()
     calculator->target_msg.dz = target_msg->dz;
     calculator->robotcenter = target_msg->position;
     calculator->velocity = target_msg->velocity;
-    
+
+    ifFireK += target_msg->v_yaw * 0.002;
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
     double init_t = std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y) / (cos(init_pitch) * this->calculator->bulletV);
@@ -185,6 +188,15 @@ void BallisticCalculateNode::timerCallback()
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
     fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
+    if(fire_msg.iffire){
+      last_fire_time = this->now();
+    }
+    else{
+      ifFireK += target_msg->v_yaw * 0.008;
+      fire_msg.iffire = (this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time))
+                        && ifFire(iffire_result.first,iffire_result.second);
+      ifFireK -= target_msg->v_yaw * 0.008;
+    }
     publisher_->publish(fire_msg);
     
     

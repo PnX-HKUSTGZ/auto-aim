@@ -39,7 +39,7 @@ private:
 
     rclcpp::Subscription<auto_aim_interfaces::msg::RuneTarget>::SharedPtr subscription_;
     rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;
-    std::unique_ptr<Ballistic>calculator;
+    std::unique_ptr<RuneBallistic>calculator;
     auto_aim_interfaces::msg::RuneTarget::SharedPtr target_msg;
     rclcpp::TimerBase::SharedPtr timer_;
 
