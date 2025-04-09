@@ -56,7 +56,7 @@ private:
 
   void publishMarkers();
   void chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs, cv::Mat & rvec, cv::Mat & tvec);
-
+  void fix_two_armors(Armor & armor1, Armor & armor2);
   // Light corner corrector
   LightCornerCorrector lcc;
 
@@ -93,7 +93,7 @@ private:
   // tf2
   std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
-  Eigen::Matrix3d imu_to_camera;
+  Eigen::Matrix3d odom_to_camera;
 
   // Debug information
   bool debug_;

@@ -31,11 +31,11 @@ void VertexYaw::oplusImpl(const double *update) {
   _estimate += update[0];
 }
 
-EdgeProjection::EdgeProjection(const Sophus::SO3d &R_camera_imu,
+EdgeProjection::EdgeProjection(const Sophus::SO3d &R_camera_odom,
                                const Eigen::Vector3d &t,
                                const Eigen::Matrix3d &K)
-    : R_camera_imu_(R_camera_imu), t_(t), K_(K) {
-  M_ = K_ * (R_camera_imu_).matrix();
+    : R_camera_odom_(R_camera_odom), t_(t), K_(K) {
+  M_ = K_ * (R_camera_odom_).matrix();
   vt_ = K_ * t_;
 }
 
@@ -60,6 +60,55 @@ void EdgeProjection::computeError() {
 
   // 计算重投影误差
   _error = obs - p.head<2>();
+}
+
+void VertexR::oplusImpl(const double *update) {
+  _estimate += update[0];
+}
+
+void VertexXY::oplusImpl(const double *update) {
+  _estimate += Eigen::Vector2d(update[0], update[1]);
+}
+
+EdgeTwoArmors::EdgeTwoArmors(const Eigen::Matrix3d &R_odom_camera,
+                             const Eigen::Matrix3d &K)
+    : R_camera_odom_(R_odom_camera), K_(K) {
+}
+
+EdgeTwoArmors::EdgeTwoArmors(VertexXY *p, VertexR *r, 
+                             FixedScalarVertex *yaw, FixedScalarVertex *z,
+                             g2o::VertexPointXYZ *point) {
+  resize(5);
+  _vertices[0] = p;
+  _vertices[1] = r;
+  _vertices[2] = yaw;
+  _vertices[3] = z;
+  _vertices[4] = point;
+}
+
+void EdgeTwoArmors::computeError() {
+  // 获取车辆中心点
+  Eigen::Vector2d xy = static_cast<VertexXY *>(_vertices[0])->estimate();
+  // 获取两个装甲板半径
+  double r = static_cast<VertexR *>(_vertices[1])->estimate();
+  // 获取yaw角
+  double yaw = static_cast<FixedScalarVertex *>(_vertices[2])->estimate();
+  // 获取z
+  double z = static_cast<FixedScalarVertex *>(_vertices[3])->estimate();
+  // 获取角点相对于装甲板中心的位置
+  Eigen::Vector3d p = static_cast<g2o::VertexPointXYZ *>(_vertices[4])->estimate();
+  // 计算绕Z轴旋转的旋转矩阵
+  double cy = std::cos(yaw), sy = std::sin(yaw);
+  Eigen::Matrix3d Rz;
+  Rz << cy, -sy, 0,
+        sy,  cy, 0,
+         0,   0, 1;
+  //获取2D点
+  Eigen::Vector2d obs = _measurement;
+  // 计算重投影误差
+  Eigen::Vector3d p_camera = Rz * p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0);
+  p_camera /= p_camera.z();
+  _error = obs - p_camera.head<2>();
 }
 
 } // namespace rm_auto_aim
