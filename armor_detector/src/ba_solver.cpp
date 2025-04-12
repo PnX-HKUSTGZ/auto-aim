@@ -103,7 +103,7 @@ BaSolver::solveBa(const Armor &armor, Eigen::Vector3d &t_camera_armor,
   optimizer_.addVertex(v_yaw);
 
   auto landmarks = armor.landmarks();
-  cv::undistortPoints(landmarks, landmarks, camera_matrix_, dist_coeffs_);
+  // cv::undistortPoints(landmarks, landmarks, camera_matrix_, dist_coeffs_);
   for (size_t i = 0; i < 4; i++) {
     g2o::VertexPointXYZ *v_point = new g2o::VertexPointXYZ();
     v_point->setId(id_counter++);
@@ -117,7 +117,7 @@ BaSolver::solveBa(const Armor &armor, Eigen::Vector3d &t_camera_armor,
     edge->setId(id_counter++);
     edge->setVertex(0, v_yaw);
     edge->setVertex(1, v_point);
-    edge->setMeasurement(Eigen::Vector2d(landmarks[0].x, landmarks[0].y));
+    edge->setMeasurement(Eigen::Vector2d(landmarks[i].x, landmarks[i].y));
     edge->setInformation(EdgeProjection::InfoMatrixType::Identity());
     edge->setRobustKernel(new g2o::RobustKernelHuber);
     optimizer_.addEdge(edge);
@@ -162,14 +162,23 @@ void BaSolver::solveTwoArmorsBa(const double &yaw1, const double &yaw2, const do
   double armor_pitch =
       number == "outpost" ? -0.2618 : 0.2618;
   Sophus::SO3d R_pitch = Sophus::SO3d::exp(Eigen::Vector3d(0, armor_pitch, 0)); 
+  Sophus::SO3d R_yaw1 = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw1));
+  Sophus::SO3d R_yaw2 = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw2));
 
   // Get the 3D points of the armor
   const auto armor_size =
       type == ArmorType::SMALL
           ? Eigen::Vector2d(SMALL_ARMOR_WIDTH, SMALL_ARMOR_HEIGHT)
           : Eigen::Vector2d(LARGE_ARMOR_WIDTH, LARGE_ARMOR_HEIGHT);
-  const auto object_points =
+  const auto object_points_ =
       Armor::buildObjectPoints<Eigen::Vector3d>(armor_size(0), armor_size(1));
+  Eigen::Vector3d object_points[8];
+  for(size_t i = 0; i < 4; i++){
+    object_points[i] = R_pitch * R_yaw1 * Eigen::Vector3d(object_points_[i].x(), object_points_[i].y(), object_points_[i].z());
+  }
+  for(size_t i = 0; i < 4; i++){
+    object_points[i + 4] = R_pitch * R_yaw2 * Eigen::Vector3d(object_points_[i].x(), object_points_[i].y(), object_points_[i].z());
+  }
   //需要优化的节点
   VertexXY *v_xy = new VertexXY();
   v_xy->setId(0);
@@ -208,7 +217,7 @@ void BaSolver::solveTwoArmorsBa(const double &yaw1, const double &yaw2, const do
   for(size_t i = 0; i < 4; i++){
     g2o::VertexPointXYZ *v_point = new g2o::VertexPointXYZ();
     v_point->setId(i + 7);
-    v_point->setEstimate(R_pitch * object_points[i]);
+    v_point->setEstimate(object_points[i]);
     v_point->setFixed(true);
     optimizer_.addVertex(v_point);
     EdgeTwoArmors *edge = new EdgeTwoArmors(R_odom_camera, K_);
@@ -226,7 +235,7 @@ void BaSolver::solveTwoArmorsBa(const double &yaw1, const double &yaw2, const do
   for(size_t i = 4; i < 8; i++){
     g2o::VertexPointXYZ *v_point = new g2o::VertexPointXYZ();
     v_point->setId(i + 7);
-    v_point->setEstimate(R_pitch * object_points[i - 4]);
+    v_point->setEstimate(object_points[i]);
     v_point->setFixed(true);
     optimizer_.addVertex(v_point);
     EdgeTwoArmors *edge = new EdgeTwoArmors(R_odom_camera, K_);
@@ -273,8 +282,8 @@ bool BaSolver::fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d 
     return false;
   }
   double correction = yaw_diff > 0 ? yaw_diff - M_PI / 2 : yaw_diff + M_PI / 2;
-  yaw_armor1 -= correction / 2.0;
-  yaw_armor2 += correction / 2.0;
+  yaw_armor1 += correction / 2.0;
+  yaw_armor2 -= correction / 2.0;
   yaw_armor1 = std::fmod(yaw_armor1 + M_PI, 2.0 * M_PI) - M_PI;
   yaw_armor2 = std::fmod(yaw_armor2 + M_PI, 2.0 * M_PI) - M_PI;
   if(std::abs(std::abs(shortest_angular_distance(yaw_armor1, yaw_armor2)) - M_PI / 2) > 1e-6){
@@ -301,7 +310,7 @@ bool BaSolver::fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d 
   landmarks.reserve(landmarks1.size() + landmarks2.size());
   landmarks.insert(landmarks.end(), landmarks1.begin(), landmarks1.end());
   landmarks.insert(landmarks.end(), landmarks2.begin(), landmarks2.end());
-  cv::undistortPoints(landmarks, landmarks, camera_matrix_, dist_coeffs_);
+  // cv::undistortPoints(landmarks, landmarks, camera_matrix_, dist_coeffs_);
   // 执行优化
   solveTwoArmorsBa(yaw_armor1, yaw_armor2, z1, z2, x_center, y_center, r1, r2, landmarks, R_odom_camera, armor1.number, armor1.type);
   // 计算各个返回的数据

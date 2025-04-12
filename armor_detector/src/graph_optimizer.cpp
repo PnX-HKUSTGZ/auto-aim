@@ -73,17 +73,7 @@ void VertexXY::oplusImpl(const double *update) {
 EdgeTwoArmors::EdgeTwoArmors(const Eigen::Matrix3d &R_odom_camera,
                              const Eigen::Matrix3d &K)
     : R_camera_odom_(R_odom_camera), K_(K) {
-}
-
-EdgeTwoArmors::EdgeTwoArmors(VertexXY *p, VertexR *r, 
-                             FixedScalarVertex *yaw, FixedScalarVertex *z,
-                             g2o::VertexPointXYZ *point) {
   resize(5);
-  _vertices[0] = p;
-  _vertices[1] = r;
-  _vertices[2] = yaw;
-  _vertices[3] = z;
-  _vertices[4] = point;
 }
 
 void EdgeTwoArmors::computeError() {
@@ -97,16 +87,10 @@ void EdgeTwoArmors::computeError() {
   double z = static_cast<FixedScalarVertex *>(_vertices[3])->estimate();
   // 获取角点相对于装甲板中心的位置
   Eigen::Vector3d p = static_cast<g2o::VertexPointXYZ *>(_vertices[4])->estimate();
-  // 计算绕Z轴旋转的旋转矩阵
-  double cy = std::cos(yaw), sy = std::sin(yaw);
-  Eigen::Matrix3d Rz;
-  Rz << cy, -sy, 0,
-        sy,  cy, 0,
-         0,   0, 1;
   //获取2D点
   Eigen::Vector2d obs = _measurement;
   // 计算重投影误差
-  Eigen::Vector3d p_camera = Rz * p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0);
+  Eigen::Vector3d p_camera = p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0);
   p_camera /= p_camera.z();
   _error = obs - p_camera.head<2>();
 }

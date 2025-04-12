@@ -106,14 +106,10 @@ private:
 class EdgeTwoArmors : public g2o::BaseMultiEdge<2, Eigen::Vector2d> {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+  void computeError() override;
 
   EdgeTwoArmors(const Eigen::Matrix3d &R_odom_camera,
                 const Eigen::Matrix3d &K);
-  void computeError() override;
-
-  EdgeTwoArmors(VertexXY *p, VertexR *r, 
-                FixedScalarVertex *yaw, FixedScalarVertex *z,
-                g2o::VertexPointXYZ *point);
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
