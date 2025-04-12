@@ -53,13 +53,23 @@ public:
   Eigen::Matrix3d solveBa(const Armor &armor,
                           Eigen::Vector3d &t_camera_armor,
                           const Eigen::Matrix3d &R_camera_armor,
-                          const Eigen::Matrix3d &R_imu_camera) noexcept;
+                          const Eigen::Matrix3d &R_odom_camera) noexcept;
+  void solveTwoArmorsBa(const double &yaw1, const double &yaw2, const double &z1, const double &z2, 
+                        double &x, double &y, double &r1, double &r2,
+                        const std::vector<cv::Point2f> &landmarks, 
+                        const Eigen::Matrix3d &R_odom_camera, 
+                        std::string number, ArmorType type);
+
+  bool fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d &R_odom_camera);
 
 private:
   Eigen::Matrix3d K_;
   g2o::SparseOptimizer optimizer_;
   g2o::OptimizationAlgorithmProperty solver_property_;
   g2o::OptimizationAlgorithmLevenberg *lm_algorithm_;
+  cv::Mat camera_matrix_;
+  cv::Mat dist_coeffs_;
+  double shortest_angular_distance(double a1, double a2);
 };
 
 } // namespace rm_auto_aim
