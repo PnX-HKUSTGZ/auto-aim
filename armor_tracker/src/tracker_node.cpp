@@ -37,11 +37,10 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     // 设置评分权重参数
     tracker_manager_->setWeights(
         this->declare_parameter("score.w_distance", 0.3),
-        this->declare_parameter("score.w_velocity", 0.2),
-        this->declare_parameter("score.w_tracking", 0.3),
-        this->declare_parameter("score.w_size", 0.1),
-        this->declare_parameter("score.w_confidence", 0.05),
-        this->declare_parameter("score.w_history", 0.05));
+        this->declare_parameter("score.w_tracking", 0.2),
+        this->declare_parameter("score.w_size", 0.2),
+        this->declare_parameter("score.w_history", 0.1),
+        this->declare_parameter("score.w_twoD_distance", 0.2));
 
     // Initialize EKF
     initializeEKF();
@@ -85,31 +84,33 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
 
     // Visualization Marker setup
-    position_marker_.ns = "position";
-    position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
-    position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
-    position_marker_.color.a = 1.0;
-    position_marker_.color.g = 1.0;
-    linear_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
-    linear_v_marker_.ns = "linear_v";
-    linear_v_marker_.scale.x = 0.03;
-    linear_v_marker_.scale.y = 0.05;
-    linear_v_marker_.color.a = 1.0;
-    linear_v_marker_.color.r = 1.0;
-    linear_v_marker_.color.g = 1.0;
-    angular_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
-    angular_v_marker_.ns = "angular_v";
-    angular_v_marker_.scale.x = 0.03;
-    angular_v_marker_.scale.y = 0.05;
-    angular_v_marker_.color.a = 1.0;
-    angular_v_marker_.color.b = 1.0;
-    angular_v_marker_.color.g = 1.0;
-    armor_marker_.ns = "armors";
-    armor_marker_.type = visualization_msgs::msg::Marker::CUBE;
-    armor_marker_.scale.x = 0.03;
-    armor_marker_.scale.z = 0.125;
-    armor_marker_.color.a = 1.0;
-    armor_marker_.color.r = 1.0;
+    if(this->declare_parameter("debug",true)){
+        position_marker_.ns = "position";
+        position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
+        position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
+        position_marker_.color.a = 1.0;
+        position_marker_.color.g = 1.0;
+        linear_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
+        linear_v_marker_.ns = "linear_v";
+        linear_v_marker_.scale.x = 0.03;
+        linear_v_marker_.scale.y = 0.05;
+        linear_v_marker_.color.a = 1.0;
+        linear_v_marker_.color.r = 1.0;
+        linear_v_marker_.color.g = 1.0;
+        angular_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
+        angular_v_marker_.ns = "angular_v";
+        angular_v_marker_.scale.x = 0.03;
+        angular_v_marker_.scale.y = 0.05;
+        angular_v_marker_.color.a = 1.0;
+        angular_v_marker_.color.b = 1.0;
+        angular_v_marker_.color.g = 1.0;
+        armor_marker_.ns = "armors";
+        armor_marker_.type = visualization_msgs::msg::Marker::CUBE;
+        armor_marker_.scale.x = 0.03;
+        armor_marker_.scale.z = 0.125;
+        armor_marker_.color.a = 1.0;
+        armor_marker_.color.r = 1.0;
+    }
 }
 
 void ArmorTrackerNode::initializeEKF()
@@ -302,13 +303,14 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     }
 
     // Filter abnormal armors
+    
+
     armors_msg->armors.erase(
         std::remove_if(
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
-                return armor.pose.position.z > 0 || armor.pose.position.z < -0.5 ||
-                        Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
-                            max_armor_distance_;
+                return Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
+                        max_armor_distance_;
             }),
         armors_msg->armors.end());
 
@@ -348,93 +350,54 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     }
 
 
-    // // Update tracker
-    // if (tracker_->tracker_state == Tracker::LOST) {
-    //     tracker_->init(armors_msg);
-    //     target_msg.tracking = false;
-    // } else {
-    //     dt_ = (time - last_time_).seconds();
-    //     tracker_->lost_thres = static_cast<int>(lost_time_thres_ / dt_);
-    //     tracker_->update(armors_msg);
-
-    //     // Publish Info
-    //     info_msg.position_diff = tracker_->info_position_diff;
-    //     info_msg.yaw_diff = tracker_->info_yaw_diff;
-    //     info_msg.position.x = tracker_->measurement(0);
-    //     info_msg.position.y = tracker_->measurement(1);
-    //     info_msg.position.z = tracker_->measurement(2);
-    //     info_msg.yaw = tracker_->measurement(3);
-    //     info_pub_->publish(info_msg);
-
-    //     if (tracker_->tracker_state == Tracker::DETECTING) {
-    //         target_msg.tracking = false;
-    //     } else if (
-    //         tracker_->tracker_state == Tracker::TRACKING ||
-    //         tracker_->tracker_state == Tracker::TEMP_LOST) {
-    //         target_msg.tracking = true;
-    //         // Fill target message
-    //         const auto & state = tracker_->target_state;
-    //         target_msg.id = tracker_->tracked_id;
-    //         target_msg.armors_num = static_cast<int>(tracker_->tracked_armors_num);
-    //         target_msg.position.x = state(XC);
-    //         target_msg.velocity.x = state(VXC);
-    //         target_msg.position.y = state(YC);
-    //         target_msg.velocity.y = state(VYC);
-    //         target_msg.position.z = state(ZC1);
-    //         target_msg.velocity.z = state(VZC);
-    //         target_msg.yaw = state(YAW1);
-    //         target_msg.v_yaw = state(VYAW);
-    //         target_msg.radius_1 = state(R1);
-    //         target_msg.radius_2 = state(R2);
-    //         target_msg.dz = state(ZC2) - state(ZC1);
-    //     }
-    // }
+    
     
     std::cerr<<"target_msg: "<<target_msg.id<<"|"<<target_msg.tracking<<std::endl;
     
 
     target_pub_->publish(target_msg);//发布target信息
-    if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
-        publishMarkers(target_msg);//发布可视化信息
-        
-        // 获取所有活跃的跟踪器ID
-        std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
-        std::cerr<<"active_ids: "<<active_ids.size()<<std::endl;
-        
-        // 创建一个副本用于绘制
-        cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
-        
-        // 首先绘制当前活跃的主要目标
-        if (target_msg.tracking) {
-            publishImgAll(target_msg, combined_image, true); // true表示是主要目标，可以用不同颜色标识
-        }
-        
-        // 然后绘制其他活跃的目标
-        for (const auto& id : active_ids) {
-            if (id != target_msg.id && id != "") {  // 排除当前已处理的ID和空ID
-                // 获取该ID的目标信息
-                auto id_target_msg = tracker_manager_->getIDTarget(id);
-                
-                // 在相同图像上绘制此ID的装甲板
-                publishImgAll(id_target_msg, combined_image, false); // false表示不是主要目标
-                std::cerr<<"id_for_print: "<<id<<std::endl;
+    if(this->declare_parameter("debug",true)){
+        if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
+            publishMarkers(target_msg);//发布可视化信息
+            
+            // 获取所有活跃的跟踪器ID
+            std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
+            std::cerr<<"active_ids: "<<active_ids.size()<<std::endl;
+            
+            // 创建一个副本用于绘制
+            cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
+            
+            // 首先绘制当前活跃的主要目标
+            if (target_msg.tracking) {
+                publishImgAll(target_msg, combined_image, true); // true表示是主要目标，可以用不同颜色标识
             }
+            
+            // 然后绘制其他活跃的目标
+            for (const auto& id : active_ids) {
+                if (id != target_msg.id && id != "") {  // 排除当前已处理的ID和空ID
+                    // 获取该ID的目标信息
+                    auto id_target_msg = tracker_manager_->getIDTarget(id);
+                    
+                    // 在相同图像上绘制此ID的装甲板
+                    publishImgAll(id_target_msg, combined_image, false); // false表示不是主要目标
+                    std::cerr<<"id_for_print: "<<id<<std::endl;
+                }
+            }
+            
+            // 添加通用信息（如相机中心、延迟等）
+            cv::circle(combined_image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
+            auto latency = (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000; 
+            std::stringstream text; 
+            text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+            cv::putText(combined_image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+            
+            // 发布最终的组合图像
+            auto processed_image_msg = cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
+            tracker_img_pub_.publish(*processed_image_msg);
+            
+            last_img_time_ = armors_msg->image.header.stamp;
+            
         }
-        
-        // 添加通用信息（如相机中心、延迟等）
-        cv::circle(combined_image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
-        auto latency = (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000; 
-        std::stringstream text; 
-        text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-        cv::putText(combined_image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-        
-        // 发布最终的组合图像
-        auto processed_image_msg = cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
-        tracker_img_pub_.publish(*processed_image_msg);
-        
-        last_img_time_ = armors_msg->image.header.stamp;
-        //publishImg(target_msg, armors_msg->image); //发布图像信息
-        //last_img_time_ = armors_msg->image.header.stamp;
     } 
 }
 

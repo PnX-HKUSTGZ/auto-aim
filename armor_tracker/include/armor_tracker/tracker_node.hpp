@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "armor_tracker/tracker.hpp"
+#include "armor_tracker/tracker_manager.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 #include "auto_aim_interfaces/msg/target.hpp"
 #include "auto_aim_interfaces/msg/tracker_info.hpp"
