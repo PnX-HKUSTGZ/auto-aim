@@ -25,6 +25,9 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     double max_match_distance = this->declare_parameter("tracker.max_match_distance", 0.15);
     double max_match_yaw_diff = this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
     
+    //debug
+    debug_ = this->declare_parameter("debug", true);
+    
 
     // 初始化追踪器管理器替代单一追踪器
     tracker_manager_ = std::make_unique<TrackerManager>(
@@ -84,7 +87,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
 
     // Visualization Marker setup
-    if(this->declare_parameter("debug",true)){
+    if(debug_){
         position_marker_.ns = "position";
         position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
         position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
@@ -356,7 +359,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     
 
     target_pub_->publish(target_msg);//发布target信息
-    if(this->declare_parameter("debug",true)){
+    if(debug_){
         if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
             publishMarkers(target_msg);//发布可视化信息
             
