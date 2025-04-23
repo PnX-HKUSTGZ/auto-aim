@@ -2,6 +2,7 @@
 
 #include "armor_tracker/tracker_manager.hpp"
 
+#include <iostream>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 
@@ -17,31 +18,21 @@ TrackerManager::TrackerManager(
     double switch_cooldown)
     : trackers_(),
     current_tracked_id_(""),
-    scores_history_(),
     last_switch_time_(rclcpp::Clock().now()),
     switch_cooldown_(switch_cooldown),
     max_match_distance_(max_match_distance),
     max_match_yaw_diff_(max_match_yaw_diff),
     tracking_thres_(tracking_thres),
     lost_time_thres_(lost_time_thres),
-    w_distance_(0.3),
-    w_tracking_(0.2),
-    w_size_(0.2),
-    w_history_(0.1),
-    w_twoD_distance_(0.2)
+    w_distance_(0.5),
+    w_twoD_distance_(0.5)
     {}
     void TrackerManager::setWeights(
         double w_distance,
-        double w_tracking, 
-        double w_size,
-        double w_history,
-        double w_twoD_distance_)
+        double w_twoD_distance)
     {
     w_distance_ = w_distance;
-    w_tracking_ = w_tracking;
-    w_size_ = w_size;
-    w_history_ = w_history;
-    w_twoD_distance_ = w_twoD_distance_;
+    w_twoD_distance_ = w_twoD_distance;
     }
 
   //从这一部分开始是状态更新相关函数
@@ -97,8 +88,7 @@ TrackerManager::TrackerManager(
               tracker->update(id_armors_msg);
             }
             
-            tracker->tracking_duration_ += 
-            (msg_time - tracker->last_update_time_).seconds();
+            
             tracker->last_update_time_ = msg_time;
             
             // 记录已处理的ID
@@ -144,7 +134,6 @@ TrackerManager::TrackerManager(
     tracker->init(id_armors_msg);
     tracker->tracker_state = Tracker::DETECTING;  // 设置初始状态为检测中
     // 初始化评分指标
-    tracker->tracking_duration_ = 0.0;
     tracker->last_update_time_ = id_armors_msg->header.stamp;
     
     trackers_[id] = tracker;
@@ -164,7 +153,7 @@ TrackerManager::TrackerManager(
     // 移除不活跃的追踪器
     for (const auto& id : ids_to_remove) {
         trackers_.erase(id);
-        scores_history_.erase(id);
+    
         
         // 如果当前选中的追踪器被移除，需要重新选择
         if (id == current_tracked_id_) {
@@ -182,8 +171,6 @@ TrackerManager::TrackerManager(
     // 重置当前选中的目标ID
     current_tracked_id_ = "";
     
-    // 清除评分历史
-    scores_history_.clear();
     
     // 重置切换冷却时间
     last_switch_time_ = rclcpp::Clock().now();
@@ -200,7 +187,7 @@ TrackerManager::TrackerManager(
     double state_score = 0.0;
     switch (tracker->tracker_state) {
         case Tracker::TRACKING: state_score = 1.0; break;
-        case Tracker::TEMP_LOST: state_score = 0.6; break;
+        case Tracker::TEMP_LOST: state_score = 0.8; break;
         case Tracker::DETECTING: state_score = 0.3; break;
         case Tracker::LOST: state_score = 0.0; break;
     }
@@ -213,35 +200,22 @@ TrackerManager::TrackerManager(
     
         // 将3D位置投影到图像平面（简化计算）
         // 实际实现中应使用相机内参进行正确的投影
-        double normalized_distance = std::sqrt(px*px + py*py) / 5.0;  // 假设最大距离为5m
+        double normalized_distance = (std::sqrt(px*px + py*py) -3.0)/ 2.0;  // 假设最大距离为5m
         center_distance = std::min(normalized_distance, 1.0);
+        center_distance = std::max(center_distance, 0.0);
     }
     double distance_score = 1.0 - center_distance;
-    double twoD_distance = static_cast<double>(tracker->tracked_armor.distance_to_image_center);
-    std::cerr<<"twoD_distance:"<<twoD_distance<<std::endl;
-    double twoD_center_score = 1.0 - std::min(twoD_distance / 500, 1.0);
-    
-    // 追踪时长分数 (最多贡献1分，追踪超过3秒获得满分)
-    double duration_score = std::min(tracker->tracking_duration_ / 3.0, 1.0);
-    
-    // 装甲板类型和置信度分数
-    double type_score = tracker->tracked_armor.type == "large" ? 1.0 : 0.8;
-    
-    
-    // 历史评分
-    double history_score = scores_history_.count(id) ? scores_history_[id] : 0.0;
-    
+    double twoD_distance_ = static_cast<double>(tracker->twoD_distance);
+    double twoD_center_score = 1.0 - std::min(twoD_distance_ / 1000, 1.0);
     // 综合评分
-    double score = w_tracking_ * state_score +
-                  w_distance_ * distance_score +
-                  w_size_ * type_score +
-                  w_history_ * history_score+
-                  w_twoD_distance_ * twoD_center_score +
-                  0.1*duration_score;
+    double score = 
+                  (w_distance_ * distance_score + w_twoD_distance_ * twoD_center_score)*state_score 
+                ;
     std::cerr << "Tracker ID: " << id << std::endl;
     std::cerr << " Score: " << score << std::endl;
-    std::cerr << "State: " << state_score << ", Distance: " << distance_score  << ", Duration: " << duration_score << std::endl;
-    std::cerr << "Type: " << type_score << ", History: " << history_score << ",2DD:"<< twoD_center_score<<std::endl;
+    std::cerr << "Distance: " << distance_score  << std::endl;
+    std::cerr << "2DD:"<< twoD_center_score<<std::endl;
+    std::cerr << "State: " << state_score << std::endl;
     return score;
   }
   
@@ -262,7 +236,7 @@ TrackerManager::TrackerManager(
         }
         
         double score = calculateScore(id, tracker);
-        scores_history_[id] = score;
+        
         
         // 维持当前目标的稳定性：如果当前目标的评分接近最高分，则保持不变
         if (id == current_tracked_id_ && score > best_score - switch_threshold) {

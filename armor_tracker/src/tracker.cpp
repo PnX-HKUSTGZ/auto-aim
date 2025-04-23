@@ -33,7 +33,6 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
   measurement(Eigen::VectorXd::Zero(4)),
   target_state(Eigen::VectorXd::Zero(9)),
   last_update_time_(0.0),
-  tracking_duration_(0.0),
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff)
 {}
@@ -53,6 +52,7 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
       tracked_armor = armor;
     }
   }
+  twoD_distance = min_distance;
   bool found = false;
   for (const auto & armor : armors_msg->armors) {
     if(armor.number == tracked_armor.number && armor != tracked_armor){
@@ -93,7 +93,11 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     auto predicted_position = getArmorPositionFromState(ekf_prediction);//预测
     double min_position_diff_1 = DBL_MAX, min_position_diff_2 = DBL_MAX;//导入差值上限
     double min_yaw_diff_1 = DBL_MAX, min_yaw_diff_2 = DBL_MAX;//导入差值上限
+    double min_distance = DBL_MAX;
     for (const auto & armor : armors_msg->armors) {//遍历所有观测到的装甲板
+      if (armor.distance_to_image_center < min_distance) {
+        min_distance = armor.distance_to_image_center; 
+      }
       // Only consider armors with the same id
       if (armor.number == tracked_id) {
         same_id_armor = armor;
@@ -128,6 +132,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
         }
       }
     }
+    twoD_distance = min_distance;
     // Store tracker info
     info_position_diff = fmin(min_position_diff_1, min_position_diff_2);
     info_yaw_diff = fmin(min_yaw_diff_1, min_yaw_diff_2);

@@ -39,11 +39,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         
     // 设置评分权重参数
     tracker_manager_->setWeights(
-        this->declare_parameter("score.w_distance", 0.3),
-        this->declare_parameter("score.w_tracking", 0.2),
-        this->declare_parameter("score.w_size", 0.2),
-        this->declare_parameter("score.w_history", 0.1),
-        this->declare_parameter("score.w_twoD_distance", 0.2));
+        this->declare_parameter("score.w_distance", 0.5),
+        this->declare_parameter("score.w_tracking", 0.5));
 
     // Initialize EKF
     initializeEKF();
@@ -355,7 +352,6 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
 
     
     
-    std::cerr<<"target_msg: "<<target_msg.id<<"|"<<target_msg.tracking<<std::endl;
     
 
     target_pub_->publish(target_msg);//发布target信息
@@ -365,7 +361,6 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             
             // 获取所有活跃的跟踪器ID
             std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
-            std::cerr<<"active_ids: "<<active_ids.size()<<std::endl;
             
             // 创建一个副本用于绘制
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
@@ -383,7 +378,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
                     
                     // 在相同图像上绘制此ID的装甲板
                     publishImgAll(id_target_msg, combined_image, false); // false表示不是主要目标
-                    std::cerr<<"id_for_print: "<<id<<std::endl;
+                    
                 }
             }
             
@@ -550,7 +545,7 @@ void ArmorTrackerNode::publishImgAll(
                 corners_image[j], 
                 corners_image[(j + 1) % corners_image.size()], 
                 color, 
-                is_primary_target ? 2 : 1.5  // 主要目标线条更粗
+                is_primary_target ? 2 : 2  // 主要目标线条更粗
             ); 
         }
     }

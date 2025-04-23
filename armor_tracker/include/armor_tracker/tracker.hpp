@@ -57,6 +57,7 @@ public:
 
   double info_position_diff;
   double info_yaw_diff;
+  double twoD_distance;
 
   Eigen::VectorXd measurement;
 
@@ -64,7 +65,7 @@ public:
 
   // 新增成员用于评分
   rclcpp::Time last_update_time_;      // 上次更新时间
-  double tracking_duration_;           // 追踪持续时间
+  
   
   
   // 获取状态和指标

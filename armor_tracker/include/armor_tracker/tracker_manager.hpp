@@ -35,7 +35,6 @@ class TrackerManager {
       std::string current_tracked_id_;
       
       // 评分历史和目标切换冷却
-      std::map<std::string, double> scores_history_;
       rclcpp::Time last_switch_time_;
       double switch_cooldown_;
       
@@ -48,9 +47,6 @@ class TrackerManager {
       
       // 权重参数
       double w_distance_;    // 距离图像中心的权重_3D
-      double w_tracking_;    // 追踪状态权重
-      double w_size_;        // 装甲板大小权重
-      double w_history_;     // 历史评分权重
       double w_twoD_distance_; // 距离图像中心的权重_2D
       // EKF 模板，用于初始化新的 Tracker
       ExtendedKalmanFilter ekf_template_;
@@ -59,9 +55,6 @@ class TrackerManager {
   public:
       void setWeights(
         double w_distance,
-        double w_tracking, 
-        double w_size,
-        double w_history,
         double w_twoD_distance_
       );
       // 添加一个方法来设置 EKF 模板
