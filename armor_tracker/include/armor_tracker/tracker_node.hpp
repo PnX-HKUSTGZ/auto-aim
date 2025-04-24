@@ -50,6 +50,10 @@ private:
     const auto_aim_interfaces::msg::Target & target_msg,
     const sensor_msgs::msg::Image & image_msg);
 
+  // Debug
+  bool debug_;
+  int last_sec = 0, current_sec = 0, frame_count = 0;
+
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
 

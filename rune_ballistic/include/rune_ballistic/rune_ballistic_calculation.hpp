@@ -19,10 +19,10 @@ namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::RuneTarget;
 
-class Ballistic
+class RuneBallistic
 {
 public:
-    Ballistic(double k = 0.1 , double K = 0.3, double bulletV = 30
+    RuneBallistic(double k = 0.1 , double K = 0.3, double bulletV = 30
             , Eigen::Vector3d odom2gunxyz = Eigen::Vector3d(0,0,0)
             , Eigen::Vector3d odom2gunrpy = Eigen::Vector3d(0,0,0)); //构造函数
     target target_msg;
@@ -55,11 +55,11 @@ private:
     std::pair<double , double> fixTiteratPitch(double& horizon_dis , double& height); 
     double optimizeTime(double initial_guess , double& l , double& h, double& theta); 
     struct CostFunctor {
-        Ballistic& ballistic_ref;
+        RuneBallistic& ballistic_ref;
         double distance;
         double height;
         double theta;
-        explicit CostFunctor( Ballistic& ballistic , double& distance , double& height, double& theta) : ballistic_ref(ballistic) , distance(distance) , height(height), theta(theta) {}
+        explicit CostFunctor( RuneBallistic& ballistic , double& distance , double& height, double& theta) : ballistic_ref(ballistic) , distance(distance) , height(height), theta(theta) {}
 
         template <typename T>
         bool operator()(const T* const t, T* residual) const {

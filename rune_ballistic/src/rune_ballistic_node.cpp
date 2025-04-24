@@ -40,7 +40,7 @@ RuneBallisticNode::RuneBallisticNode(const rclcpp::NodeOptions & options)
     std::vector<double> odom2gun_vec = this->declare_parameter("odom2gun", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
     Eigen::Vector3d odom2gunxyz(odom2gun_vec[0], odom2gun_vec[1], odom2gun_vec[2]);
     Eigen::Vector3d odom2gunrpy(odom2gun_vec[3], odom2gun_vec[4], odom2gun_vec[5]);
-    calculator = std::make_unique<rm_auto_aim::Ballistic>(k , K , BULLET_V, odom2gunxyz, odom2gunrpy);
+    calculator = std::make_unique<rm_auto_aim::RuneBallistic>(k , K , BULLET_V, odom2gunxyz, odom2gunrpy);
     
     //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());   
