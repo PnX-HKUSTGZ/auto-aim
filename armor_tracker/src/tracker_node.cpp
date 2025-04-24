@@ -19,7 +19,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Maximum allowable armor distance in the XOY plane
     max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
-
+    debug_ = this->declare_parameter("debug", false);
     // Tracker
     double max_match_distance = this->declare_parameter("tracker.max_match_distance", 0.15);
     double max_match_yaw_diff = this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
@@ -72,31 +72,33 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
 
     // Visualization Marker setup
-    position_marker_.ns = "position";
-    position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
-    position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
-    position_marker_.color.a = 1.0;
-    position_marker_.color.g = 1.0;
-    linear_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
-    linear_v_marker_.ns = "linear_v";
-    linear_v_marker_.scale.x = 0.03;
-    linear_v_marker_.scale.y = 0.05;
-    linear_v_marker_.color.a = 1.0;
-    linear_v_marker_.color.r = 1.0;
-    linear_v_marker_.color.g = 1.0;
-    angular_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
-    angular_v_marker_.ns = "angular_v";
-    angular_v_marker_.scale.x = 0.03;
-    angular_v_marker_.scale.y = 0.05;
-    angular_v_marker_.color.a = 1.0;
-    angular_v_marker_.color.b = 1.0;
-    angular_v_marker_.color.g = 1.0;
-    armor_marker_.ns = "armors";
-    armor_marker_.type = visualization_msgs::msg::Marker::CUBE;
-    armor_marker_.scale.x = 0.03;
-    armor_marker_.scale.z = 0.125;
-    armor_marker_.color.a = 1.0;
-    armor_marker_.color.r = 1.0;
+    if (debug_) {
+        position_marker_.ns = "position";
+        position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
+        position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
+        position_marker_.color.a = 1.0;
+        position_marker_.color.g = 1.0;
+        linear_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
+        linear_v_marker_.ns = "linear_v";
+        linear_v_marker_.scale.x = 0.03;
+        linear_v_marker_.scale.y = 0.05;
+        linear_v_marker_.color.a = 1.0;
+        linear_v_marker_.color.r = 1.0;
+        linear_v_marker_.color.g = 1.0;
+        angular_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
+        angular_v_marker_.ns = "angular_v";
+        angular_v_marker_.scale.x = 0.03;
+        angular_v_marker_.scale.y = 0.05;
+        angular_v_marker_.color.a = 1.0;
+        angular_v_marker_.color.b = 1.0;
+        angular_v_marker_.color.g = 1.0;
+        armor_marker_.ns = "armors";
+        armor_marker_.type = visualization_msgs::msg::Marker::CUBE;
+        armor_marker_.scale.x = 0.03;
+        armor_marker_.scale.z = 0.125;
+        armor_marker_.color.a = 1.0;
+        armor_marker_.color.r = 1.0;
+    }
 }
 
 void ArmorTrackerNode::initializeEKF()
@@ -273,6 +275,16 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
 //它的主要作用是将装甲板的位置从图像帧坐标转换到世界坐标系，过滤掉异常的装甲板，更新追踪器的状态，
 //并根据追踪结果发布相关信息和可视化标记
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(start_time.time_since_epoch());
+    current_sec = duration.count() / 1000;
+    if(last_sec != current_sec){
+        last_sec = current_sec;
+        if(frame_count < 100) RCLCPP_INFO(get_logger(), "fps: %d", frame_count);
+        frame_count = 0;
+    }
+    frame_count++;
+    
     // Tranform armor position from image frame to world coordinate
     for (auto & armor : armors_msg->armors) {
         geometry_msgs::msg::PoseStamped ps;
@@ -348,7 +360,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     last_time_ = time;
 
     target_pub_->publish(target_msg);//发布target信息
-    if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
+    if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_ && debug_){
         publishMarkers(target_msg);//发布可视化信息
         publishImg(target_msg, armors_msg->image); //发布图像信息
         last_img_time_ = armors_msg->image.header.stamp;

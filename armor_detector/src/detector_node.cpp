@@ -124,12 +124,26 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
   if(!enable_){
     return;
   }
-  // Get the transform from odom to camera
+  if (debug_)armors_msg_.image = *img_msg;
+  cv::Mat img; 
+  auto armors = detectArmors(img_msg, img);
+
+  // Get the transform from odom to gimbal
   try {
+    auto latest_tf = tf2_buffer_->lookupTransform(img_msg->header.frame_id, "odom", tf2::TimePointZero);
     rclcpp::Time target_time = img_msg->header.stamp;
-    auto odom_to_camera_tf = tf2_buffer_->lookupTransform(
-        img_msg->header.frame_id, "odom", target_time,
-        rclcpp::Duration::from_seconds(0.01));
+    rclcpp::Time latest_time = latest_tf.header.stamp;
+    // 比较时间戳
+    geometry_msgs::msg::TransformStamped odom_to_camera_tf;
+    if (target_time > latest_time) {
+        // 使用最新变换
+        odom_to_camera_tf = latest_tf;
+    } else {
+        // 查找指定时间的变换
+        odom_to_camera_tf = tf2_buffer_->lookupTransform(
+            img_msg->header.frame_id, "odom", target_time,
+            rclcpp::Duration::from_nanoseconds(1000000));
+    }
     auto msg_q = odom_to_camera_tf.transform.rotation;
     tf2::Quaternion tf_q;
     tf2::fromMsg(msg_q, tf_q);
@@ -147,10 +161,6 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform");
     return;
   }
-
-  if (debug_)armors_msg_.image = *img_msg;
-  cv::Mat img; 
-  auto armors = detectArmors(img_msg, img);
 
   if (pnp_solver_ != nullptr) {
     armors_msg_.header = armor_marker_.header = text_marker_.header = img_msg->header;
