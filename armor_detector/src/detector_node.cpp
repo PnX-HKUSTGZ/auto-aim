@@ -119,21 +119,25 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
   if(!enable_){
     return;
   }
-  // Get the transform from odom to gimbal
+  // Get the transform from odom to camera
   try {
     rclcpp::Time target_time = img_msg->header.stamp;
-    auto odom_to_gimbal = tf2_buffer_->lookupTransform(
-        "odom", img_msg->header.frame_id, target_time,
+    auto odom_to_camera_tf = tf2_buffer_->lookupTransform(
+        img_msg->header.frame_id, "odom", target_time,
         rclcpp::Duration::from_seconds(0.01));
-    auto msg_q = odom_to_gimbal.transform.rotation;
+    auto msg_q = odom_to_camera_tf.transform.rotation;
     tf2::Quaternion tf_q;
     tf2::fromMsg(msg_q, tf_q);
     tf2::Matrix3x3 tf2_matrix = tf2::Matrix3x3(tf_q);
-    odom_to_camera << tf2_matrix.getRow(0)[0], tf2_matrix.getRow(0)[1],
+    r_odom_to_camera << tf2_matrix.getRow(0)[0], tf2_matrix.getRow(0)[1],
         tf2_matrix.getRow(0)[2], tf2_matrix.getRow(1)[0],
         tf2_matrix.getRow(1)[1], tf2_matrix.getRow(1)[2],
         tf2_matrix.getRow(2)[0], tf2_matrix.getRow(2)[1],
         tf2_matrix.getRow(2)[2];
+    t_odom_to_camera = Eigen::Vector3d(
+        odom_to_camera_tf.transform.translation.x,
+        odom_to_camera_tf.transform.translation.y,
+        odom_to_camera_tf.transform.translation.z);
   } catch (...) {
     RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform");
     return;
@@ -156,10 +160,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
       bool success = pnp_solver_->solvePnP(armors[i], rvecs, tvecs);//获得两个矩阵
       if (success) {
         // choose the best result
-        cv::Mat rvec, tvec; 
-        chooseBestPose(armors[i], rvecs, tvecs, rvec, tvec);
-        armors[i].rvec = rvec;
-        armors[i].tvec = tvec;
+        chooseBestPose(armors[i], rvecs, tvecs);
         armor_num_map[armors[i].number].first++;
         armor_num_map[armors[i].number].second.push_back(i);
       } else {
@@ -175,10 +176,15 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         erase_index = armor_num.second.second;
       }
       else if (armor_num.second.first == 2){
-        if(!ba_solver_->fixTwoArmors(armors[armor_num.second.second[0]], armors[armor_num.second.second[1]], odom_to_camera)){
+        bool success = ba_solver_->fixTwoArmors(armors[armor_num.second.second[0]], armors[armor_num.second.second[1]], r_odom_to_camera);
+        if(!success){
           RCLCPP_ERROR(this->get_logger(), "Fix two armors failed!");
           erase_index.push_back(armor_num.second.second[0]);
           erase_index.push_back(armor_num.second.second[1]);
+        }
+        else {
+          armors[armor_num.second.second[0]].setCameraArmor(r_odom_to_camera, t_odom_to_camera); 
+          armors[armor_num.second.second[1]].setCameraArmor(r_odom_to_camera, t_odom_to_camera);
         }
       }
     }
@@ -192,36 +198,15 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
       armor_msg.type = ARMOR_TYPE_STR[static_cast<int>(armor.type)];
       armor_msg.number = armor.number;
 
-      // choose the best result
-      cv::Mat rvec = armor.rvec;
-      cv::Mat tvec = armor.tvec;
-      // rvec to 3x3 rotation matrix
-      cv::Mat rotation_matrix;
-      cv::Rodrigues(rvec, rotation_matrix);//将旋转向量转换为旋转矩阵
-
-      // rotation matrix to quaternion
-      tf2::Matrix3x3 tf2_rotation_matrix(
-        rotation_matrix.at<double>(0, 0), rotation_matrix.at<double>(0, 1),
-        rotation_matrix.at<double>(0, 2), rotation_matrix.at<double>(1, 0),
-        rotation_matrix.at<double>(1, 1), rotation_matrix.at<double>(1, 2),
-        rotation_matrix.at<double>(2, 0), rotation_matrix.at<double>(2, 1),
-        rotation_matrix.at<double>(2, 2));
-      tf2::Quaternion tf2_q;
-      tf2_rotation_matrix.getRotation(tf2_q);
-      // Convert Eigen::Matrix3d to tf2::Matrix3x3
-      tf2::Matrix3x3 tf2_matrix(
-        odom_to_camera(0,0), odom_to_camera(0,1), odom_to_camera(0,2),
-        odom_to_camera(1,0), odom_to_camera(1,1), odom_to_camera(1,2),
-        odom_to_camera(2,0), odom_to_camera(2,1), odom_to_camera(2,2));
-      tf2::Quaternion R_gimbal_camera_;
-      tf2_matrix.getRotation(R_gimbal_camera_);
-      tf2::Matrix3x3(R_gimbal_camera_ * tf2_q).getRPY(armor.roll, armor.pitch, armor.yaw);
+      Eigen::Quaterniond eigen_quat(armor.r_camera_armor);
+      tf2::Quaternion tf2_q(
+        eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w());
       armor_msg.pose.orientation = tf2::toMsg(tf2_q);
 
       // Fill pose
-      armor_msg.pose.position.x = tvec.at<double>(0);
-      armor_msg.pose.position.y = tvec.at<double>(1);
-      armor_msg.pose.position.z = tvec.at<double>(2);
+      armor_msg.pose.position.x = armor.t_camera_armor(0);
+      armor_msg.pose.position.y = armor.t_camera_armor(1);
+      armor_msg.pose.position.z = armor.t_camera_armor(2);
 
       // Fill the distance to image center
       armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
@@ -252,7 +237,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     }
   }
 }
-void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs, cv::Mat & rvec, cv::Mat & tvec){
+void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs){
   // choose the best result
   // rvec to 3x3 rotation matrix
   cv::Mat rotation_matrix;
@@ -289,17 +274,16 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat>
                Eigen::Quaterniond(Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()));
   q_rotation = q_gimbal_camera.conjugate() * q_rotation;
   Eigen::Matrix3d eigen_mat = q_rotation.toRotationMatrix();
+  armor.t_odom_armor = r_odom_to_camera.inverse() * 
+                 (Eigen::Vector3d(tvecs[0].at<double>(0), 
+                                 tvecs[0].at<double>(1), 
+                                 tvecs[0].at<double>(2)) - t_odom_to_camera);
+  armor.r_odom_armor = r_odom_to_camera.inverse() * eigen_mat;
+  armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera); 
   if(rpy(0) < 0.26){
-    Eigen::Vector3d eigen_tvec;
-    eigen_tvec << tvecs[0].at<double>(0), 
-                  tvecs[0].at<double>(1), 
-                  tvecs[0].at<double>(2);
-    eigen_mat = ba_solver_->solveBa(armor, eigen_tvec, eigen_mat, odom_to_camera);
+    ba_solver_->solveBa(armor, r_odom_to_camera, t_odom_to_camera);
   }
-  cv::Mat rmat;
-  cv::eigen2cv(eigen_mat, rmat);
-  cv::Rodrigues(rmat, rvec); 
-  tvec = tvecs[0];
+  armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera); 
 }
 std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 {
@@ -409,14 +393,13 @@ void ArmorDetectorNode::drawResults(
   detector_->drawResults(img);
   // Show yaw, pitch, roll
   for (const auto & armor : armors) {
+    Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2); //提取欧拉角
+    double distance = armor.t_camera_armor.norm();
     cv::putText(
-      img, "y: " + std::to_string(armor.yaw / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, "y: " + std::to_string(rpy(0) / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
     cv::putText(
-      img, "p: " + std::to_string(armor.pitch / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 45), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-      cv::Scalar(0, 255, 255), 2);
-    cv::putText(
-      img, "r: " + std::to_string(armor.roll / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 70), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, "d: " + std::to_string(distance) + "m" , cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 60), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
   }
   // Draw camera center

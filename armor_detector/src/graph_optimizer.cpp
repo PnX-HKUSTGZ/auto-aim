@@ -31,11 +31,11 @@ void VertexYaw::oplusImpl(const double *update) {
   _estimate += update[0];
 }
 
-EdgeProjection::EdgeProjection(const Sophus::SO3d &R_camera_odom,
+EdgeProjection::EdgeProjection(const Sophus::SO3d &R_odom_to_camera,
                                const Eigen::Vector3d &t,
                                const Eigen::Matrix3d &K)
-    : R_camera_odom_(R_camera_odom), t_(t), K_(K) {
-  M_ = K_ * (R_camera_odom_).matrix();
+    : R_odom_to_camera_(R_odom_to_camera), t_(t), K_(K) {
+  M_ = K_ * (R_odom_to_camera_).matrix();
   vt_ = K_ * t_;
 }
 
@@ -70,9 +70,10 @@ void VertexXY::oplusImpl(const double *update) {
   _estimate += Eigen::Vector2d(update[0], update[1]);
 }
 
-EdgeTwoArmors::EdgeTwoArmors(const Eigen::Matrix3d &R_odom_camera,
+EdgeTwoArmors::EdgeTwoArmors(const Eigen::Matrix3d &R_odom_to_camera,
                              const Eigen::Matrix3d &K)
-    : R_camera_odom_(R_odom_camera), K_(K) {
+    : R_odom_to_camera_(R_odom_to_camera), K_(K) {
+  M_ = K_ * (R_odom_to_camera_).matrix();
   resize(5);
 }
 
@@ -90,7 +91,7 @@ void EdgeTwoArmors::computeError() {
   //获取2D点
   Eigen::Vector2d obs = _measurement;
   // 计算重投影误差
-  Eigen::Vector3d p_camera = p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0);
+  Eigen::Vector3d p_camera = M_ * (p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0));
   p_camera /= p_camera.z();
   _error = obs - p_camera.head<2>();
 }

@@ -88,7 +88,7 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
   using InfoMatrixType = Eigen::Matrix<double, 2, 2>;
 
-  EdgeProjection(const Sophus::SO3d &R_camera_odom,
+  EdgeProjection(const Sophus::SO3d &R_odom_to_camera,
                  const Eigen::Vector3d &t, const Eigen::Matrix3d &K); 
   void computeError() override; // 误差
 
@@ -96,7 +96,7 @@ public:
   bool write(std::ostream &out) const override { return true; }
 
 private:
-  Sophus::SO3d R_camera_odom_;
+  Sophus::SO3d R_odom_to_camera_;
   Eigen::Vector3d t_;
   Eigen::Matrix3d K_;
   Eigen::Matrix3d M_;
@@ -108,15 +108,15 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
   void computeError() override;
 
-  EdgeTwoArmors(const Eigen::Matrix3d &R_odom_camera,
+  EdgeTwoArmors(const Eigen::Matrix3d &R_odom_to_camera,
                 const Eigen::Matrix3d &K);
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
 
 private:
-  Sophus::SO3d R_camera_odom_;
-  Eigen::Matrix3d K_;
+  Sophus::SO3d R_odom_to_camera_;
+  Eigen::Matrix3d K_, M_;
 };
 
 } // namespace rm_auto_aim

@@ -50,17 +50,16 @@ public:
            const std::vector<double> &dist_coeffs);
 
   // Solve the armor pose using the BA algorithm, return the optimized rotation
-  Eigen::Matrix3d solveBa(const Armor &armor,
-                          Eigen::Vector3d &t_camera_armor,
-                          const Eigen::Matrix3d &R_camera_armor,
-                          const Eigen::Matrix3d &R_odom_camera) noexcept;
+  void solveBa(Armor &armor, 
+               const Eigen::Matrix3d &R_odom_to_camera,
+                const Eigen::Vector3d &t_odom_to_camera) noexcept;
   void solveTwoArmorsBa(const double &yaw1, const double &yaw2, const double &z1, const double &z2, 
                         double &x, double &y, double &r1, double &r2,
                         const std::vector<cv::Point2f> &landmarks, 
-                        const Eigen::Matrix3d &R_odom_camera, 
+                        const Eigen::Matrix3d &R_odom_to_camera, 
                         std::string number, ArmorType type);
 
-  bool fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d &R_odom_camera);
+  bool fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d &R_odom_to_camera);
 
 private:
   Eigen::Matrix3d K_;

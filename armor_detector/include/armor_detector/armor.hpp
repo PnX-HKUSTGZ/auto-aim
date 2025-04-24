@@ -5,6 +5,7 @@
 #define ARMOR_DETECTOR__ARMOR_HPP_
 
 #include <opencv2/core.hpp>
+#include <Eigen/Core>
 
 // STL
 #include <algorithm>
@@ -76,6 +77,13 @@ struct Armor
     return {left_light.bottom, left_light.top, right_light.top, right_light.bottom};
   }
 
+  void setCameraArmor(const Eigen::Matrix3d & r_odom_to_camera, 
+                      const Eigen::Vector3d & t_odom_to_camera)
+  {
+    t_camera_armor = r_odom_to_camera * t_odom_armor + t_odom_to_camera;
+    r_camera_armor = r_odom_to_camera * r_odom_armor;
+  }
+
   // Light pairs part
   Light left_light, right_light;
   cv::Point2f center;
@@ -87,8 +95,10 @@ struct Armor
   std::string number;
   float confidence;
   std::string classfication_result;
-  double yaw, pitch, roll; 
-  cv::Mat rvec, tvec;
+  Eigen::Matrix3d r_odom_armor;  
+  Eigen::Vector3d t_odom_armor; 
+  Eigen::Matrix3d r_camera_armor;
+  Eigen::Vector3d t_camera_armor;
 };
 
 }  // namespace rm_auto_aim
