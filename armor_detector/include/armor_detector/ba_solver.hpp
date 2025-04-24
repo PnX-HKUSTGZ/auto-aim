@@ -22,6 +22,8 @@
 #include <cstddef>
 #include <tuple>
 #include <vector>
+#include <thread>
+#include <mutex>
 // 3rd party
 #include <Eigen/Core>
 #include <Eigen/Dense>
@@ -39,6 +41,7 @@
 // project
 #include "armor_detector/graph_optimizer.hpp"
 #include "armor_detector/armor.hpp"
+#include "armor_detector/thread_pool.hpp"
 
 namespace rm_auto_aim {
 
@@ -53,6 +56,12 @@ public:
   void solveBa(Armor &armor, 
                const Eigen::Matrix3d &R_odom_to_camera,
                 const Eigen::Vector3d &t_odom_to_camera) noexcept;
+  
+  // 单线程版本的BA求解方法 (多线程实现内部使用)
+  void solveBaSingleThread(Armor &armor, 
+                         const Eigen::Matrix3d &R_odom_to_camera,
+                         const Eigen::Vector3d &t_odom_to_camera) noexcept;
+  
   void solveTwoArmorsBa(const double &yaw1, const double &yaw2, const double &z1, const double &z2, 
                         double &x, double &y, double &r1, double &r2,
                         const std::vector<cv::Point2f> &landmarks, 
@@ -60,6 +69,9 @@ public:
                         std::string number, ArmorType type);
 
   bool fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d &R_odom_to_camera);
+  
+  // 初始化线程池，用于多线程优化
+  void startThreadPoolIfNeeded(int num_threads = 4);
 
 private:
   Eigen::Matrix3d K_;
@@ -69,6 +81,10 @@ private:
   cv::Mat camera_matrix_;
   cv::Mat dist_coeffs_;
   double shortest_angular_distance(double a1, double a2);
+  
+  // 线程池相关成员
+  std::shared_ptr<ThreadPool> thread_pool_;
+  std::mutex solver_mutex_; // 保护优化器访问的互斥锁
 };
 
 } // namespace rm_auto_aim

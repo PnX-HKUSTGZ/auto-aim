@@ -95,6 +95,11 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
       cam_info_ = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
       pnp_solver_ = std::make_unique<PnPSolver>(camera_info->k, camera_info->d);
       ba_solver_ = std::make_unique<BaSolver>(camera_info->k, camera_info->d);
+      
+      // 启动BA优化的线程池，使用系统CPU核心数的一半作为线程数，至少2个线程
+      int thread_count = std::max(2, static_cast<int>(std::thread::hardware_concurrency() / 2));
+      ba_solver_->startThreadPoolIfNeeded(thread_count);
+      
       cam_info_sub_.reset();//取消订阅
     });
   //收到图像信息后回调imageCallback函数

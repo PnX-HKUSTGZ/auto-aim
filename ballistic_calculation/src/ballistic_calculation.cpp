@@ -349,7 +349,6 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
         // 判断是否收敛
         if (fabs(f) < epsilon) {
-            std::cerr << "yaw_PTZ: " << yaw_PTZ << std::endl;
             break;
         }
 

@@ -35,8 +35,8 @@ EdgeProjection::EdgeProjection(const Sophus::SO3d &R_odom_to_camera,
                                const Eigen::Vector3d &t,
                                const Eigen::Matrix3d &K)
     : R_odom_to_camera_(R_odom_to_camera), t_(t), K_(K) {
-  M_ = K_ * (R_odom_to_camera_).matrix();
-  vt_ = K_ * t_;
+  M_ = (R_odom_to_camera_).matrix();
+  vt_ = t_;
 }
 
 void EdgeProjection::computeError() {
@@ -73,27 +73,34 @@ void VertexXY::oplusImpl(const double *update) {
 EdgeTwoArmors::EdgeTwoArmors(const Eigen::Matrix3d &R_odom_to_camera,
                              const Eigen::Matrix3d &K)
     : R_odom_to_camera_(R_odom_to_camera), K_(K) {
-  M_ = K_ * (R_odom_to_camera_).matrix();
-  resize(5);
+  M_ = (R_odom_to_camera_).matrix();
+  resize(6);
 }
 
 void EdgeTwoArmors::computeError() {
   // 获取车辆中心点
-  Eigen::Vector2d xy = static_cast<VertexXY *>(_vertices[0])->estimate();
+  const Eigen::Vector2d &xy = static_cast<VertexXY *>(_vertices[0])->estimate();
   // 获取两个装甲板半径
-  double r = static_cast<VertexR *>(_vertices[1])->estimate();
+  const double r = static_cast<VertexR *>(_vertices[1])->estimate();
   // 获取yaw角
-  double yaw = static_cast<FixedScalarVertex *>(_vertices[2])->estimate();
+  const double cos_yaw = static_cast<FixedScalarVertex *>(_vertices[2])->estimate();
+  const double sin_yaw = static_cast<FixedScalarVertex *>(_vertices[3])->estimate();
   // 获取z
-  double z = static_cast<FixedScalarVertex *>(_vertices[3])->estimate();
+  const double z = static_cast<FixedScalarVertex *>(_vertices[4])->estimate();
   // 获取角点相对于装甲板中心的位置
-  Eigen::Vector3d p = static_cast<g2o::VertexPointXYZ *>(_vertices[4])->estimate();
-  //获取2D点
-  Eigen::Vector2d obs = _measurement;
+  const Eigen::Vector3d &p = static_cast<g2o::VertexPointXYZ *>(_vertices[5])->estimate();
+  // 获取2D点
+  const Eigen::Vector2d &obs = _measurement;
+  
+  // 预计算偏移量，避免多次计算
+  const double x_offset = xy.x() - r * cos_yaw;
+  const double y_offset = xy.y() - r * sin_yaw;
+  
   // 计算重投影误差
-  Eigen::Vector3d p_camera = M_ * (p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0));
-  p_camera /= p_camera.z();
-  _error = obs - p_camera.head<2>();
+  // 直接使用临时变量避免创建额外的Vector3d对象
+  Eigen::Vector3d p_camera = M_ * Eigen::Vector3d(p.x() + x_offset, p.y() + y_offset, p.z() + z);
+  const double inv_z = 1.0 / p_camera.z();
+  _error = obs - Eigen::Vector2d(p_camera.x() * inv_z, p_camera.y() * inv_z);
 }
 
 } // namespace rm_auto_aim
