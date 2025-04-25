@@ -30,15 +30,13 @@ namespace rm_auto_aim {
 void VertexYaw::oplusImpl(const double *update) {
   _estimate += update[0];
 }
-
-EdgeProjection::EdgeProjection(const Sophus::SO3d &R_odom_to_camera,
-                               const Eigen::Vector3d &t,
-                               const Eigen::Matrix3d &K)
-    : R_odom_to_camera_(R_odom_to_camera), t_(t), K_(K) {
-  M_ = K_ * (R_odom_to_camera_).matrix();
-  vt_ = K_ * t_;
+EdgeProjection::EdgeProjection(){}
+void EdgeProjection::setCameraPose(const Sophus::SO3d &R_odom_to_camera,
+                                   const Eigen::Vector3d &t_camera_armor) {
+  // 计算相机坐标系到装甲板坐标系的变换矩阵
+  K_ = R_odom_to_camera.matrix();
+  t_ = t_camera_armor;
 }
-
 void EdgeProjection::computeError() {
   // 获取 yaw 角
   double yaw = static_cast<VertexYaw *>(_vertices[0])->estimate();
@@ -55,7 +53,7 @@ void EdgeProjection::computeError() {
   const Eigen::Vector2d &obs = _measurement;
 
   // 利用预计算结果减少乘法次数
-  Eigen::Vector3d p = M_ * (Rz * p_3d) + vt_;
+  Eigen::Vector3d p = K_ * (Rz * p_3d) + t_;
   p /= p.z();
 
   // 计算重投影误差
@@ -70,13 +68,14 @@ void VertexXY::oplusImpl(const double *update) {
   _estimate += Eigen::Vector2d(update[0], update[1]);
 }
 
-EdgeTwoArmors::EdgeTwoArmors(const Eigen::Matrix3d &R_odom_to_camera,
-                             const Eigen::Matrix3d &K)
-    : R_odom_to_camera_(R_odom_to_camera), K_(K) {
-  M_ = K_ * (R_odom_to_camera_).matrix();
+EdgeTwoArmors::EdgeTwoArmors() {
+  // 设置边的维度
   resize(5);
 }
-
+void EdgeTwoArmors::setCameraPose(const Sophus::SO3d &R_odom_to_camera) {
+  // 计算相机坐标系到装甲板坐标系的变换矩阵
+  K_ = R_odom_to_camera.matrix();
+}
 void EdgeTwoArmors::computeError() {
   // 获取车辆中心点
   Eigen::Vector2d xy = static_cast<VertexXY *>(_vertices[0])->estimate();
@@ -91,7 +90,7 @@ void EdgeTwoArmors::computeError() {
   //获取2D点
   Eigen::Vector2d obs = _measurement;
   // 计算重投影误差
-  Eigen::Vector3d p_camera = M_ * (p + Eigen::Vector3d(xy.x(), xy.y(), z) - Eigen::Vector3d(r * cos(yaw), r * sin(yaw), 0));
+  Eigen::Vector3d p_camera = K_ * (p + Eigen::Vector3d(xy.x() - r * cos(yaw), xy.y() - r * sin(yaw), z));
   p_camera /= p_camera.z();
   _error = obs - p_camera.head<2>();
 }

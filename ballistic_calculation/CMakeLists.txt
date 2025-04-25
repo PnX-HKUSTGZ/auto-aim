@@ -6,6 +6,9 @@ if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
 endif()
 
+## Add optimization flags
+add_compile_options(-O2)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Compiler options

@@ -88,19 +88,17 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
   using InfoMatrixType = Eigen::Matrix<double, 2, 2>;
 
-  EdgeProjection(const Sophus::SO3d &R_odom_to_camera,
-                 const Eigen::Vector3d &t, const Eigen::Matrix3d &K); 
+  EdgeProjection(); 
+  void setCameraPose(const Sophus::SO3d &R_odom_to_camera,
+                 const Eigen::Vector3d &t_camera_armor); 
   void computeError() override; // 误差
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
 
 private:
-  Sophus::SO3d R_odom_to_camera_;
   Eigen::Vector3d t_;
   Eigen::Matrix3d K_;
-  Eigen::Matrix3d M_;
-  Eigen::Vector3d vt_;
 };
 // 误差模型 模板参数：观测值维度，类型
 class EdgeTwoArmors : public g2o::BaseMultiEdge<2, Eigen::Vector2d> {
@@ -108,15 +106,14 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
   void computeError() override;
 
-  EdgeTwoArmors(const Eigen::Matrix3d &R_odom_to_camera,
-                const Eigen::Matrix3d &K);
+  EdgeTwoArmors();
+  void setCameraPose(const Sophus::SO3d &R_odom_to_camera); 
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
 
 private:
-  Sophus::SO3d R_odom_to_camera_;
-  Eigen::Matrix3d K_, M_;
+  Eigen::Matrix3d K_;
 };
 
 } // namespace rm_auto_aim

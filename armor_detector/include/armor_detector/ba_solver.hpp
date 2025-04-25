@@ -64,11 +64,14 @@ public:
 private:
   Eigen::Matrix3d K_;
   g2o::SparseOptimizer optimizer_;
+  g2o::SparseOptimizer two_armor_optimizer_;
   g2o::OptimizationAlgorithmProperty solver_property_;
   g2o::OptimizationAlgorithmLevenberg *lm_algorithm_;
   cv::Mat camera_matrix_;
   cv::Mat dist_coeffs_;
   double shortest_angular_distance(double a1, double a2);
+  void initializeOneArmorsOptimization(g2o::SparseOptimizer &optimizer);
+  void initializeTwoArmorsOptimization(g2o::SparseOptimizer &optimizer); 
 };
 
 } // namespace rm_auto_aim

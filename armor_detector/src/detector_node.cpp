@@ -406,7 +406,7 @@ void ArmorDetectorNode::drawResults(
     Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2); //提取欧拉角
     double distance = armor.t_camera_armor.norm();
     cv::putText(
-      img, "y: " + std::to_string(rpy(0) / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, "y: " + std::to_string(int(rpy(2) / CV_PI * 180)) + " deg", cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
     cv::putText(
       img, "d: " + std::to_string(distance) + "m" , cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 60), cv::FONT_HERSHEY_SIMPLEX, 0.8,
