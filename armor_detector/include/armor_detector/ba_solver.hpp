@@ -57,9 +57,12 @@ public:
                         double &x, double &y, double &r1, double &r2,
                         const std::vector<cv::Point2f> &landmarks, 
                         const Eigen::Matrix3d &R_odom_to_camera, 
+                        const Eigen::Vector3d &t_odom_to_camera, 
                         std::string number, ArmorType type);
 
-  bool fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d &R_odom_to_camera);
+  bool fixTwoArmors(Armor &armor1, Armor &armor2, 
+                    const Eigen::Matrix3d &R_odom_to_camera, 
+                    const Eigen::Vector3d &t_odom_to_camera);
 
 private:
   Eigen::Matrix3d K_;

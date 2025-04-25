@@ -142,6 +142,7 @@ void BaSolver::solveTwoArmorsBa(const double &yaw1, const double &yaw2, const do
                                 double &x, double &y, double &r1, double &r2,
                                 const std::vector<cv::Point2f> &landmarks, 
                                 const Eigen::Matrix3d &R_odom_to_camera, 
+                                const Eigen::Vector3d &t_odom_to_camera, 
                                 std::string number, ArmorType type){
   // Get the pitch angle of the armor
   double armor_pitch =
@@ -190,7 +191,7 @@ void BaSolver::solveTwoArmorsBa(const double &yaw1, const double &yaw2, const do
   for(auto edge : edgeset){
     auto *edge_proj = dynamic_cast<EdgeTwoArmors*>(edge);
     edge_proj->setMeasurement(Eigen::Vector2d(landmarks[edge->id()].x, landmarks[edge->id()].y));
-    edge_proj->setCameraPose(R_odom_to_camera);
+    edge_proj->setCameraPose(R_odom_to_camera, t_odom_to_camera);
   }
   //执行优化
   two_armor_optimizer_.initializeOptimization();
@@ -201,7 +202,9 @@ void BaSolver::solveTwoArmorsBa(const double &yaw1, const double &yaw2, const do
   x = v_xy->estimate().x();
   y = v_xy->estimate().y();
 }
-bool BaSolver::fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d &R_odom_to_camera){
+bool BaSolver::fixTwoArmors(Armor &armor1, Armor &armor2, 
+                            const Eigen::Matrix3d &R_odom_to_camera, 
+                            const Eigen::Vector3d &t_odom_to_camera){
   // 取出各个数据
   Eigen::Matrix3d & r_odom_armor1 = armor1.r_odom_armor;
   Eigen::Matrix3d & r_odom_armor2 = armor2.r_odom_armor;
@@ -245,7 +248,7 @@ bool BaSolver::fixTwoArmors(Armor &armor1, Armor &armor2, const Eigen::Matrix3d 
   landmarks.insert(landmarks.end(), landmarks2.begin(), landmarks2.end());
   cv::undistortPoints(landmarks, landmarks, camera_matrix_, dist_coeffs_);
   // 执行优化
-  solveTwoArmorsBa(yaw_armor1, yaw_armor2, z1, z2, x_center, y_center, r1, r2, landmarks, R_odom_to_camera, armor1.number, armor1.type);
+  solveTwoArmorsBa(yaw_armor1, yaw_armor2, z1, z2, x_center, y_center, r1, r2, landmarks, R_odom_to_camera, t_odom_to_camera, armor1.number, armor1.type);
   // 计算各个返回的数据
   t_odom_armor1 = Eigen::Vector3d(x_center - r1 * cos(yaw_armor1), y_center - r1 * sin(yaw_armor1), z1);
   t_odom_armor2 = Eigen::Vector3d(x_center - r2 * cos(yaw_armor2), y_center - r2 * sin(yaw_armor2), z2);

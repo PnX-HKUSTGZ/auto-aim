@@ -72,9 +72,11 @@ EdgeTwoArmors::EdgeTwoArmors() {
   // 设置边的维度
   resize(5);
 }
-void EdgeTwoArmors::setCameraPose(const Sophus::SO3d &R_odom_to_camera) {
+void EdgeTwoArmors::setCameraPose(const Sophus::SO3d &R_odom_to_camera,
+                                  const Eigen::Vector3d &t_camera_armor) {
   // 计算相机坐标系到装甲板坐标系的变换矩阵
   K_ = R_odom_to_camera.matrix();
+  t_ = t_camera_armor; 
 }
 void EdgeTwoArmors::computeError() {
   // 获取车辆中心点
@@ -90,7 +92,7 @@ void EdgeTwoArmors::computeError() {
   //获取2D点
   Eigen::Vector2d obs = _measurement;
   // 计算重投影误差
-  Eigen::Vector3d p_camera = K_ * (p + Eigen::Vector3d(xy.x() - r * cos(yaw), xy.y() - r * sin(yaw), z));
+  Eigen::Vector3d p_camera = K_ * (p + Eigen::Vector3d(xy.x() - r * cos(yaw), xy.y() - r * sin(yaw), z) - t_);
   p_camera /= p_camera.z();
   _error = obs - p_camera.head<2>();
 }

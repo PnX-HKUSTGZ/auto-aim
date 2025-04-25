@@ -107,13 +107,15 @@ public:
   void computeError() override;
 
   EdgeTwoArmors();
-  void setCameraPose(const Sophus::SO3d &R_odom_to_camera); 
+  void setCameraPose(const Sophus::SO3d &R_odom_to_camera,
+                     const Eigen::Vector3d &t_camera_armor); 
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
 
 private:
-  Eigen::Matrix3d K_;
+  Eigen::Matrix3d K_; 
+  Eigen::Vector3d t_; 
 };
 
 } // namespace rm_auto_aim

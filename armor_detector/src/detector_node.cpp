@@ -186,7 +186,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         erase_index = armor_num.second.second;
       }
       else if (armor_num.second.first == 2){
-        bool success = ba_solver_->fixTwoArmors(armors[armor_num.second.second[0]], armors[armor_num.second.second[1]], r_odom_to_camera);
+        bool success = ba_solver_->fixTwoArmors(armors[armor_num.second.second[0]], armors[armor_num.second.second[1]], r_odom_to_camera, t_odom_to_camera);
         if(!success){
           RCLCPP_ERROR(this->get_logger(), "Fix two armors failed!");
           erase_index.push_back(armor_num.second.second[0]);
