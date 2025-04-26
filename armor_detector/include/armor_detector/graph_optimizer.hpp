@@ -108,7 +108,7 @@ public:
 
   EdgeTwoArmors();
   void setCameraPose(const Sophus::SO3d &R_odom_to_camera,
-                     const Eigen::Vector3d &t_camera_armor); 
+                     const Eigen::Vector3d &t_odom_to_camera); 
 
   bool read(std::istream &in) override { return true; }
   bool write(std::ostream &out) const override { return true; }
