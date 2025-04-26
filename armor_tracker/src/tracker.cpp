@@ -65,15 +65,15 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
       }
     }
   }
+  tracked_id = tracked_armor.number;
+  updateArmorsNum(tracked_armor);//对追踪的装甲板进行分类？
   //中心的装甲板作为追踪目标，并初始化EKF
   if(found) initEKFTwo(tracked_armor, tracked_armor_2);
   else initEKF(tracked_armor);
   RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Init EKF!");
 
-  tracked_id = tracked_armor.number;
   tracker_state = DETECTING;//将追踪状态设为detecting
 
-  updateArmorsNum(tracked_armor);//对追踪的装甲板进行分类？
 }
 
 void Tracker::update(const Armors::SharedPtr & armors_msg)
