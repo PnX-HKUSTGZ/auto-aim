@@ -212,20 +212,20 @@ std::vector<double> Ballistic::stategy_1(double T)
 {
     // C++
     const double pi = 3.1415926;
-    std::vector<Ballistic::armor_info> armors(4);
+    int a_n = target_msg.armors_num;
+    std::vector<Ballistic::armor_info> armors(a_n);
 
     // 计算未来 T 时间的中心位置
     double newyaw = target_msg.yaw + target_msg.v_yaw * T;
     double newxc = target_msg.position.x + target_msg.velocity.x * T;
     double newyc = target_msg.position.y + target_msg.velocity.y * T;
-
     // 初始化第一个装甲板的偏航角
     armors[0].yaw = newyaw;
 
     // 按顺时针方向计算每个装甲板的 yaw，并计算其坐标
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < a_n; ++i) {
         if (i > 0) {
-            armors[i].yaw = armors[i - 1].yaw - pi / 2;
+            armors[i].yaw = armors[i - 1].yaw - 2 * pi / a_n;
         }
         // 设置装甲板的高度,半径
         armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
@@ -240,8 +240,8 @@ std::vector<double> Ballistic::stategy_1(double T)
 
     // 计算每个装甲板的角度，并存入 map
     std::map<double, armor_info> armorlist_map;
-    std::vector<double> angles(4);
-    for (int i = 0; i < 4; ++i) {
+    std::vector<double> angles(a_n);
+    for (int i = 0; i < a_n; ++i) {
         angles[i] = angleBetweenVectors(armors[i].vec, armors[i].vecto_odom);
         armorlist_map[angles[i]] = armors[i];
     }
@@ -264,7 +264,8 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
 {
     // C++
     const double pi = 3.1415926;
-    std::vector<Ballistic::armor_info> armors(4);
+    int a_n = target_msg.armors_num;
+    std::vector<Ballistic::armor_info> armors(a_n);
 
     // 计算未来 T 时间的中心位置
     double newyaw = target_msg.yaw + target_msg.v_yaw * T;
@@ -275,9 +276,9 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
     armors[0].yaw = newyaw;
 
     // 按顺时针方向计算每个装甲板的 yaw，并计算其坐标
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < a_n; ++i) {
         if (i > 0) {
-            armors[i].yaw = armors[i - 1].yaw - pi / 2;
+            armors[i].yaw = armors[i - 1].yaw - 2 * pi / a_n;
         }
         // 设置装甲板的高度,半径
         armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
@@ -292,8 +293,8 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
 
     // 计算每个装甲板的角度，并存入 map
     std::map<double, armor_info> armorlist_map;
-    std::vector<double> angles(4);
-    for (int i = 0; i < 4; ++i) {
+    std::vector<double> angles(a_n);
+    for (int i = 0; i < a_n; ++i) {
         angles[i] = angleBetweenVectors(armors[i].vecto_odom, armors[i].vec);
         armorlist_map[angles[i]] = armors[i];
     }
