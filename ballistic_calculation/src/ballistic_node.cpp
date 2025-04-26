@@ -37,7 +37,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
     BULLET_V = this->declare_parameter("bullet_speed",23.0);
-    ifFireK = this->declare_parameter("ifFireK",0.05);
+    ifFireK_ = this->declare_parameter("ifFireK",0.05);
     min_v = this->declare_parameter("swich_stategy_1",5.0) * M_PI / 30;
     max_v = this->declare_parameter("swich_stategy_2",30.0) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
@@ -137,7 +137,7 @@ void BallisticCalculateNode::timerCallback()
     calculator->robotcenter = target_msg->position;
     calculator->velocity = target_msg->velocity;
 
-    ifFireK += target_msg->v_yaw * 0.002;
+    ifFireK = ifFireK_ +  abs(target_msg->v_yaw) * 0.002;
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
     double init_t = std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y) / (cos(init_pitch) * this->calculator->bulletV);
@@ -188,13 +188,9 @@ void BallisticCalculateNode::timerCallback()
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
     if(this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)){
-      ifFireK += target_msg->v_yaw * 0.008;
-      fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
-      ifFireK -= target_msg->v_yaw * 0.008;
+      ifFireK += abs(target_msg->v_yaw) * 0.008;
     }
-    else{
-      fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
-    }
+    fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
     if(fire_msg.iffire) last_fire_time = this->now();
     publisher_->publish(fire_msg);
     
