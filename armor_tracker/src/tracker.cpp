@@ -276,8 +276,8 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     ekf.setState(target_state);
   }
   double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
-  target_state(YAW1) = yaw_average - M_PI / 4;
-  target_state(YAW2) = yaw_average + M_PI / 4;
+  target_state(YAW1) = yaw_average - M_PI / double(tracked_armors_num);
+  target_state(YAW2) = yaw_average + M_PI / double(tracked_armors_num);
   ekf.setState(target_state);
 
   // Tracking state machine
@@ -323,7 +323,7 @@ void Tracker::initEKF(const Armor & a)
     double yc = p.y + r * sin(yaw);
     target_state(XC) = xc, target_state(YC) = yc, target_state(ZC1) = target_state(ZC2) = p.z;
     target_state(YAW1) = yaw, target_state(R1) = r;
-    target_state(YAW2) = yaw + M_PI / 2, target_state(R2) = r;
+    target_state(YAW2) = yaw + 2 * M_PI / double(tracked_armors_num), target_state(R2) = r;
 
     ekf.setState(target_state);
   }
@@ -336,7 +336,7 @@ void Tracker::initEKF(const Armor & a)
     target_state(XC) = xc, target_state(YC) = yc, target_state(ZC1) = target_state(ZC2) = p.z;
     target_state(VXC) = 0, target_state(VYC) = 0, target_state(VZC) = 0, target_state(VYAW) = 0;
     target_state(YAW2) = yaw, target_state(R2) = r;
-    target_state(YAW1) = yaw - M_PI / 2, target_state(R1) = r;
+    target_state(YAW1) = yaw - 2 * M_PI / double(tracked_armors_num), target_state(R1) = r;
     ekf.setState(target_state);
   }
 }
@@ -369,10 +369,10 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
   double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya));
   double xc = xa + r1 * cos(yaw_a);
   double yc = ya + r1 * sin(yaw_a);
-  if(yaw_a < -M_PI / 2 || yaw_a > M_PI / 2) {
+  if(yaw_a < -2 * M_PI / double(tracked_armors_num) || yaw_a > 2 * M_PI / double(tracked_armors_num)) {
     yaw_a = yaw_a < 0 ? yaw_a + M_PI : yaw_a - M_PI;
   }
-  if(yaw_b < -M_PI / 2 || yaw_b > M_PI / 2) {
+  if(yaw_b < -2 * M_PI / double(tracked_armors_num) || yaw_b > 2 * M_PI / double(tracked_armors_num)) {
     yaw_b = yaw_b < 0 ? yaw_b + M_PI : yaw_b - M_PI;
   }
   if(yaw_a > yaw_b){
@@ -389,9 +389,7 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
 
 void Tracker::updateArmorsNum(const Armor & armor)
 {
-  if (armor.type == "large" && (tracked_id == "3" || tracked_id == "4" || tracked_id == "5")) {
-    tracked_armors_num = ArmorsNum::BALANCE_2;
-  } else if (tracked_id == "outpost") {
+  if (tracked_id == "outpost") {
     tracked_armors_num = ArmorsNum::OUTPOST_3;
   } else {
     tracked_armors_num = ArmorsNum::NORMAL_4;
@@ -405,7 +403,7 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
   double roll, pitch, yaw;
   tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw); 
   // Make yaw rang right (-pi~pi to -pi/2~pi/2)
-  if (abs(yaw - yaw_target) > M_PI / 2) {
+  if (abs(yaw - yaw_target) > 2 * M_PI / double(tracked_armors_num)) {
     Eigen::Vector3d center(target_state(XC), target_state(YC), target_state(ZC1));
     double r; 
     if(yaw_target == target_state(YAW1)) r = target_state(R1);
@@ -457,7 +455,7 @@ std::vector<Eigen::Vector3d> Tracker::getArmorPositionFromState(const Eigen::Vec
 double Tracker::calYawDiff(double yaw1, double yaw2)
 {
   double diff = abs(angles::shortest_angular_distance(yaw1, yaw2)); 
-  if(diff > M_PI / 2){
+  if(diff > 2 * M_PI / double(tracked_armors_num)){
     diff = M_PI - diff;
   }
   return diff;

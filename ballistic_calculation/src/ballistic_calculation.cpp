@@ -339,7 +339,7 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
     for (int i = 0; i < max_iter; ++i) {
         // 计算 yaw_PTZ
-        double numerator = (M_PI / 2 - 2 * yaw) * v_yaw_PTZ;
+        double numerator = ((2 * M_PI / target_msg.armors_num) - 2 * yaw) * v_yaw_PTZ;
         double denominator = 2 * v_yaw;
         double yaw_PTZ = numerator / denominator;
 
