@@ -309,8 +309,9 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
         std::remove_if(
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
-                return Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
-                        max_armor_distance_;
+                return abs(armor.pose.position.z) > 1.2 ||
+                        Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
+                            max_armor_distance_;
             }),
         armors_msg->armors.end());
 
