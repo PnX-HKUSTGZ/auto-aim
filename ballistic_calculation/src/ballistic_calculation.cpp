@@ -72,8 +72,8 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
 
         t = optimizeTime2(initT , x , y);
         double newyaw = yaw + target_msg.v_yaw * t;
-        double fx = target_msg.position.x + target_msg.velocity.x * t + r * cos(newyaw);
-        double fy = target_msg.position.y + target_msg.velocity.y * t + r * sin(newyaw);
+        double fx = target_msg.position.x + target_msg.velocity.x * t - r * cos(newyaw);
+        double fy = target_msg.position.y + target_msg.velocity.y * t - r * sin(newyaw);
         
         double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
@@ -92,8 +92,8 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
 
     }
     double newyaw = yaw + target_msg.v_yaw * updateTmpThetaT.second;
-    double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
-    double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second + r * sin(newyaw);
+    double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second - r * cos(newyaw);
+    double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second - r * sin(newyaw);
     fx -= odom2gun.x(), fy -= odom2gun.y();
     double predyaw = atan2(fy , fx);
     return std::make_pair( updateTmpThetaT.first , predyaw);
@@ -231,8 +231,8 @@ std::vector<double> Ballistic::stategy_1(double T)
         armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
         armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
 
-        armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
-        armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
+        armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
+        armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
         armors[i].vecto_odom = {armors[i].x, armors[i].y};
@@ -244,6 +244,10 @@ std::vector<double> Ballistic::stategy_1(double T)
     for (int i = 0; i < a_n; ++i) {
         angles[i] = angleBetweenVectors(armors[i].vec, armors[i].vecto_odom);
         armorlist_map[angles[i]] = armors[i];
+        std::cerr << "angle: " << angles[i] * 180 / M_PI << std::endl; 
+        std::cerr << armors[i].vec[0] << " " << armors[i].vec[1] << "\n"; 
+        std::cerr << armors[i].vecto_odom[0] << " " << armors[i].vecto_odom[1] << "\n";
+        std::cerr << "tangent: " << tan(armors[i].yaw) << "\n"; 
     }
 
     // 找到最小的角度对应的装甲板
@@ -284,8 +288,8 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
         armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
 
-        armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
-        armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
+        armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
+        armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
         armors[i].vecto_odom = {armors[i].x, armors[i].y};

@@ -161,7 +161,7 @@ void BallisticCalculateNode::timerCallback()
     double z;
     double r;
     std::pair<double,double> iffire_result, final_result; 
-    if (target_msg->armors_num == 4 or target_msg->armors_num == 2) {
+    if (target_msg->armors_num == 4 or target_msg->armors_num == 3) {
         std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
         chosen_yaw = hit_aim[0];
         z = hit_aim[1];  

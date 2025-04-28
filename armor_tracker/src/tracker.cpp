@@ -265,14 +265,14 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     ekf.setState(target_state);
   }
   // Prevent angle of two armors from spreading
-  if(target_state(YAW1) < -M_PI){ //暂时不确定
-    target_state(YAW1) += M_PI;
-    target_state(YAW2) += M_PI;
+  if(target_state(YAW1) < -M_PI){
+    target_state(YAW1) += 4 * M_PI / double(tracked_armors_num);
+    target_state(YAW2) += 4 * M_PI / double(tracked_armors_num);
     ekf.setState(target_state);
   }
   if(target_state(YAW2) > M_PI){
-    target_state(YAW1) -= M_PI;
-    target_state(YAW2) -= M_PI;
+    target_state(YAW1) -= 4 * M_PI / double(tracked_armors_num);
+    target_state(YAW2) -= 4 * M_PI / double(tracked_armors_num);
     ekf.setState(target_state);
   }
   double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
@@ -408,16 +408,13 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
     double r; 
     if(yaw_target == target_state(YAW1)) r = target_state(R1);
     else r = target_state(R2);
-    if(yaw > yaw_target){
-      position.x += 2 * r * cos(yaw);
-      position.y += 2 * r * sin(yaw);
-      yaw -= M_PI;
-    }
-    else if(yaw < yaw_target){
-      position.x += 2 * r * cos(yaw);
-      position.y += 2 * r * sin(yaw);
-      yaw += M_PI;
-    }
+    double center_x = position.x + r * cos(yaw);
+    double center_y = position.y + r * sin(yaw);
+    double gap = (int(tracked_armors_num) == 4) ? M_PI : 2 * M_PI / double(tracked_armors_num); 
+    double yaw_diff = yaw_target - yaw; 
+    yaw += std::round(yaw_diff / gap) * gap;
+    position.x = center_x - r * cos(yaw);
+    position.y = center_y - r * sin(yaw);
   }
   return yaw;
 }
