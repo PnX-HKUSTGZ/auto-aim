@@ -11,10 +11,6 @@
 
 #include <vector>
 #include <utility>
-
-
-
-
 namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;

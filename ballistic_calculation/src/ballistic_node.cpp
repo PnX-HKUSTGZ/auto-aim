@@ -18,11 +18,6 @@
 
 #include"ballistic_calculation/ballistic_node.hpp"
 
-
-
-
-
-
 namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;
@@ -114,6 +109,15 @@ void BallisticCalculateNode::timerCallback()
     target_msg->position.x = target_msg->position.x + target_msg->velocity.x * duration.seconds();
     target_msg->position.y = target_msg->position.y + target_msg->velocity.y * duration.seconds();
     target_msg->position.z = target_msg->position.z + target_msg->velocity.z * duration.seconds();
+
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Target position - X: %.3f, Y: %.3f, Z: %.3f",
+        target_msg->position.x,
+        target_msg->position.y,
+        target_msg->position.z
+    );
+
     target_msg->yaw = target_msg->yaw + target_msg->v_yaw*  duration.seconds();
     //add duration to update targetmsg.stamp
     target_msg->header.stamp = now;
@@ -132,6 +136,12 @@ void BallisticCalculateNode::timerCallback()
     calculator->robotcenter = target_msg->position;
     calculator->velocity = target_msg->velocity;
     
+    RCLCPP_INFO(
+        this->get_logger(),
+        "target_msg.yaw:%3f",
+        calculator->target_msg.yaw
+    );
+
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
     double init_t = std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y) / (cos(init_pitch) * this->calculator->bulletV);
@@ -171,9 +181,6 @@ void BallisticCalculateNode::timerCallback()
     }
     
     
-    
-    
-
     //发布消息
     firemsg fire_msg;
     fire_msg.header = target_msg->header;
@@ -182,8 +189,9 @@ void BallisticCalculateNode::timerCallback()
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
     fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
+    // std::cout<<fire_msg.iffire;
+ 
     publisher_->publish(fire_msg);
-    
     
     //新图像数据未到来，进行预测
 
