@@ -228,7 +228,13 @@ std::vector<double> Ballistic::stategy_1(double T)
             armors[i].yaw = armors[i - 1].yaw - 2 * pi / a_n;
         }
         // 设置装甲板的高度,半径
-        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        //armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        if (a_n== 3){
+            armors[i].r = 0.315;
+        }
+        else {
+            armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        }
         armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
 
         armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
@@ -244,10 +250,10 @@ std::vector<double> Ballistic::stategy_1(double T)
     for (int i = 0; i < a_n; ++i) {
         angles[i] = angleBetweenVectors(armors[i].vec, armors[i].vecto_odom);
         armorlist_map[angles[i]] = armors[i];
-        std::cerr << "angle: " << angles[i] * 180 / M_PI << std::endl; 
-        std::cerr << armors[i].vec[0] << " " << armors[i].vec[1] << "\n"; 
-        std::cerr << armors[i].vecto_odom[0] << " " << armors[i].vecto_odom[1] << "\n";
-        std::cerr << "tangent: " << tan(armors[i].yaw) << "\n"; 
+        //std::cerr << "angle: " << angles[i] * 180 / M_PI << std::endl; 
+        //std::cerr << armors[i].vec[0] << " " << armors[i].vec[1] << "\n"; 
+        //std::cerr << armors[i].vecto_odom[0] << " " << armors[i].vecto_odom[1] << "\n";
+        //std::cerr << "tangent: " << tan(armors[i].yaw) << "\n"; 
     }
 
     // 找到最小的角度对应的装甲板
