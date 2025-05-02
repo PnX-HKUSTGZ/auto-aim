@@ -113,13 +113,7 @@ void BallisticCalculateNode::timerCallback()
     target_msg->position.y = target_msg->position.y + target_msg->velocity.y * duration.seconds();
     target_msg->position.z = target_msg->position.z + target_msg->velocity.z * duration.seconds();
 
-    RCLCPP_INFO(
-        this->get_logger(),
-        "Target position - X: %.3f, Y: %.3f, Z: %.3f",
-        target_msg->position.x,
-        target_msg->position.y,
-        target_msg->position.z
-    );
+    
 
     target_msg->yaw = target_msg->yaw + target_msg->v_yaw*  duration.seconds();
     //add duration to update targetmsg.stamp
@@ -139,11 +133,7 @@ void BallisticCalculateNode::timerCallback()
     calculator->robotcenter = target_msg->position;
     calculator->velocity = target_msg->velocity;
     
-    RCLCPP_INFO(
-        this->get_logger(),
-        "target_msg.yaw:%3f",
-        calculator->target_msg.yaw
-    );
+    
 
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));

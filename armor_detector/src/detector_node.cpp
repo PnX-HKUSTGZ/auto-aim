@@ -241,7 +241,7 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat>
   rpy(1) = std::fmod(rpy(1) + M_PI, M_PI) > M_PI / 2 ? std::fmod(rpy(1) + M_PI, M_PI) - M_PI : std::fmod(rpy(1) + M_PI, M_PI);
   rpy(2) = std::fmod(rpy(2) + M_PI, M_PI) > M_PI / 2 ? std::fmod(rpy(2) + M_PI, M_PI) - M_PI : std::fmod(rpy(2) + M_PI, M_PI);
   
-  if(armor.number == "outpost") armor.sign = -armor.sign;
+  if(armor.number == "outpost") armor.sign = !armor.sign;
   // armor.sign 为0则为右侧装甲板，为1则为左侧装甲板
   if(!armor.sign && rpy(2) < 0){
     rpy = Eigen::Vector3d(rpy(0), rpy(1), -rpy(2));
