@@ -5,6 +5,7 @@
 #include <iostream>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
+#include "armor_tracker/types.hpp"
 
 namespace rm_auto_aim
 {
@@ -195,8 +196,8 @@ TrackerManager::TrackerManager(
     // 装甲板距图像中心的距离分数
     double center_distance = 0.0;
     if (tracker->tracker_state != Tracker::LOST) {
-        double px = tracker->target_state(Tracker::XC);
-        double py = tracker->target_state(Tracker::YC);
+        double px = tracker->target_state(XC);
+        double py = tracker->target_state(YC);
     
         // 将3D位置投影到图像平面（简化计算）
         // 实际实现中应使用相机内参进行正确的投影
@@ -211,6 +212,15 @@ TrackerManager::TrackerManager(
     double score = 
                   (w_distance_ * distance_score + w_twoD_distance_ * twoD_center_score)*state_score 
                 ;
+    if(id == "1" && mode_ == VisionMode::HERO) score += 2.0; 
+    if(id == "2" && mode_ == VisionMode::ENGINEER) score += 2.0;
+    if(id == "3" && mode_ == VisionMode::INFANTRY_1) score += 2.0;
+    if(id == "4" && mode_ == VisionMode::INFANTRY_2) score += 2.0;
+    if(id == "5" && mode_ == VisionMode::INFANTRY_3) score += 2.0;
+    if(id == "outpost" && mode_ == VisionMode::OUTPOST) score += 2.0;
+    if(id == "guard" && mode_ == VisionMode::GUARD) score += 2.0;
+    if(id == "base" && mode_ == VisionMode::BASE) score += 2.0;
+
     std::cerr << "Tracker ID: " << id << std::endl;
     std::cerr << " Score: " << score << std::endl;
     std::cerr << "Distance: " << distance_score  << std::endl;
@@ -296,23 +306,23 @@ TrackerManager::TrackerManager(
           target_msg.armors_num = static_cast<int>(tracker->tracked_armors_num);
           
           // 位置和速度信息
-          target_msg.position.x = state(Tracker::XC);
-          target_msg.velocity.x = state(Tracker::VXC);
-          target_msg.position.y = state(Tracker::YC);
-          target_msg.velocity.y = state(Tracker::VYC);
-          target_msg.position.z = state(Tracker::ZC1);
-          target_msg.velocity.z = state(Tracker::VZC);
+          target_msg.position.x = state(XC);
+          target_msg.velocity.x = state(VXC);
+          target_msg.position.y = state(YC);
+          target_msg.velocity.y = state(VYC);
+          target_msg.position.z = state(ZC1);
+          target_msg.velocity.z = state(VZC);
           
           // 角度和旋转信息
-          target_msg.yaw = state(Tracker::YAW1);
-          target_msg.v_yaw = state(Tracker::VYAW);
+          target_msg.yaw = state(YAW1);
+          target_msg.v_yaw = state(VYAW);
           
           // 半径信息
-          target_msg.radius_1 = state(Tracker::R1);
-          target_msg.radius_2 = state(Tracker::R2);
+          target_msg.radius_1 = state(R1);
+          target_msg.radius_2 = state(R2);
           
           // 装甲板高度差
-          target_msg.dz = state(Tracker::ZC2) - state(Tracker::ZC1);
+          target_msg.dz = state(ZC2) - state(ZC1);
       }
       
       return target_msg;
@@ -348,23 +358,23 @@ TrackerManager::TrackerManager(
           target_msg.armors_num = static_cast<int>(tracker->tracked_armors_num);
           
           // 位置和速度信息
-          target_msg.position.x = state(Tracker::XC);
-          target_msg.velocity.x = state(Tracker::VXC);
-          target_msg.position.y = state(Tracker::YC);
-          target_msg.velocity.y = state(Tracker::VYC);
-          target_msg.position.z = state(Tracker::ZC1);
-          target_msg.velocity.z = state(Tracker::VZC);
+          target_msg.position.x = state(XC);
+          target_msg.velocity.x = state(VXC);
+          target_msg.position.y = state(YC);
+          target_msg.velocity.y = state(VYC);
+          target_msg.position.z = state(ZC1);
+          target_msg.velocity.z = state(VZC);
           
           // 角度和旋转信息
-          target_msg.yaw = state(Tracker::YAW1);
-          target_msg.v_yaw = state(Tracker::VYAW);
+          target_msg.yaw = state(YAW1);
+          target_msg.v_yaw = state(VYAW);
           
           // 半径信息
-          target_msg.radius_1 = state(Tracker::R1);
-          target_msg.radius_2 = state(Tracker::R2);
+          target_msg.radius_1 = state(R1);
+          target_msg.radius_2 = state(R2);
           
           // 装甲板高度差
-          target_msg.dz = state(Tracker::ZC2) - state(Tracker::ZC1);
+          target_msg.dz = state(ZC2) - state(ZC1);
       }
       
       return target_msg;

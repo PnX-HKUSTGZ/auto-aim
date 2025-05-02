@@ -54,6 +54,12 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             RCLCPP_INFO(this->get_logger(), "Tracker reset!");
             return;
         });
+
+      // set_mode
+    set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
+        "armor_tracker/set_mode",
+        std::bind(
+        &ArmorTrackerNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
     // Camera info subscription
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         "/camera_info", rclcpp::SensorDataQoS(),
@@ -643,7 +649,24 @@ void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & t
     marker_array.markers.emplace_back(angular_v_marker_);
     marker_pub_->publish(marker_array);
 }
-
+void ArmorTrackerNode::setModeCallback(
+    const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+    std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response) {
+    response->success = true;
+  
+    VisionMode mode = static_cast<VisionMode>(request->mode);
+    std::string mode_name = visionModeToString(mode);
+    if (mode_name == "UNKNOWN") {
+        RCLCPP_ERROR(this->get_logger(), "Invalid mode: %d", request->mode);
+        return;
+    }
+  
+    mode_ = mode; 
+    bool success = tracker_manager_->setMode(mode_);
+  
+    if(success) RCLCPP_INFO(this->get_logger(), "Set Car tracking Mode: %s", visionModeToString(mode).c_str());
+    else RCLCPP_ERROR(this->get_logger(), "Failed to set Car tracking Mode: %s", visionModeToString(mode).c_str());
+}
 }  // namespace rm_auto_aim
 
 #include "rclcpp_components/register_node_macro.hpp"

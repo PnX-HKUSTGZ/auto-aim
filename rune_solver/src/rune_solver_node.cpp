@@ -273,8 +273,7 @@ void RuneSolverNode::setModeCallback(
   }
 
   switch (mode) {
-    case VisionMode::SMALL_RUNE:
-    case VisionMode::BIG_RUNE: {
+    case VisionMode::RUNE: {
       enable_ = true;
       break;
     }

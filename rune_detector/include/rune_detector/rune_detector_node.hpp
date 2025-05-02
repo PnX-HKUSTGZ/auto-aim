@@ -78,7 +78,6 @@ private:
   double prob_threshold_; // 可信度阈值(匹配)
   EnemyColor detect_color_; // 检测颜色
   bool is_rune_;
-  bool is_big_rune_;
 
   // For R tag detection
   bool detect_r_tag_;

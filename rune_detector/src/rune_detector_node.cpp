@@ -108,7 +108,6 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
   auto_aim_interfaces::msg::Rune rune_msg;
   rune_msg.header.frame_id = frame_id_;
   rune_msg.header.stamp = timestamp;
-  rune_msg.is_big_rune = is_big_rune_;
 
   if (!objs.empty()) {
 
@@ -256,21 +255,13 @@ void RuneDetectorNode::setModeCallback(
   };
 
   switch (mode) {
-    case VisionMode::SMALL_RUNE: {
+    case VisionMode::RUNE: {
       is_rune_ = true;
-      is_big_rune_ = false;
-      createImageSub();
-      break;
-    }
-    case VisionMode::BIG_RUNE: {
-      is_rune_ = true;
-      is_big_rune_ = true;
       createImageSub();
       break;
     }
     default: {
       is_rune_ = false;
-      is_big_rune_ = false;
       img_sub_.reset();
       break;
     }

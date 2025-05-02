@@ -500,18 +500,12 @@ void ArmorDetectorNode::setModeCallback(
   }
 
   switch (mode) {
-    case VisionMode::AUTO_AIM_FLAT:{
-      is_flat_mode_ = true;
-      enable_ = true;
-      break; 
-    }
-    case VisionMode::AUTO_AIM_SLOPE:{
-      is_flat_mode_ = false;
-      enable_ = true;
+    case VisionMode::RUNE:{
+      enable_ = false;
       break; 
     }
     default: {
-      enable_ = false;
+      enable_ = true;
       break;
     }
   }

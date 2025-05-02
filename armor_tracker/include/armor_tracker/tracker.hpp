@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "armor_tracker/types.hpp"
 #include "armor_tracker/extended_kalman_filter.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 #include "auto_aim_interfaces/msg/target.hpp"
@@ -66,27 +67,6 @@ public:
   // 新增成员用于评分
   rclcpp::Time last_update_time_;      // 上次更新时间
   
-  
-  
-  // 获取状态和指标
-  
-  enum CarState
-  {
-    XC = 0,
-    VXC,
-    YC,
-    VYC,
-    ZC1,
-    ZC2, 
-    VZC,
-    VYAW,
-    R1,
-    R2, 
-    YAW1,
-    YAW2 // 11
-  };
-  
-
 private:
   void initEKF(const Armor & a); 
   void initEKFTwo(const Armor & a, const Armor & b);

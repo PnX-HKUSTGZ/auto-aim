@@ -89,12 +89,6 @@ double RuneSolver::update(const auto_aim_interfaces::msg::Rune::SharedPtr receiv
   double now_time = rclcpp::Time(received_target->header.stamp).seconds();
   double delta_time = now_time - last_time_;
 
-  if (received_target->is_big_rune) {
-    curve_fitter->setType(MotionType::BIG);
-  } else {
-    curve_fitter->setType(MotionType::SMALL);
-  }
-
   if (!received_target->is_lost) {
     // 更新 EKF
     try {
