@@ -413,7 +413,7 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q, geome
   double roll, pitch, yaw;
   tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw); 
   // Make yaw rang right (-pi~pi to -pi/2~pi/2)
-  if (abs(yaw - yaw_target) > 2 * M_PI / double(tracked_armors_num)) {
+  if (abs(yaw - yaw_target) > (int(tracked_armors_num) == 4) ? M_PI / 2 : M_PI / double(tracked_armors_num)) {
     Eigen::Vector3d center(target_state(XC), target_state(YC), target_state(ZC1));
     double r; 
     if(yaw_target == target_state(YAW1)) r = target_state(R1);
