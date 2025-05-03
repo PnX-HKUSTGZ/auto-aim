@@ -214,18 +214,35 @@ bool BaSolver::fixTwoArmors(Armor &armor1, Armor &armor2,
   double yaw_armor1 = std::atan2(r_odom_armor1(1, 0), r_odom_armor1(0, 0));
   double yaw_armor2 = std::atan2(r_odom_armor2(1, 0), r_odom_armor2(0, 0));
   double yaw_diff = shortest_angular_distance(yaw_armor1, yaw_armor2);
-  if (abs(abs(yaw_diff) - M_PI / 2) > M_PI / 6) {
-    RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle is %f and %f", yaw_armor1, yaw_armor2);
-    return false;
+  if(armor1.number != "outpost"){
+    if (abs(abs(yaw_diff) - M_PI / 2) > M_PI / 6) {
+      RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle is %f and %f", yaw_armor1, yaw_armor2);
+      return false;
+    }
+    double correction = yaw_diff > 0 ? yaw_diff - M_PI / 2 : yaw_diff + M_PI / 2;
+    yaw_armor1 += correction / 2.0;
+    yaw_armor2 -= correction / 2.0;
+    yaw_armor1 = std::fmod(yaw_armor1 + M_PI, 2.0 * M_PI) - M_PI;
+    yaw_armor2 = std::fmod(yaw_armor2 + M_PI, 2.0 * M_PI) - M_PI;
+    if(std::abs(std::abs(shortest_angular_distance(yaw_armor1, yaw_armor2)) - M_PI / 2) > 1e-6){
+      RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle diff is %f degrees after correction", shortest_angular_distance(yaw_armor1, yaw_armor2)); 
+      return false;
+    }
   }
-  double correction = yaw_diff > 0 ? yaw_diff - M_PI / 2 : yaw_diff + M_PI / 2;
-  yaw_armor1 += correction / 2.0;
-  yaw_armor2 -= correction / 2.0;
-  yaw_armor1 = std::fmod(yaw_armor1 + M_PI, 2.0 * M_PI) - M_PI;
-  yaw_armor2 = std::fmod(yaw_armor2 + M_PI, 2.0 * M_PI) - M_PI;
-  if(std::abs(std::abs(shortest_angular_distance(yaw_armor1, yaw_armor2)) - M_PI / 2) > 1e-6){
-    RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle diff is %f degrees after correction", shortest_angular_distance(yaw_armor1, yaw_armor2)); 
-    return false;
+  else{
+    if (abs(abs(yaw_diff) - M_PI * 2 / 3) > M_PI / 6) {
+      RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle is %f and %f", yaw_armor1, yaw_armor2);
+      return false;
+    }
+    double correction = yaw_diff > 0 ? yaw_diff - M_PI * 2 / 3 : yaw_diff + M_PI * 2 / 3;
+    yaw_armor1 += correction / 2.0;
+    yaw_armor2 -= correction / 2.0;
+    yaw_armor1 = std::fmod(yaw_armor1 + M_PI, 2.0 * M_PI) - M_PI;
+    yaw_armor2 = std::fmod(yaw_armor2 + M_PI, 2.0 * M_PI) - M_PI;
+    if(std::abs(std::abs(shortest_angular_distance(yaw_armor1, yaw_armor2)) - M_PI  * 2 / 3) > 1e-6){
+      RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle diff is %f degrees after correction", shortest_angular_distance(yaw_armor1, yaw_armor2)); 
+      return false;
+    }
   }
   // 计算旋转矩阵
   Sophus::SO3d R_yaw1 = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw_armor1));
