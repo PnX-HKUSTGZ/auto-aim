@@ -64,7 +64,7 @@ private:
   // The time when the last message was received
   rclcpp::Time last_time_ = rclcpp::Time(0);
   double dt_;
-  bool debug_;
+  
 
   // Armor tracker
   double s2qxy_, s2qz_, s2qyaw_, s2qr_;

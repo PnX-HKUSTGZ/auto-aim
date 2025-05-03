@@ -25,9 +25,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     double max_match_distance = this->declare_parameter("tracker.max_match_distance", 0.15);
     double max_match_yaw_diff = this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
     
-    //debug
-    debug_ = this->declare_parameter("debug", true);
-    
 
     // 初始化追踪器管理器替代单一追踪器
     tracker_manager_ = std::make_unique<TrackerManager>(
