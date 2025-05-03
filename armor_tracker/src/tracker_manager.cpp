@@ -211,11 +211,11 @@ TrackerManager::TrackerManager(
     double score = 
                   (w_distance_ * distance_score + w_twoD_distance_ * twoD_center_score)*state_score 
                 ;
-    std::cerr << "Tracker ID: " << id << std::endl;
-    std::cerr << " Score: " << score << std::endl;
-    std::cerr << "Distance: " << distance_score  << std::endl;
-    std::cerr << "2DD:"<< twoD_center_score<<std::endl;
-    std::cerr << "State: " << state_score << std::endl;
+    // std::cerr << "Tracker ID: " << id << std::endl;
+    // std::cerr << " Score: " << score << std::endl;
+    // std::cerr << "Distance: " << distance_score  << std::endl;
+    // std::cerr << "2DD:"<< twoD_center_score<<std::endl;
+    // std::cerr << "State: " << state_score << std::endl;
     return score;
   }
   
