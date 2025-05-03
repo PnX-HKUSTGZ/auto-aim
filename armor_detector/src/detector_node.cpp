@@ -20,6 +20,7 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/duration.hpp> 
+#include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -118,29 +119,43 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
   if(!enable_){
     return;
   }
+  if (debug_)armors_msg_.image = *img_msg;
+  cv::Mat img; 
+  auto armors = detectArmors(img_msg, img);
+
   // Get the transform from odom to gimbal
   try {
+    auto latest_tf = tf2_buffer_->lookupTransform(img_msg->header.frame_id, "odom", tf2::TimePointZero);
     rclcpp::Time target_time = img_msg->header.stamp;
-    auto odom_to_gimbal = tf2_buffer_->lookupTransform(
-        "odom", img_msg->header.frame_id, target_time,
-        rclcpp::Duration::from_seconds(0.01));
-    auto msg_q = odom_to_gimbal.transform.rotation;
+    rclcpp::Time latest_time = latest_tf.header.stamp;
+    // 比较时间戳
+    geometry_msgs::msg::TransformStamped odom_to_camera_tf;
+    if (target_time > latest_time) {
+        // 使用最新变换
+        odom_to_camera_tf = latest_tf;
+    } else {
+        // 查找指定时间的变换
+        odom_to_camera_tf = tf2_buffer_->lookupTransform(
+            img_msg->header.frame_id, "odom", target_time,
+            rclcpp::Duration::from_nanoseconds(1000000));
+    }
+    auto msg_q = odom_to_camera_tf.transform.rotation;
     tf2::Quaternion tf_q;
     tf2::fromMsg(msg_q, tf_q);
     tf2::Matrix3x3 tf2_matrix = tf2::Matrix3x3(tf_q);
-    imu_to_camera << tf2_matrix.getRow(0)[0], tf2_matrix.getRow(0)[1],
+    r_odom_to_camera << tf2_matrix.getRow(0)[0], tf2_matrix.getRow(0)[1],
         tf2_matrix.getRow(0)[2], tf2_matrix.getRow(1)[0],
         tf2_matrix.getRow(1)[1], tf2_matrix.getRow(1)[2],
         tf2_matrix.getRow(2)[0], tf2_matrix.getRow(2)[1],
         tf2_matrix.getRow(2)[2];
+    t_odom_to_camera = Eigen::Vector3d(
+        odom_to_camera_tf.transform.translation.x,
+        odom_to_camera_tf.transform.translation.y,
+        odom_to_camera_tf.transform.translation.z);
   } catch (...) {
     RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform");
     return;
   }
-
-  if (debug_)armors_msg_.image = *img_msg;
-  cv::Mat img; 
-  auto armors = detectArmors(img_msg, img);
 
   if (pnp_solver_ != nullptr) {
     armors_msg_.header = armor_marker_.header = text_marker_.header = img_msg->header;
@@ -149,50 +164,67 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     armor_marker_.id = 0;
     text_marker_.id = 0;
 
+    std::map<std::string, std::pair<int, std::vector<int>>> armor_num_map;
+    for(size_t i = 0; i < armors.size(); i++){
+      std::vector<cv::Mat> rvecs, tvecs;
+      bool success = pnp_solver_->solvePnP(armors[i], rvecs, tvecs);//获得两个矩阵
+      if (success) {
+        // choose the best result
+        chooseBestPose(armors[i], rvecs, tvecs);
+        armor_num_map[armors[i].number].first++;
+        armor_num_map[armors[i].number].second.push_back(i);
+      } else {
+        RCLCPP_WARN(this->get_logger(), "PnP failed!");
+        armors.erase(armors.begin() + i);
+        i--;
+      }
+    }
+    std::vector<int> erase_index;
+    for(auto & armor_num : armor_num_map){
+      if(armor_num.second.first > 2){
+        RCLCPP_ERROR(this->get_logger(), "More than 2 armors detected!");
+        erase_index = armor_num.second.second;
+      }
+      else if (armor_num.second.first == 2){
+        bool success = ba_solver_->fixTwoArmors(armors[armor_num.second.second[0]], armors[armor_num.second.second[1]], r_odom_to_camera, t_odom_to_camera);
+        if(!success){
+          RCLCPP_ERROR(this->get_logger(), "Fix two armors failed!");
+          erase_index.push_back(armor_num.second.second[0]);
+          erase_index.push_back(armor_num.second.second[1]);
+        }
+        else {
+          armors[armor_num.second.second[0]].setCameraArmor(r_odom_to_camera, t_odom_to_camera); 
+          armors[armor_num.second.second[1]].setCameraArmor(r_odom_to_camera, t_odom_to_camera);
+        }
+      }
+    }
+    std::sort(erase_index.begin(), erase_index.end(), std::greater<int>());
+    for(auto & index : erase_index){
+      armors.erase(armors.begin() + index);
+    }
     auto_aim_interfaces::msg::Armor armor_msg;
     for (auto & armor : armors) {
-      std::vector<cv::Mat> rvecs, tvecs;
-      bool success = pnp_solver_->solvePnP(armor, rvecs, tvecs);//获得两个矩阵
-      if (success) {
-        // Fill basic info
-        armor_msg.type = ARMOR_TYPE_STR[static_cast<int>(armor.type)];
-        armor_msg.number = armor.number;
+      // Fill basic info
+      armor_msg.type = ARMOR_TYPE_STR[static_cast<int>(armor.type)];
+      armor_msg.number = armor.number;
 
-        // choose the best result
-        cv::Mat rvec, tvec; 
-        chooseBestPose(armor, rvecs, tvecs, rvec, tvec);
-        // rvec to 3x3 rotation matrix
-        cv::Mat rotation_matrix;
-        cv::Rodrigues(rvec, rotation_matrix);//将旋转向量转换为旋转矩阵
+      Eigen::Quaterniond eigen_quat(armor.r_camera_armor);
+      tf2::Quaternion tf2_q(
+        eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w());
+      armor_msg.pose.orientation = tf2::toMsg(tf2_q);
 
-        // rotation matrix to quaternion
-        tf2::Matrix3x3 tf2_rotation_matrix(
-          rotation_matrix.at<double>(0, 0), rotation_matrix.at<double>(0, 1),
-          rotation_matrix.at<double>(0, 2), rotation_matrix.at<double>(1, 0),
-          rotation_matrix.at<double>(1, 1), rotation_matrix.at<double>(1, 2),
-          rotation_matrix.at<double>(2, 0), rotation_matrix.at<double>(2, 1),
-          rotation_matrix.at<double>(2, 2));
-        tf2::Quaternion tf2_q;
-        tf2_rotation_matrix.getRotation(tf2_q);
-        // Convert Eigen::Matrix3d to tf2::Matrix3x3
-        tf2::Matrix3x3 tf2_matrix(
-          imu_to_camera(0,0), imu_to_camera(0,1), imu_to_camera(0,2),
-          imu_to_camera(1,0), imu_to_camera(1,1), imu_to_camera(1,2),
-          imu_to_camera(2,0), imu_to_camera(2,1), imu_to_camera(2,2));
-        tf2::Quaternion R_gimbal_camera_;
-        tf2_matrix.getRotation(R_gimbal_camera_);
-        tf2::Matrix3x3(R_gimbal_camera_ * tf2_q).getRPY(armor.roll, armor.pitch, armor.yaw);
-        armor_msg.pose.orientation = tf2::toMsg(tf2_q);
+      // Fill pose
+      armor_msg.pose.position.x = armor.t_camera_armor(0);
+      armor_msg.pose.position.y = armor.t_camera_armor(1);
+      armor_msg.pose.position.z = armor.t_camera_armor(2);
 
-        // Fill pose
-        armor_msg.pose.position.x = tvec.at<double>(0);
-        armor_msg.pose.position.y = tvec.at<double>(1);
-        armor_msg.pose.position.z = tvec.at<double>(2);
+      // Fill the distance to image center
+      armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
+      // Fill the classification result
+      armors_msg_.armors.emplace_back(armor_msg);
 
-        // Fill the distance to image center
-        armor_msg.distance_to_image_center = pnp_solver_->calculateDistanceToCenter(armor.center);
-
-        // Fill the markers
+      // Fill the markers
+      if(debug_){
         armor_marker_.id++;
         armor_marker_.scale.y = armor.type == ArmorType::SMALL ? 0.135 : 0.23;
         armor_marker_.pose = armor_msg.pose;
@@ -200,24 +232,22 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         text_marker_.pose.position = armor_msg.pose.position;
         text_marker_.pose.position.y -= 0.1;
         text_marker_.text = armor.classfication_result;
-        armors_msg_.armors.emplace_back(armor_msg);
         marker_array_.markers.emplace_back(armor_marker_);
         marker_array_.markers.emplace_back(text_marker_);
-      } else {
-        RCLCPP_WARN(this->get_logger(), "PnP failed!");
       }
     }
-    // draw results
-    drawResults(img_msg, img, armors);
-
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
 
-    // Publishing marker
-    publishMarkers();
+    if(debug_){
+      // draw results
+      drawResults(img_msg, img, armors);
+      // Publishing marker
+      publishMarkers();
+    }
   }
 }
-void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs, cv::Mat & rvec, cv::Mat & tvec){
+void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs){
   // choose the best result
   // rvec to 3x3 rotation matrix
   cv::Mat rotation_matrix;
@@ -254,17 +284,16 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const std::vector<cv::Mat>
                Eigen::Quaterniond(Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()));
   q_rotation = q_gimbal_camera.conjugate() * q_rotation;
   Eigen::Matrix3d eigen_mat = q_rotation.toRotationMatrix();
+  armor.t_odom_armor = r_odom_to_camera.inverse() * 
+                 (Eigen::Vector3d(tvecs[0].at<double>(0), 
+                                 tvecs[0].at<double>(1), 
+                                 tvecs[0].at<double>(2)) - t_odom_to_camera);
+  armor.r_odom_armor = r_odom_to_camera.inverse() * eigen_mat;
+  armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera); 
   if(rpy(0) < 0.26){
-    Eigen::Vector3d eigen_tvec;
-    eigen_tvec << tvecs[0].at<double>(0), 
-                  tvecs[0].at<double>(1), 
-                  tvecs[0].at<double>(2);
-    eigen_mat = ba_solver_->solveBa(armor, eigen_tvec, eigen_mat, imu_to_camera);
+    ba_solver_->solveBa(armor, r_odom_to_camera, t_odom_to_camera);
   }
-  cv::Mat rmat;
-  cv::eigen2cv(eigen_mat, rmat);
-  cv::Rodrigues(rmat, rvec); 
-  tvec = tvecs[0];
+  armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera); 
 }
 std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 {
@@ -374,14 +403,13 @@ void ArmorDetectorNode::drawResults(
   detector_->drawResults(img);
   // Show yaw, pitch, roll
   for (const auto & armor : armors) {
+    Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2); //提取欧拉角
+    double distance = armor.t_camera_armor.norm();
     cv::putText(
-      img, "y: " + std::to_string(armor.yaw / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, "y: " + std::to_string(int(rpy(2) / CV_PI * 180)) + " deg", cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
     cv::putText(
-      img, "p: " + std::to_string(armor.pitch / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 45), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-      cv::Scalar(0, 255, 255), 2);
-    cv::putText(
-      img, "r: " + std::to_string(armor.roll / CV_PI * 180), cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 70), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+      img, "d: " + std::to_string(distance) + "m" , cv::Point(armor.left_light.bottom.x, armor.left_light.bottom.y + 60), cv::FONT_HERSHEY_SIMPLEX, 0.8,
       cv::Scalar(0, 255, 255), 2);
   }
   // Draw camera center

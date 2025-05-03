@@ -54,6 +54,10 @@ private:
     cv::Mat & image,
     bool is_primary_target);
 
+  // Debug
+  bool debug_;
+  int last_sec = 0, current_sec = 0, frame_count = 0;
+
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
 

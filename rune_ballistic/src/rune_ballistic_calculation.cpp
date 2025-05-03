@@ -17,7 +17,7 @@ namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::RuneTarget;
 
-Ballistic::Ballistic(double k , double K , double bulletV, Eigen::Vector3d odom2gunxyz, Eigen::Vector3d odom2gunrpy) {
+RuneBallistic::RuneBallistic(double k , double K , double bulletV, Eigen::Vector3d odom2gunxyz, Eigen::Vector3d odom2gunrpy) {
     this->bulletV = bulletV;
     this->K = K;
     this->k = k;
@@ -25,7 +25,7 @@ Ballistic::Ballistic(double k , double K , double bulletV, Eigen::Vector3d odom2
     this->odom2gunrpy = odom2gunrpy;
 }
 
-Eigen::Vector3d Ballistic::getTarget(double time) {
+Eigen::Vector3d RuneBallistic::getTarget(double time) {
     double predict_angle_diff = predictAngle(time) - predictAngle(target_msg.header.stamp.sec); 
 
     // Get the predicted position
@@ -37,7 +37,7 @@ Eigen::Vector3d Ballistic::getTarget(double time) {
     
     return target_position_gun;
 }
-std::pair<double,double> Ballistic::iteration(double &thres , double &init_pitch , double &initT) {
+std::pair<double,double> RuneBallistic::iteration(double &thres , double &init_pitch , double &initT) {
     double theta = init_pitch;
     double differ;
     double t;
@@ -68,7 +68,7 @@ std::pair<double,double> Ballistic::iteration(double &thres , double &init_pitch
     double predyaw = atan2(last_target[1] , last_target[0]);
     return std::make_pair( update_tmp_theta_t.first , predyaw);
 }
-double Ballistic::predictAngle(double time) {
+double RuneBallistic::predictAngle(double time) {
     double current_time = time - target_msg.start_time;
     double pred_angle = 0;
     if (target_msg.is_big) {
@@ -86,7 +86,7 @@ double Ballistic::predictAngle(double time) {
     }
     return pred_angle; 
 }
-Eigen::Vector3d Ballistic::getTargetPosition(double angle_diff) {
+Eigen::Vector3d RuneBallistic::getTargetPosition(double angle_diff) {
     Eigen::Vector3d t_odom_2_rune = Eigen::Vector3d(target_msg.center.x, target_msg.center.y, target_msg.center.z);
 
     // Considering the large error and jitter(抖动) in the orientation obtained from PnP,
@@ -107,7 +107,7 @@ Eigen::Vector3d Ballistic::getTargetPosition(double angle_diff) {
 
     return p_odom;
 }
-std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , double& height)
+std::pair<double , double> RuneBallistic::fixTiteratPitch(double& horizon_dis , double& height)
 {
     double dist_horizon =  horizon_dis;// 和目标在水平方向上的距离
     double target_height = height;     // 和目标在垂直方向上的距离
@@ -137,12 +137,12 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
 #endif// DEBUG_COMPENSATION
     return std::make_pair(tmp_pitch , fly_time);
 }
-double Ballistic::optimizeTime(double initial_guess , double& l , double& h, double& theta) {
+double RuneBallistic::optimizeTime(double initial_guess , double& l , double& h, double& theta) {
     double t = initial_guess; // Initial guess for time t
 
     ceres::Problem problem;
     problem.AddResidualBlock(
-        new ceres::AutoDiffCostFunction<Ballistic::CostFunctor, 1, 1>(new Ballistic::CostFunctor(*this, l , h, theta)),
+        new ceres::AutoDiffCostFunction<RuneBallistic::CostFunctor, 1, 1>(new RuneBallistic::CostFunctor(*this, l , h, theta)),
         nullptr,
         &t
     );

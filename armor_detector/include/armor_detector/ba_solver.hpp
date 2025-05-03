@@ -50,16 +50,31 @@ public:
            const std::vector<double> &dist_coeffs);
 
   // Solve the armor pose using the BA algorithm, return the optimized rotation
-  Eigen::Matrix3d solveBa(const Armor &armor,
-                          Eigen::Vector3d &t_camera_armor,
-                          const Eigen::Matrix3d &R_camera_armor,
-                          const Eigen::Matrix3d &R_imu_camera) noexcept;
+  void solveBa(Armor &armor, 
+               const Eigen::Matrix3d &R_odom_to_camera,
+                const Eigen::Vector3d &t_odom_to_camera) noexcept;
+  void solveTwoArmorsBa(const double &yaw1, const double &yaw2, const double &z1, const double &z2, 
+                        double &x, double &y, double &r1, double &r2,
+                        const std::vector<cv::Point2f> &landmarks, 
+                        const Eigen::Matrix3d &R_odom_to_camera, 
+                        const Eigen::Vector3d &t_odom_to_camera, 
+                        std::string number, ArmorType type);
+
+  bool fixTwoArmors(Armor &armor1, Armor &armor2, 
+                    const Eigen::Matrix3d &R_odom_to_camera, 
+                    const Eigen::Vector3d &t_odom_to_camera);
 
 private:
   Eigen::Matrix3d K_;
   g2o::SparseOptimizer optimizer_;
+  g2o::SparseOptimizer two_armor_optimizer_;
   g2o::OptimizationAlgorithmProperty solver_property_;
   g2o::OptimizationAlgorithmLevenberg *lm_algorithm_;
+  cv::Mat camera_matrix_;
+  cv::Mat dist_coeffs_;
+  double shortest_angular_distance(double a1, double a2);
+  void initializeOneArmorsOptimization(g2o::SparseOptimizer &optimizer);
+  void initializeTwoArmorsOptimization(g2o::SparseOptimizer &optimizer); 
 };
 
 } // namespace rm_auto_aim

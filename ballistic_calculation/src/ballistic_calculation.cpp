@@ -183,7 +183,7 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
         cout << "res:" << tmp_pitch * 180 / 3.141592 << endl;
         cout << "fly_time:" << fly_time << endl;
 #endif// DEBUG_COMPENSATION
-        return std::make_pair(tmp_pitch , fly_time);
+        return std::make_pair(tmp_pitch , fly_time + fire_delay);
 }
 
 
@@ -360,7 +360,6 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
         // 判断是否收敛
         if (fabs(f) < epsilon) {
-            //std::cerr << "yaw_PTZ: " << yaw_PTZ << std::endl;
             break;
         }
 

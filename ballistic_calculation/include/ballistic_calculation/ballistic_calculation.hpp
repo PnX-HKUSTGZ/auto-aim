@@ -33,6 +33,7 @@ double bulletV;
 double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
 double K2;//第一次大迭代时的步长，需要parameter_declare来调整参数
 double k; //空气阻力系数，需要parameter_declare来调整参数
+double fire_delay;//开火延迟，需要parameter_declare来调整参数
 double theta;//计算t时变动的临时参数    
 Eigen::Vector3d odom2gun; //机器人坐标系到枪口坐标系的变换
 
