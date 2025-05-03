@@ -248,7 +248,16 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
       RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "No matched armor found!");
     }
   }
-
+  if(tracked_armors_num == ArmorsNum::OUTPOST_3) {
+    target_state(R1) = 0.2765;
+    ekf.setState(target_state);
+    if(target_state(VYAW) >0.6 * M_PI && target_state(VYAW) < 1.2 * M_PI){
+      target_state(VYAW) = 0.8 * M_PI;
+    }
+    else if(target_state(VYAW) < -0.6 * M_PI && target_state(VYAW) > -1.2 * M_PI){
+      target_state(VYAW) = -0.8 * M_PI;
+    }
+  }
   // Prevent radius from spreading
   if (target_state(R1) < 0.12) {
     target_state(R1) = 0.12;
