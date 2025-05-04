@@ -74,7 +74,8 @@ void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::S
 
 
 bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
-{
+{   
+    geometry_msgs::msg::TransformStamped t;
     //获取当前云台位姿
     try{
         // 使用最新的可用变换，而不是当前时间
@@ -99,7 +100,7 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
 
 void BallisticCalculateNode::timerCallback()
 {
-    
+
     if(!ifstart){
       
       return;

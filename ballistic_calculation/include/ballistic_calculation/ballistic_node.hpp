@@ -47,7 +47,6 @@ void timerCallback();
 //tf2
     std::shared_ptr<tf2_ros::Buffer> tfBuffer;
     std::shared_ptr<tf2_ros::TransformListener> tfListener;
-    geometry_msgs::msg::TransformStamped t;
     std::string target_frame_;
 
     double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
