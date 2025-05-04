@@ -20,13 +20,10 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Maximum allowable armor distance in the XOY plane
     max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
-
+    debug_ = this->declare_parameter("debug", false);
     // Tracker
     double max_match_distance = this->declare_parameter("tracker.max_match_distance", 0.15);
     double max_match_yaw_diff = this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
-    
-    //debug
-    debug_ = this->declare_parameter("debug", true);
     
 
     // 初始化追踪器管理器替代单一追踪器
@@ -295,6 +292,16 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
 //它的主要作用是将装甲板的位置从图像帧坐标转换到世界坐标系，过滤掉异常的装甲板，更新追踪器的状态，
 //并根据追踪结果发布相关信息和可视化标记
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(start_time.time_since_epoch());
+    current_sec = duration.count() / 1000;
+    if(last_sec != current_sec){
+        last_sec = current_sec;
+        if(frame_count < 100) RCLCPP_INFO(get_logger(), "fps: %d", frame_count);
+        frame_count = 0;
+    }
+    frame_count++;
+    
     // Tranform armor position from image frame to world coordinate
     for (auto & armor : armors_msg->armors) {
         geometry_msgs::msg::PoseStamped ps;
@@ -316,7 +323,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
                 return Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
-                        max_armor_distance_;
+                            max_armor_distance_;
             }),
         armors_msg->armors.end());
 

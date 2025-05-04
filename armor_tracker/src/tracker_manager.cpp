@@ -221,11 +221,11 @@ TrackerManager::TrackerManager(
     if(id == "guard" && mode_ == VisionMode::GUARD) score += 2.0;
     if(id == "base" && mode_ == VisionMode::BASE) score += 2.0;
 
-    std::cerr << "Tracker ID: " << id << std::endl;
-    std::cerr << " Score: " << score << std::endl;
-    std::cerr << "Distance: " << distance_score  << std::endl;
-    std::cerr << "2DD:"<< twoD_center_score<<std::endl;
-    std::cerr << "State: " << state_score << std::endl;
+    // std::cerr << "Tracker ID: " << id << std::endl;
+    // std::cerr << " Score: " << score << std::endl;
+    // std::cerr << "Distance: " << distance_score  << std::endl;
+    // std::cerr << "2DD:"<< twoD_center_score<<std::endl;
+    // std::cerr << "State: " << state_score << std::endl;
     return score;
   }
   

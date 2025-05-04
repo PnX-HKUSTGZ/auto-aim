@@ -57,13 +57,17 @@ private:
     cv::Mat & image,
     bool is_primary_target);
 
+  // Debug
+  bool debug_;
+  int last_sec = 0, current_sec = 0, frame_count = 0;
+
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
 
   // The time when the last message was received
   rclcpp::Time last_time_ = rclcpp::Time(0);
   double dt_;
-  bool debug_;
+  
 
   // Armor tracker
   double s2qxy_, s2qz_, s2qyaw_, s2qr_;
