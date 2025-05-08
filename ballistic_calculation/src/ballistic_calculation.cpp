@@ -8,6 +8,7 @@
 #include<numeric>
 #include<map>
 #include <algorithm>
+#include <angles/angles.h>
 
 #include <ceres/ceres.h>
 
@@ -315,9 +316,6 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
             return std::abs(a) < std::abs(b); 
         });
     armor_info chosen_armor = armorlist_map[angles[0]];
-    if((angles[0] < 0 && target_msg.v_yaw > 0) || (angles[0] > 0 && target_msg.v_yaw < 0)) {
-        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
-    }
     /*
     yaw, yaw_PTZ未知
     t = (pi/2 - 2*yaw)/v_yaw
@@ -332,8 +330,17 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
     if (abs(angles[0]) > yaw) {
-        chosen_armor = armorlist_map[angles[1]]; 
-        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        double set_yaw; 
+        yaw = angles[0] > 0 ? abs(yaw) : -abs(yaw);
+        if((angles[0] < 0 && target_msg.v_yaw > 0) || (angles[0] > 0 && target_msg.v_yaw < 0)) {
+            set_yaw = chosen_armor.yaw + angles::shortest_angular_distance(angles[0], yaw); 
+            return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        }
+        else {
+            set_yaw = chosen_armor.yaw + angles::shortest_angular_distance(angles[0], -yaw); 
+            chosen_armor = armorlist_map[angles[1]]; 
+            return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        }
     }
     else {
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
