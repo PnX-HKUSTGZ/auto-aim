@@ -299,7 +299,7 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
-        armors[i].vecto_odom = {armors[i].x, armors[i].y};
+        armors[i].vecto_odom = {newxc, newyc};
     }
 
     // 计算每个装甲板的角度，并存入 map
