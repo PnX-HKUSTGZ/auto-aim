@@ -161,7 +161,7 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
 
   cv::Mat rvec(3, 1, CV_64F), tvec(3, 1, CV_64F);
   if (pnp_solver && pnp_solver->solvePnP(image_points, rvec, tvec, "rune")) {
-    // 获取从 rune 到 odom 的变换矩阵
+    // 获取从 rune 到 odom_aim 的变换矩阵
     try {
       if (pnp_solver->calculateReprojectionError(image_points, rvec, tvec, "rune") > 200) {
         RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Reprojection error is too large");
@@ -190,8 +190,8 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune &pred
       ps.pose.position.y = tvec.at<double>(1);
       ps.pose.position.z = tvec.at<double>(2);
 
-      // 转换到 odom 坐标系
-      ps = tf2_buffer_->transform(ps, "odom");
+      // 转换到 odom_aim 坐标系
+      ps = tf2_buffer_->transform(ps, "odom_aim");
       double roll, pitch, yaw;
       tf2::Quaternion quat_tf(ps.pose.orientation.x, ps.pose.orientation.y, ps.pose.orientation.z, ps.pose.orientation.w);
       tf2::Matrix3x3(quat_tf).getRPY(roll, pitch, yaw);
@@ -283,7 +283,7 @@ Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
   Eigen::Vector3d t_odom_2_rune = ekf_state_.head(3);
 
   // 考虑到从 PnP 获取的方向存在较大的误差和抖动，
-  // 并且符的位置在 odom 坐标系中是静态的，
+  // 并且符的位置在 odom_aim 坐标系中是静态的，
   // 建议使用几何信息重新构建旋转矩阵
   double yaw = ekf_state_(3);
   double pitch = 0;
@@ -295,7 +295,7 @@ Eigen::Vector3d RuneSolver::getTargetPosition(double angle_diff) const {
   Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff, Eigen::Vector3d::UnitX()).matrix() *
                            Eigen::Vector3d(0, -ARM_LENGTH, 0);
 
-  // 转换到 odom 坐标系
+  // 转换到 odom_aim 坐标系
   Eigen::Vector3d p_odom = R_odom_2_rune * p_rune + t_odom_2_rune;
 
   return p_odom;

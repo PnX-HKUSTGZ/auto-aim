@@ -70,7 +70,7 @@ bool RuneBallisticNode::ifFire(double targetpitch, double targetyaw)
 {
     //获取当前云台位姿
     try{
-        t = tfBuffer->lookupTransform("gimbal_link", "odom", tf2::TimePointZero);
+        t = tfBuffer->lookupTransform("gimbal_link", "odom_aim", tf2::TimePointZero);
     }
     catch (tf2::TransformException &ex) {
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());

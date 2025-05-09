@@ -126,7 +126,7 @@ TrackerManager::TrackerManager(
     // 创建仅含特定ID装甲板的消息
     auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
     id_armors_msg->header.stamp = msg_time;  // 当前时间
-    id_armors_msg->header.frame_id = "odom";  // 假设使用odom坐标系
+    id_armors_msg->header.frame_id = "odom_aim";  // 假设使用odom坐标系
     for (const auto& armor : armors) {
         id_armors_msg->armors.push_back(armor);
     }
@@ -278,7 +278,7 @@ TrackerManager::TrackerManager(
       auto_aim_interfaces::msg::Target target_msg;
       
       // 设置默认帧ID
-      target_msg.header.frame_id = "odom";
+      target_msg.header.frame_id = "odom_aim";
       target_msg.tracking = false;
       
       // 如果没有正在追踪的目标，返回空消息
@@ -334,7 +334,7 @@ TrackerManager::TrackerManager(
       auto_aim_interfaces::msg::Target target_msg;
       
       // 设置默认帧ID
-      target_msg.header.frame_id = "odom";
+      target_msg.header.frame_id = "odom_aim";
       target_msg.tracking = false;
       
       

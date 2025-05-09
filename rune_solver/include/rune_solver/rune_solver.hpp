@@ -76,7 +76,7 @@ public:
   // Return: normalized angle
   double update(const auto_aim_interfaces::msg::Rune::SharedPtr receive_target);
 
-  // Return: transormation matrix from rune to odom
+  // Return: transormation matrix from rune to odom_aim
   // Throws: tf2::TransformException or std::runtime_error
   Eigen::Matrix4d solvePose(const auto_aim_interfaces::msg::Rune &target);
 

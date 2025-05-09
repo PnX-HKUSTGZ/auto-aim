@@ -158,11 +158,11 @@ void RuneSolverNode::timerCallback() {
 
   // 初始化消息
   geometry_msgs::msg::PointStamped target_msg;
-  target_msg.header.frame_id = "odom";
+  target_msg.header.frame_id = "odom_aim";
   Eigen::Vector3d cur_pos = rune_solver_->getTargetPosition(0);
   auto_aim_interfaces::msg::RuneTarget rune_target; 
   rune_target.header.stamp = stamp; 
-  rune_target.header.frame_id = "odom"; 
+  rune_target.header.frame_id = "odom_aim"; 
   rune_solver_->pubTargetPosition(rune_target);
   rune_target_pub_->publish(rune_target);
 
@@ -184,7 +184,7 @@ void RuneSolverNode::timerCallback() {
       marker_array.markers.push_back(aimming_line_marker_);
       marker_pub_->publish(marker_array);
     } else {
-      obs_pos_marker_.header.frame_id = "odom";
+      obs_pos_marker_.header.frame_id = "odom_aim";
       obs_pos_marker_.header.stamp = last_rune_target_.header.stamp;
       obs_pos_marker_.action = visualization_msgs::msg::Marker::ADD;
       obs_pos_marker_.lifetime = rclcpp::Duration::from_seconds(0.1);
@@ -193,7 +193,7 @@ void RuneSolverNode::timerCallback() {
       obs_pos_marker_.pose.position.z = cur_pos.z();
 
       Eigen::Vector3d r_tag_pos = rune_solver_->getCenterPosition();
-      r_tag_pos_marker_.header.frame_id = "odom";
+      r_tag_pos_marker_.header.frame_id = "odom_aim";
       r_tag_pos_marker_.header.stamp = last_rune_target_.header.stamp;
       r_tag_pos_marker_.action = visualization_msgs::msg::Marker::ADD;
       r_tag_pos_marker_.lifetime = rclcpp::Duration::from_seconds(0.1);

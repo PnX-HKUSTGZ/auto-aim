@@ -90,7 +90,7 @@ Eigen::Vector3d RuneBallistic::getTargetPosition(double angle_diff) {
     Eigen::Vector3d t_odom_2_rune = Eigen::Vector3d(target_msg.center.x, target_msg.center.y, target_msg.center.z);
 
     // Considering the large error and jitter(抖动) in the orientation obtained from PnP,
-    // and the fact that the position of the Rune are static in the odom frame,
+    // and the fact that the position of the Rune are static in the odom_aim frame,
     // it is advisable to reconstruct the rotation matrix using geometric information
     double yaw = target_msg.yaw;
     double pitch = 0;
@@ -102,7 +102,7 @@ Eigen::Vector3d RuneBallistic::getTargetPosition(double angle_diff) {
     Eigen::Vector3d p_rune = Eigen::AngleAxisd(-angle_diff, Eigen::Vector3d::UnitX()).matrix() *
                             Eigen::Vector3d(0, -ARM_LENGTH, 0);
 
-    // Transform to odom frame
+    // Transform to odom_aim frame
     Eigen::Vector3d p_odom = R_odom_2_rune * p_rune + t_odom_2_rune;
 
     return p_odom;
