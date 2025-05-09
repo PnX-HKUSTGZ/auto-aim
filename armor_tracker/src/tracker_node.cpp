@@ -510,21 +510,6 @@ void ArmorTrackerNode::publishImgAll(
             armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
             armor_z - half_height * cos_pitch);
 
-            // 将装甲板的角点从世界坐标系转换到相机坐标系
-            std::vector<cv::Point2d> corners_image;
-            cv::Mat rvec, tvec;
-            // ROS 坐标系到 OpenCV 坐标系的变换矩阵
-            cv::Mat ros_to_cv = (cv::Mat_<double>(3,3) <<
-                0,-1, 0,
-                0, 0,-1,
-                1, 0, 0);
-            try {
-                geometry_msgs::msg::TransformStamped transform_stamped = tf2_buffer_->lookupTransform("camera_link", "odom_aim", tf2::TimePointZero);
-                tf2::Quaternion quat(
-                    transform_stamped.transform.rotation.x,
-                    transform_stamped.transform.rotation.y,
-                    transform_stamped.transform.rotation.z,
-                    transform_stamped.transform.rotation.w);
         // 将装甲板的角点从世界坐标系转换到相机坐标系
         std::vector<cv::Point2d> corners_image;
         cv::Mat rvec, tvec;
