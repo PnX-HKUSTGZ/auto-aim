@@ -57,7 +57,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     tf2_buffer_->setCreateTimerInterface(timer_interface);
     tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
     armors_sub_.subscribe(this, "/detector/armors", rmw_qos_profile_sensor_data);
-    target_frame_ = this->declare_parameter("target_frame", "odom");
+    target_frame_ = this->declare_parameter("target_frame", "odom_aim");
 
     tf2_filter_ = std::make_shared<tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>>(
         armors_sub_, *tf2_buffer_, target_frame_, 10, this->get_node_logging_interface(),
@@ -433,7 +433,7 @@ void ArmorTrackerNode::publishImg(
                 0, 0,-1,
                 1, 0, 0);
             try {
-                geometry_msgs::msg::TransformStamped transform_stamped = tf2_buffer_->lookupTransform("camera_link", "odom", tf2::TimePointZero);
+                geometry_msgs::msg::TransformStamped transform_stamped = tf2_buffer_->lookupTransform("camera_link", "odom_aim", tf2::TimePointZero);
                 tf2::Quaternion quat(
                     transform_stamped.transform.rotation.x,
                     transform_stamped.transform.rotation.y,
