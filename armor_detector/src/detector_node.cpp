@@ -125,7 +125,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
 
   // Get the transform from odom to gimbal
   try {
-    auto latest_tf = tf2_buffer_->lookupTransform(img_msg->header.frame_id, "odom", tf2::TimePointZero);
+    auto latest_tf = tf2_buffer_->lookupTransform(img_msg->header.frame_id, "odom_aim", tf2::TimePointZero);
     rclcpp::Time target_time = img_msg->header.stamp;
     rclcpp::Time latest_time = latest_tf.header.stamp;
     // 比较时间戳
