@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <Eigen/Core>
 
 #include "armor_detector/detector.hpp"
 #include "armor_detector/number_classifier.hpp"
@@ -30,6 +31,8 @@
 #include "armor_detector/ba_solver.hpp"
 #include "armor_detector/pnp_solver.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
+
 
 namespace rm_auto_aim
 {
@@ -42,6 +45,9 @@ public:
 private:
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
 
+  void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+                      std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
+
   std::unique_ptr<Detector> initDetector();
   std::vector<Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img); 
   void drawResults(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img, const std::vector<Armor> & armors); 
@@ -50,8 +56,8 @@ private:
   void destroyDebugPublishers();
 
   void publishMarkers();
-  void chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs, cv::Mat & rvec, cv::Mat & tvec);
-
+  void chooseBestPose(Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs);
+  void fix_two_armors(Armor & armor1, Armor & armor2);
   // Light corner corrector
   LightCornerCorrector lcc;
 
@@ -61,6 +67,9 @@ private:
   
   // Armor Detector
   std::unique_ptr<Detector> detector_;
+
+  // set_mode service
+  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
 
   // Detected armors publisher
   auto_aim_interfaces::msg::Armors armors_msg_;
@@ -85,7 +94,8 @@ private:
   // tf2
   std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
-  Eigen::Matrix3d imu_to_camera;
+  Eigen::Matrix3d r_odom_to_camera;
+  Eigen::Vector3d t_odom_to_camera;
 
   // Debug information
   bool debug_;
@@ -96,6 +106,47 @@ private:
   image_transport::Publisher binary_img_pub_;
   image_transport::Publisher number_img_pub_;
   image_transport::Publisher result_img_pub_;
+
+  // types
+  enum VisionMode {
+    OUTPOST = 0,
+    HERO = 1, 
+    ENGINEER = 2,
+    INFANTRY_1 = 3,
+    INFANTRY_2 = 4,
+    INFANTRY_3 = 5,
+    GUARD = 6,
+    BASE = 7,
+    RUNE = 8,
+    AUTO = 9
+  };
+  inline std::string visionModeToString(VisionMode mode) {
+    switch (mode) {
+      case VisionMode::OUTPOST:
+        return "OUTPOST";
+      case VisionMode::HERO:
+        return "HERO";
+      case VisionMode::ENGINEER:
+        return "ENGINEER";
+      case VisionMode::INFANTRY_1:
+        return "INFANTRY_1";
+      case VisionMode::INFANTRY_2:
+        return "INFANTRY_2";
+      case VisionMode::INFANTRY_3:  
+        return "INFANTRY_3";
+      case VisionMode::GUARD:
+        return "GUARD";
+      case VisionMode::BASE:
+        return "BASE";
+      case VisionMode::RUNE:  
+        return "RUNE";
+      case VisionMode::AUTO:
+        return "AUTO";
+      default:
+        return "UNKNOWN";
+    }
+  }
+  bool enable_ = true; 
 };
 
 }  // namespace rm_auto_aim

@@ -7,6 +7,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
+#include <iostream>
 #include <sstream>
 #include <vector>
 
@@ -19,28 +20,43 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Maximum allowable armor distance in the XOY plane
     max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
-
+    debug_ = this->declare_parameter("debug", false);
     // Tracker
     double max_match_distance = this->declare_parameter("tracker.max_match_distance", 0.15);
     double max_match_yaw_diff = this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
-    tracker_ = std::make_unique<Tracker>(max_match_distance, max_match_yaw_diff);
-    tracker_->tracking_thres = this->declare_parameter("tracker.tracking_thres", 5);
-    lost_time_thres_ = this->declare_parameter("tracker.lost_time_thres", 0.3);
+    
+
+    // 初始化追踪器管理器替代单一追踪器
+    tracker_manager_ = std::make_unique<TrackerManager>(
+        max_match_distance,
+        max_match_yaw_diff,
+        this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
+        this->declare_parameter("tracker.lost_time_thres", 0.3), 
+        this->declare_parameter("tracker.switch_cooldown", 1.0));
+        
+    // 设置评分权重参数
+    tracker_manager_->setWeights(
+        this->declare_parameter("score.w_distance", 0.5),
+        this->declare_parameter("score.w_tracking", 0.5));
 
     // Initialize EKF
     initializeEKF();
-
     // Reset tracker service
     reset_tracker_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "/tracker/reset", [this](
                             const std_srvs::srv::Trigger::Request::SharedPtr,
                             std_srvs::srv::Trigger::Response::SharedPtr response) {
-            tracker_->tracker_state = Tracker::LOST;
+            tracker_manager_->reset();
             response->success = true;
             RCLCPP_INFO(this->get_logger(), "Tracker reset!");
             return;
         });
 
+      // set_mode
+    set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
+        "armor_tracker/set_mode",
+        std::bind(
+        &ArmorTrackerNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2));
     // Camera info subscription
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         "/camera_info", rclcpp::SensorDataQoS(),
@@ -49,7 +65,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             cam_info_sub_.reset();
         });
-
     // TF2 setup
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
@@ -72,31 +87,33 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
 
     // Visualization Marker setup
-    position_marker_.ns = "position";
-    position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
-    position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
-    position_marker_.color.a = 1.0;
-    position_marker_.color.g = 1.0;
-    linear_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
-    linear_v_marker_.ns = "linear_v";
-    linear_v_marker_.scale.x = 0.03;
-    linear_v_marker_.scale.y = 0.05;
-    linear_v_marker_.color.a = 1.0;
-    linear_v_marker_.color.r = 1.0;
-    linear_v_marker_.color.g = 1.0;
-    angular_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
-    angular_v_marker_.ns = "angular_v";
-    angular_v_marker_.scale.x = 0.03;
-    angular_v_marker_.scale.y = 0.05;
-    angular_v_marker_.color.a = 1.0;
-    angular_v_marker_.color.b = 1.0;
-    angular_v_marker_.color.g = 1.0;
-    armor_marker_.ns = "armors";
-    armor_marker_.type = visualization_msgs::msg::Marker::CUBE;
-    armor_marker_.scale.x = 0.03;
-    armor_marker_.scale.z = 0.125;
-    armor_marker_.color.a = 1.0;
-    armor_marker_.color.r = 1.0;
+    if(debug_){
+        position_marker_.ns = "position";
+        position_marker_.type = visualization_msgs::msg::Marker::SPHERE;
+        position_marker_.scale.x = position_marker_.scale.y = position_marker_.scale.z = 0.1;
+        position_marker_.color.a = 1.0;
+        position_marker_.color.g = 1.0;
+        linear_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
+        linear_v_marker_.ns = "linear_v";
+        linear_v_marker_.scale.x = 0.03;
+        linear_v_marker_.scale.y = 0.05;
+        linear_v_marker_.color.a = 1.0;
+        linear_v_marker_.color.r = 1.0;
+        linear_v_marker_.color.g = 1.0;
+        angular_v_marker_.type = visualization_msgs::msg::Marker::ARROW;
+        angular_v_marker_.ns = "angular_v";
+        angular_v_marker_.scale.x = 0.03;
+        angular_v_marker_.scale.y = 0.05;
+        angular_v_marker_.color.a = 1.0;
+        angular_v_marker_.color.b = 1.0;
+        angular_v_marker_.color.g = 1.0;
+        armor_marker_.ns = "armors";
+        armor_marker_.type = visualization_msgs::msg::Marker::CUBE;
+        armor_marker_.scale.x = 0.03;
+        armor_marker_.scale.z = 0.125;
+        armor_marker_.color.a = 1.0;
+        armor_marker_.color.r = 1.0;
+    }
 }
 
 void ArmorTrackerNode::initializeEKF()
@@ -266,13 +283,25 @@ void ArmorTrackerNode::initializeEKF()
     // P - error estimate covariance matrix
     Eigen::DiagonalMatrix<double, 12> p0;
     p0.setIdentity();
-    tracker_->ekf = ExtendedKalmanFilter{f, h1, h2, h_two, j_f, j_h1, j_h2, j_h_two, u_q, u_r, u_r_two, p0};
+    // 创建 EKF 并设置到 TrackerManager 中
+    ExtendedKalmanFilter ekf{f, h1, h2, h_two, j_f, j_h1, j_h2, j_h_two, u_q, u_r, u_r_two, p0};
+    tracker_manager_->setEKFTemplate(ekf);
 }
 
 void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_msg)
 //它的主要作用是将装甲板的位置从图像帧坐标转换到世界坐标系，过滤掉异常的装甲板，更新追踪器的状态，
 //并根据追踪结果发布相关信息和可视化标记
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(start_time.time_since_epoch());
+    current_sec = duration.count() / 1000;
+    if(last_sec != current_sec){
+        last_sec = current_sec;
+        if(frame_count < 100) RCLCPP_INFO(get_logger(), "fps: %d", frame_count);
+        frame_count = 0;
+    }
+    frame_count++;
+    
     // Tranform armor position from image frame to world coordinate
     for (auto & armor : armors_msg->armors) {
         geometry_msgs::msg::PoseStamped ps;
@@ -287,81 +316,111 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     }
 
     // Filter abnormal armors
+    
+
     armors_msg->armors.erase(
         std::remove_if(
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
-                return armor.pose.position.z > 0 || armor.pose.position.z < -0.5 ||
-                        Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
+                return Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
                             max_armor_distance_;
             }),
         armors_msg->armors.end());
 
-    // Init message
-    auto_aim_interfaces::msg::TrackerInfo info_msg;
-    auto_aim_interfaces::msg::Target target_msg;
+    // 计算时间差
     rclcpp::Time time = armors_msg->header.stamp;
+    try {
+        dt_ = (time - last_time_).seconds();
+    }
+    catch (const std::exception & e) {
+        RCLCPP_WARN(this->get_logger(), "last_time_ has not been initialized");
+    }
+    last_time_ = time;
+
+    // 使用 TrackerManager 更新所有追踪器
+    tracker_manager_->update(armors_msg);
+    // 清理不活跃的追踪器
+    tracker_manager_->cleanInactiveTrackers( this->now());
+    // 获取当前追踪目标
+    auto target_msg = tracker_manager_->getCurrentTarget();
     target_msg.header.stamp = time;
     target_msg.header.frame_id = target_frame_;
-
-    // Update tracker
-    if (tracker_->tracker_state == Tracker::LOST) {
-        tracker_->init(armors_msg);
-        target_msg.tracking = false;
-    } else {
-        dt_ = (time - last_time_).seconds();
-        tracker_->lost_thres = static_cast<int>(lost_time_thres_ / dt_);
-        tracker_->update(armors_msg);
-
-        // Publish Info
-        info_msg.position_diff = tracker_->info_position_diff;
-        info_msg.yaw_diff = tracker_->info_yaw_diff;
-        info_msg.position.x = tracker_->measurement(0);
-        info_msg.position.y = tracker_->measurement(1);
-        info_msg.position.z = tracker_->measurement(2);
-        info_msg.yaw = tracker_->measurement(3);
-        info_pub_->publish(info_msg);
-
-        if (tracker_->tracker_state == Tracker::DETECTING) {
-            target_msg.tracking = false;
-        } else if (
-            tracker_->tracker_state == Tracker::TRACKING ||
-            tracker_->tracker_state == Tracker::TEMP_LOST) {
-            target_msg.tracking = true;
-            // Fill target message
-            const auto & state = tracker_->target_state;
-            target_msg.id = tracker_->tracked_id;
-            target_msg.armors_num = static_cast<int>(tracker_->tracked_armors_num);
-            target_msg.position.x = state(XC);
-            target_msg.velocity.x = state(VXC);
-            target_msg.position.y = state(YC);
-            target_msg.velocity.y = state(VYC);
-            target_msg.position.z = state(ZC1);
-            target_msg.velocity.z = state(VZC);
-            target_msg.yaw = state(YAW1);
-            target_msg.v_yaw = state(VYAW);
-            target_msg.radius_1 = state(R1);
-            target_msg.radius_2 = state(R2);
-            target_msg.dz = state(ZC2) - state(ZC1);
+    // 如果跟踪状态有效，发布 TrackerInfo 消息
+    if (target_msg.tracking) {
+        // 获取当前活跃的追踪器
+        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+        if (current_tracker) {
+            // 发布 TrackerInfo
+            auto_aim_interfaces::msg::TrackerInfo info_msg;
+            info_msg.position_diff = current_tracker->info_position_diff;
+            info_msg.yaw_diff = current_tracker->info_yaw_diff;
+            info_msg.position.x = current_tracker->measurement(0);
+            info_msg.position.y = current_tracker->measurement(1);
+            info_msg.position.z = current_tracker->measurement(2);
+            info_msg.yaw = current_tracker->measurement(3);
+            info_pub_->publish(info_msg);
         }
     }
 
-    last_time_ = time;
+
+    
+    
+    
 
     target_pub_->publish(target_msg);//发布target信息
-    if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
-        publishMarkers(target_msg);//发布可视化信息
-        publishImg(target_msg, armors_msg->image); //发布图像信息
-        last_img_time_ = armors_msg->image.header.stamp;
+    if(debug_){
+        if(!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_){
+            publishMarkers(target_msg);//发布可视化信息
+            
+            // 获取所有活跃的跟踪器ID
+            std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
+            
+            // 创建一个副本用于绘制
+            cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
+            
+            // 首先绘制当前活跃的主要目标
+            if (target_msg.tracking) {
+                publishImgAll(target_msg, combined_image, true); // true表示是主要目标，可以用不同颜色标识
+            }
+            
+            // 然后绘制其他活跃的目标
+            for (const auto& id : active_ids) {
+                if (id != target_msg.id && id != "") {  // 排除当前已处理的ID和空ID
+                    // 获取该ID的目标信息
+                    auto id_target_msg = tracker_manager_->getIDTarget(id);
+                    
+                    // 在相同图像上绘制此ID的装甲板
+                    publishImgAll(id_target_msg, combined_image, false); // false表示不是主要目标
+                    
+                }
+            }
+            
+            // 添加通用信息（如相机中心、延迟等）
+            cv::circle(combined_image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
+            auto latency = (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000; 
+            std::stringstream text; 
+            text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+            cv::putText(combined_image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+            
+            // 发布最终的组合图像
+            auto processed_image_msg = cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
+            tracker_img_pub_.publish(*processed_image_msg);
+            
+            last_img_time_ = armors_msg->image.header.stamp;
+            
+        }
     } 
 }
-void ArmorTrackerNode::publishImg(
-    const auto_aim_interfaces::msg::Target & target_msg,
-    const sensor_msgs::msg::Image & image_msg)
-{
-    // 将 ROS 图像消息转换为 OpenCV 图像
-    cv::Mat image = cv_bridge::toCvCopy(image_msg, "bgr8")->image;
 
+void ArmorTrackerNode::publishImgAll(
+    const auto_aim_interfaces::msg::Target & target_msg,
+    cv::Mat & image,
+    bool is_primary_target)
+{
+    if (!target_msg.tracking) {
+        return;
+    }
+    
     // 获取相机内参矩阵
     cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << 
         cam_info_.k[0], cam_info_.k[1], cam_info_.k[2],
@@ -371,58 +430,85 @@ void ArmorTrackerNode::publishImg(
     // 获取相机畸变系数
     cv::Mat dist_coeffs = (cv::Mat_<double>(1, 5) << 
         cam_info_.d[0], cam_info_.d[1], cam_info_.d[2], cam_info_.d[3], cam_info_.d[4]);
+    
+    // 选择颜色：主要目标使用绿色，其他目标使用不同颜色
+    cv::Scalar color;
+    if (is_primary_target) {
+        color = cv::Scalar(0, 255, 0); // 绿色
+    } else {
+        // 基于ID生成不同的颜色
+        int id_hash = 0;
+        for (char c : target_msg.id) {
+            id_hash += c;
+        }
+        // 使用简单的哈希生成不同颜色
+        color = cv::Scalar(
+            (id_hash * 90) % 255,  // B
+            (id_hash * 50) % 255,  // G
+            (id_hash * 140) % 255  // R
+        );
+    }
+    
+    auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+    if (!current_tracker) {
+        return;
+    }
+    
+    // 计算装甲板的位姿
+    double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
+    double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
+    double dz = target_msg.dz;
+    double pitch = target_msg.id == "outpost" ? -0.26 : 0.26;
 
-    if(target_msg.tracking){
-        // 计算装甲板的位姿
-        double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
-        double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
-        double dz = target_msg.dz;
-        double pitch = target_msg.id == "outpost" ? -0.26 : 0.26;
+    // 在图像右上角添加目标ID
+    cv::putText(image, "ID: " + target_msg.id, 
+                cv::Point(image.cols - 150, is_primary_target ? 30 : 60 + (std::hash<std::string>{}(target_msg.id) % 5) * 30), 
+                cv::FONT_HERSHEY_SIMPLEX, 0.8, color, 2);
 
-        bool is_current_pair = true;
-        size_t a_n = target_msg.armors_num;
-        double r = 0;
-        for (size_t i = 0; i < a_n; i++) {
-            double tmp_yaw = yaw + i * (2 * M_PI / a_n);
-            // Only 4 armors has 2 radius and height
-            double armor_z = za + (is_current_pair ? 0 : dz);
-            if (a_n == 4) {
-                r = is_current_pair ? r1 : r2;
-                is_current_pair = !is_current_pair;
-            } else {
-                r = r1;
-            }
-            double armor_x = xc - r * cos(tmp_yaw);
-            double armor_y = yc - r * sin(tmp_yaw);
+    bool is_current_pair = true;
+    size_t a_n = target_msg.armors_num;
+    double r = 0;
+    for (size_t i = 0; i < a_n; i++) {
+        double tmp_yaw = yaw + i * (2 * M_PI / a_n);
+        // Only 4 armors has 2 radius and height
+        double armor_z = za + (is_current_pair ? 0 : dz);
+        if (a_n == 4) {
+            r = is_current_pair ? r1 : r2;
+            is_current_pair = !is_current_pair;
+        } else {
+            r = r1;
+        }
+        double armor_x = xc - r * cos(tmp_yaw);
+        double armor_y = yc - r * sin(tmp_yaw);
 
-            // 计算装甲板的四个角点
-            std::vector<cv::Point3d> corners_world = {};
-            double half_width = 0.5 * (tracker_->tracked_armor.type == "small" ? 0.135 : 0.23);
-            double half_height = 0.5 * 0.125;
+        // 计算装甲板的四个角点
+        std::vector<cv::Point3d> corners_world = {};
+        double half_width = 0.5 * (current_tracker->tracked_armor.type == "small" ? 0.135 : 0.23);
+        double half_height = 0.5 * 0.125;
 
-            // 计算四个角点的世界坐标，考虑pitch
-            double cos_pitch = cos(pitch);
-            double sin_pitch = sin(pitch);
+        // 计算四个角点的世界坐标，考虑pitch
+        double cos_pitch = cos(pitch);
+        double sin_pitch = sin(pitch);
 
-            corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y + half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z + half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x - half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y + half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z + half_height * cos_pitch);
 
-            corners_world.emplace_back(
-                armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z + half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x + half_width * sin(tmp_yaw) + half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y - half_width * cos(tmp_yaw) + half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z + half_height * cos_pitch);
 
-            corners_world.emplace_back(
-                armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z - half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x + half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y - half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z - half_height * cos_pitch);
 
-            corners_world.emplace_back(
-                armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
-                armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
-                armor_z - half_height * cos_pitch);
+        corners_world.emplace_back(
+            armor_x - half_width * sin(tmp_yaw) - half_height * cos(tmp_yaw) * sin_pitch,
+            armor_y + half_width * cos(tmp_yaw) - half_height * sin(tmp_yaw) * sin_pitch,
+            armor_z - half_height * cos_pitch);
 
             // 将装甲板的角点从世界坐标系转换到相机坐标系
             std::vector<cv::Point2d> corners_image;
@@ -439,49 +525,58 @@ void ArmorTrackerNode::publishImg(
                     transform_stamped.transform.rotation.y,
                     transform_stamped.transform.rotation.z,
                     transform_stamped.transform.rotation.w);
+        // 将装甲板的角点从世界坐标系转换到相机坐标系
+        std::vector<cv::Point2d> corners_image;
+        cv::Mat rvec, tvec;
+        // ROS 坐标系到 OpenCV 坐标系的变换矩阵
+        cv::Mat ros_to_cv = (cv::Mat_<double>(3,3) <<
+            0,-1, 0,
+            0, 0,-1,
+            1, 0, 0);
+        try {
+            geometry_msgs::msg::TransformStamped transform_stamped = tf2_buffer_->lookupTransform("camera_link", "odom_aim", tf2::TimePointZero);
+            tf2::Quaternion quat(
+                transform_stamped.transform.rotation.x,
+                transform_stamped.transform.rotation.y,
+                transform_stamped.transform.rotation.z,
+                transform_stamped.transform.rotation.w);
 
-                tf2::Matrix3x3 mat(quat);
-                // 原始旋转矩阵
-                cv::Mat rotation_matrix = (cv::Mat_<double>(3, 3) <<
-                    mat[0][0], mat[0][1], mat[0][2],
-                    mat[1][0], mat[1][1], mat[1][2],
-                    mat[2][0], mat[2][1], mat[2][2]);
-                // 调整后的旋转矩阵
-                rotation_matrix = ros_to_cv * rotation_matrix;
+            tf2::Matrix3x3 mat(quat);
+            // 原始旋转矩阵
+            cv::Mat rotation_matrix = (cv::Mat_<double>(3, 3) <<
+                mat[0][0], mat[0][1], mat[0][2],
+                mat[1][0], mat[1][1], mat[1][2],
+                mat[2][0], mat[2][1], mat[2][2]);
+            // 调整后的旋转矩阵
+            rotation_matrix = ros_to_cv * rotation_matrix;
 
-                cv::Rodrigues(rotation_matrix, rvec);
+            cv::Rodrigues(rotation_matrix, rvec);
 
-                // 原始平移向量
-                tvec = (cv::Mat_<double>(3, 1) <<
-                    transform_stamped.transform.translation.x,
-                    transform_stamped.transform.translation.y,
-                    transform_stamped.transform.translation.z);
+            // 原始平移向量
+            tvec = (cv::Mat_<double>(3, 1) <<
+                transform_stamped.transform.translation.x,
+                transform_stamped.transform.translation.y,
+                transform_stamped.transform.translation.z);
 
-                // 调整后的平移向量
-                tvec = ros_to_cv * tvec;
-            } catch (tf2::TransformException &ex) {
-                RCLCPP_WARN(this->get_logger(), "Could NOT transform: %s", ex.what());
-                continue;
-            }
-            
-            cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
-            // 在图像上绘制四边形
-            for (size_t j = 0; j < corners_image.size(); ++j) {
-                cv::line(image, corners_image[j], corners_image[(j + 1) % corners_image.size()], cv::Scalar(0, 255, 0), 2); 
-            }
+            // 调整后的平移向量
+            tvec = ros_to_cv * tvec;
+        } catch (tf2::TransformException &ex) {
+            RCLCPP_WARN(rclcpp::get_logger("tracker_node"), "Could NOT transform: %s", ex.what());
+            continue;
+        }
+        
+        cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
+        // 在图像上绘制四边形，使用不同颜色区分不同目标
+        for (size_t j = 0; j < corners_image.size(); ++j) {
+            cv::line(
+                image, 
+                corners_image[j], 
+                corners_image[(j + 1) % corners_image.size()], 
+                color, 
+                is_primary_target ? 2 : 2  // 主要目标线条更粗
+            ); 
         }
     }
-    // Draw camera center
-    cv::circle(image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
-    auto latency = (this->now() - rclcpp::Time(image_msg.header.stamp)).seconds() * 1000; 
-    std::stringstream text; 
-    text  << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-    cv::putText(image, text.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-    // 将处理后的 OpenCV 图像转换回 ROS 图像消息
-    auto processed_image_msg = cv_bridge::CvImage(image_msg.header, "bgr8", image).toImageMsg();
-
-    // 发布处理后的图像
-    tracker_img_pub_.publish(*processed_image_msg);
 }
 
 void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & target_msg)
@@ -493,6 +588,22 @@ void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & t
 
     visualization_msgs::msg::MarkerArray marker_array;
     if (target_msg.tracking) {
+        // 获取当前跟踪器
+        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+        if (!current_tracker) {
+            // 如果找不到当前跟踪器，则清空所有标记
+            position_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            linear_v_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            angular_v_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            armor_marker_.action = visualization_msgs::msg::Marker::DELETE;
+            marker_array.markers.emplace_back(position_marker_);
+            marker_array.markers.emplace_back(linear_v_marker_);
+            marker_array.markers.emplace_back(angular_v_marker_);
+            marker_array.markers.emplace_back(armor_marker_);
+            marker_pub_->publish(marker_array);
+            return;
+        }
+
         double yaw = target_msg.yaw, r1 = target_msg.radius_1, r2 = target_msg.radius_2;
         double xc = target_msg.position.x, yc = target_msg.position.y, za = target_msg.position.z;
         double vx = target_msg.velocity.x, vy = target_msg.velocity.y, vz = target_msg.velocity.z;
@@ -520,7 +631,7 @@ void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & t
         angular_v_marker_.points.emplace_back(arrow_end);
 
         armor_marker_.action = visualization_msgs::msg::Marker::ADD;
-        armor_marker_.scale.y = tracker_->tracked_armor.type == "small" ? 0.135 : 0.23;
+        armor_marker_.scale.y = current_tracker->tracked_armor.type == "small" ? 0.135 : 0.23;
         bool is_current_pair = true;
         size_t a_n = target_msg.armors_num;
         geometry_msgs::msg::Point p_a;
@@ -560,7 +671,24 @@ void ArmorTrackerNode::publishMarkers(const auto_aim_interfaces::msg::Target & t
     marker_array.markers.emplace_back(angular_v_marker_);
     marker_pub_->publish(marker_array);
 }
-
+void ArmorTrackerNode::setModeCallback(
+    const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+    std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response) {
+    response->success = true;
+  
+    VisionMode mode = static_cast<VisionMode>(request->mode);
+    std::string mode_name = visionModeToString(mode);
+    if (mode_name == "UNKNOWN") {
+        RCLCPP_ERROR(this->get_logger(), "Invalid mode: %d", request->mode);
+        return;
+    }
+  
+    mode_ = mode; 
+    bool success = tracker_manager_->setMode(mode_);
+  
+    if(success) RCLCPP_INFO(this->get_logger(), "Set Car tracking Mode: %s", visionModeToString(mode).c_str());
+    else RCLCPP_ERROR(this->get_logger(), "Failed to set Car tracking Mode: %s", visionModeToString(mode).c_str());
+}
 }  // namespace rm_auto_aim
 
 #include "rclcpp_components/register_node_macro.hpp"

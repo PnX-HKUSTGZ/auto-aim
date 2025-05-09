@@ -23,10 +23,13 @@
 #include <string>
 #include <vector>
 
+#include "armor_tracker/types.hpp"
 #include "armor_tracker/tracker.hpp"
+#include "armor_tracker/tracker_manager.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 #include "auto_aim_interfaces/msg/target.hpp"
 #include "auto_aim_interfaces/msg/tracker_info.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
 
 // OpenCV
 #include <opencv2/core.hpp>
@@ -46,25 +49,38 @@ private:
 
   void publishMarkers(const auto_aim_interfaces::msg::Target & target_msg);
 
-  void publishImg(
+  void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+    std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
+
+  void publishImgAll(
     const auto_aim_interfaces::msg::Target & target_msg,
-    const sensor_msgs::msg::Image & image_msg);
+    cv::Mat & image,
+    bool is_primary_target);
+
+  // Debug
+  bool debug_;
+  int last_sec = 0, current_sec = 0, frame_count = 0;
 
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
 
   // The time when the last message was received
-  rclcpp::Time last_time_;
+  rclcpp::Time last_time_ = rclcpp::Time(0);
   double dt_;
+  
 
   // Armor tracker
   double s2qxy_, s2qz_, s2qyaw_, s2qr_;
   double r_xyz_factor, r_yaw, r_radius;
   double lost_time_thres_;
-  std::unique_ptr<Tracker> tracker_;
+  std::unique_ptr<TrackerManager> tracker_manager_;
+  
 
   // Reset tracker service
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_tracker_srv_;
+
+  // set_mode service
+  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
 
   // Subscriber with tf2 message_filter
   std::string target_frame_;
@@ -94,22 +110,8 @@ private:
   // 发布图像
   image_transport::Publisher tracker_img_pub_;
   std_msgs::msg::Header_<std::allocator<void>>::_stamp_type last_img_time_; 
-  // 状态
-  enum CarState
-  {
-      XC = 0,
-      VXC,
-      YC,
-      VYC,
-      ZC1,
-      ZC2, 
-      VZC,
-      VYAW,
-      R1,
-      R2, 
-      YAW1,
-      YAW2 // 11
-  };
+
+  VisionMode mode_ = VisionMode::AUTO; // 默认模式为AUTO
 };
 
 }  // namespace rm_auto_aim

@@ -10,12 +10,14 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 // STD
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "armor_tracker/types.hpp"
 #include "armor_tracker/extended_kalman_filter.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 #include "auto_aim_interfaces/msg/target.hpp"
@@ -56,10 +58,15 @@ public:
 
   double info_position_diff;
   double info_yaw_diff;
+  double twoD_distance;
 
   Eigen::VectorXd measurement;
 
   Eigen::VectorXd target_state;
+
+  // 新增成员用于评分
+  rclcpp::Time last_update_time_;      // 上次更新时间
+  
 private:
   void initEKF(const Armor & a); 
   void initEKFTwo(const Armor & a, const Armor & b);
@@ -77,22 +84,10 @@ private:
 
   int detect_count_;
   int lost_count_;
-  enum CarState
-  {
-    XC = 0,
-    VXC,
-    YC,
-    VYC,
-    ZC1,
-    ZC2, 
-    VZC,
-    VYAW,
-    R1,
-    R2, 
-    YAW1,
-    YAW2 // 11
-  };
+  
 };
+
+
 
 }  // namespace rm_auto_aim
 

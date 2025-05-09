@@ -18,11 +18,6 @@
 
 #include"ballistic_calculation/ballistic_node.hpp"
 
-
-
-
-
-
 namespace rm_auto_aim
 {
 using target = auto_aim_interfaces::msg::Target;
@@ -37,15 +32,17 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K2  = this->declare_parameter("iteration_coeffcient_second",0.05);
     K   = this->declare_parameter("air_resistence",0.1);
     BULLET_V = this->declare_parameter("bullet_speed",23.0);
-    ifFireK = this->declare_parameter("ifFireK",0.05);
+    ifFireK_ = this->declare_parameter("ifFireK",0.05);
     min_v = this->declare_parameter("swich_stategy_1",5.0) * M_PI / 30;
     max_v = this->declare_parameter("swich_stategy_2",30.0) * M_PI / 30;
     v_yaw_PTZ = this->declare_parameter("max_v_yaw_PTZ", 0.8); 
+    stop_fire_time = this->declare_parameter("stop_fire_time", 0.1);
     std::vector<double> xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
     rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
     Eigen::Vector3d odom2gun(xyz_vec[0], xyz_vec[1], xyz_vec[2]);
 
     calculator = std::make_unique<rm_auto_aim::Ballistic>(K , K1 , K2 , BULLET_V, odom2gun);
+    calculator->fire_delay = this->declare_parameter("fire_delay", 0.0);
     
     //创建监听器，监听云台位姿    
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());   
@@ -57,6 +54,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     //创建发布者
     publisher_ = this->create_publisher<auto_aim_interfaces::msg::Firecontrol>("/firecontrol", 10);
     //设置时间callback
+    last_fire_time = this -> now(); 
     timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&BallisticCalculateNode::timerCallback, this));
     
     
@@ -76,11 +74,12 @@ void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::S
 
 
 bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
-{
+{   
+    geometry_msgs::msg::TransformStamped t;
     //获取当前云台位姿
     try{
-        t = tfBuffer->lookupTransform("gimbal_link", "odom_aim", tf2::TimePointZero);
-        
+        // 使用最新的可用变换，而不是当前时间
+        t = tfBuffer->lookupTransform("odom_aim", "gimbal_link", tf2::TimePointZero);
     }
     catch (tf2::TransformException &ex) {
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());
@@ -95,14 +94,13 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
     double roll, pitch, yaw;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
     //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-    return std::abs(-yaw - targetyaw) < ifFireK;
-
+    return std::abs(yaw - targetyaw) < ifFireK && std::abs(pitch + targetpitch) < ifFireK;
 }
 
 
 void BallisticCalculateNode::timerCallback()
 {
-    
+
     if(!ifstart){
       
       return;
@@ -117,6 +115,9 @@ void BallisticCalculateNode::timerCallback()
     target_msg->position.x = target_msg->position.x + target_msg->velocity.x * duration.seconds();
     target_msg->position.y = target_msg->position.y + target_msg->velocity.y * duration.seconds();
     target_msg->position.z = target_msg->position.z + target_msg->velocity.z * duration.seconds();
+
+    
+
     target_msg->yaw = target_msg->yaw + target_msg->v_yaw*  duration.seconds();
     //add duration to update targetmsg.stamp
     target_msg->header.stamp = now;
@@ -134,7 +135,8 @@ void BallisticCalculateNode::timerCallback()
     calculator->target_msg.dz = target_msg->dz;
     calculator->robotcenter = target_msg->position;
     calculator->velocity = target_msg->velocity;
-    
+
+    ifFireK = ifFireK_ +  abs(target_msg->v_yaw) * 0.002;
     //进入第一次大迭代
     double init_pitch = std::atan(target_msg->position.z / std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y));
     double init_t = std::sqrt(target_msg->position.x * target_msg->position.x + target_msg->position.y * target_msg->position.y) / (cos(init_pitch) * this->calculator->bulletV);
@@ -151,7 +153,7 @@ void BallisticCalculateNode::timerCallback()
     double z;
     double r;
     std::pair<double,double> iffire_result, final_result; 
-    if (target_msg->armors_num == 4){
+    if (target_msg->armors_num == 4 or target_msg->armors_num == 3) {
         std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
         chosen_yaw = hit_aim[0];
         z = hit_aim[1];  
@@ -174,22 +176,22 @@ void BallisticCalculateNode::timerCallback()
     }
     
     
-    
-    
-
     //发布消息
     firemsg fire_msg;
     fire_msg.header = target_msg->header;
-    fire_msg.pitch = final_result.first - rpy_vec[1];
+    fire_msg.pitch = final_result.first + rpy_vec[1];
     fire_msg.yaw = final_result.second - rpy_vec[2];
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
-    fire_msg.iffire = ifFire(iffire_result.first,iffire_result.second);
+    if(this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)){
+      ifFireK += abs(target_msg->v_yaw) * 0.004;
+    }
+    fire_msg.iffire = ifFire(fire_msg.pitch,fire_msg.yaw);
+    // std::cerr << fire_msg.iffire << "\n"; 
+    if(fire_msg.iffire) last_fire_time = this->now();
     publisher_->publish(fire_msg);
     
     
-    //新图像数据未到来，进行预测
-
   
 }
 

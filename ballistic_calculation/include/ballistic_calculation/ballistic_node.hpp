@@ -47,7 +47,6 @@ void timerCallback();
 //tf2
     std::shared_ptr<tf2_ros::Buffer> tfBuffer;
     std::shared_ptr<tf2_ros::TransformListener> tfListener;
-    geometry_msgs::msg::TransformStamped t;
     std::string target_frame_;
 
     double K1;//第一次大迭代时的步长，需要parameter_declare来调整参数
@@ -56,15 +55,17 @@ void timerCallback();
     double BULLET_V;//子弹出膛速度，需要parameter_declare来调整参数
     double THRES1 = 0.01;//第一次迭代的阈值，需要parameter_declare来调整参数
     double THRES2 = 0.005;//第二次迭代的阈值，需要parameter_declare来调整参数
-    double ifFireK;//判断是否开火的阈值，需要parameter_declare来调整参数
+    double ifFireK_;//判断是否开火的阈值，需要parameter_declare来调整参数
     double min_v;//一级策略切换二级策略速度临界，需要parameter_declare来调整参数
     double max_v;//二级策略切换三级策略速度临界，需要parameter_declare来调整参数
     double v_yaw_PTZ;//云台最大yaw速度，需要parameter_declare来调整参数
+    double stop_fire_time;//停止开火时间，需要parameter_declare来调整参数
     std::vector<double> rpy_vec; //枪口的rpy角度
 
     bool ifstart = false;
     int rate = 1000;
-
+    double ifFireK; 
+    rclcpp::Time last_fire_time;
 
 
 

@@ -72,8 +72,8 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
 
         t = optimizeTime2(initT , x , y);
         double newyaw = yaw + target_msg.v_yaw * t;
-        double fx = target_msg.position.x + target_msg.velocity.x * t + r * cos(newyaw);
-        double fy = target_msg.position.y + target_msg.velocity.y * t + r * sin(newyaw);
+        double fx = target_msg.position.x + target_msg.velocity.x * t - r * cos(newyaw);
+        double fy = target_msg.position.y + target_msg.velocity.y * t - r * sin(newyaw);
         
         double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
@@ -92,8 +92,8 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
 
     }
     double newyaw = yaw + target_msg.v_yaw * updateTmpThetaT.second;
-    double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second + r * cos(newyaw);
-    double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second + r * sin(newyaw);
+    double fx = target_msg.position.x + target_msg.velocity.x * updateTmpThetaT.second - r * cos(newyaw);
+    double fy = target_msg.position.y + target_msg.velocity.y * updateTmpThetaT.second - r * sin(newyaw);
     fx -= odom2gun.x(), fy -= odom2gun.y();
     double predyaw = atan2(fy , fx);
     return std::make_pair( updateTmpThetaT.first , predyaw);
@@ -183,7 +183,7 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
         cout << "res:" << tmp_pitch * 180 / 3.141592 << endl;
         cout << "fly_time:" << fly_time << endl;
 #endif// DEBUG_COMPENSATION
-        return std::make_pair(tmp_pitch , fly_time);
+        return std::make_pair(tmp_pitch , fly_time + fire_delay);
 }
 
 
@@ -212,27 +212,33 @@ std::vector<double> Ballistic::stategy_1(double T)
 {
     // C++
     const double pi = 3.1415926;
-    std::vector<Ballistic::armor_info> armors(4);
+    int a_n = target_msg.armors_num;
+    std::vector<Ballistic::armor_info> armors(a_n);
 
     // 计算未来 T 时间的中心位置
     double newyaw = target_msg.yaw + target_msg.v_yaw * T;
     double newxc = target_msg.position.x + target_msg.velocity.x * T;
     double newyc = target_msg.position.y + target_msg.velocity.y * T;
-
     // 初始化第一个装甲板的偏航角
     armors[0].yaw = newyaw;
 
     // 按顺时针方向计算每个装甲板的 yaw，并计算其坐标
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < a_n; ++i) {
         if (i > 0) {
-            armors[i].yaw = armors[i - 1].yaw - pi / 2;
+            armors[i].yaw = armors[i - 1].yaw - 2 * pi / a_n;
         }
         // 设置装甲板的高度,半径
-        armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        //armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        if (a_n== 3){
+            armors[i].r = 0.315;
+        }
+        else {
+            armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
+        }
         armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
 
-        armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
-        armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
+        armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
+        armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
         armors[i].vecto_odom = {armors[i].x, armors[i].y};
@@ -240,10 +246,14 @@ std::vector<double> Ballistic::stategy_1(double T)
 
     // 计算每个装甲板的角度，并存入 map
     std::map<double, armor_info> armorlist_map;
-    std::vector<double> angles(4);
-    for (int i = 0; i < 4; ++i) {
+    std::vector<double> angles(a_n);
+    for (int i = 0; i < a_n; ++i) {
         angles[i] = angleBetweenVectors(armors[i].vec, armors[i].vecto_odom);
         armorlist_map[angles[i]] = armors[i];
+        //std::cerr << "angle: " << angles[i] * 180 / M_PI << std::endl; 
+        //std::cerr << armors[i].vec[0] << " " << armors[i].vec[1] << "\n"; 
+        //std::cerr << armors[i].vecto_odom[0] << " " << armors[i].vecto_odom[1] << "\n";
+        //std::cerr << "tangent: " << tan(armors[i].yaw) << "\n"; 
     }
 
     // 找到最小的角度对应的装甲板
@@ -264,7 +274,8 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
 {
     // C++
     const double pi = 3.1415926;
-    std::vector<Ballistic::armor_info> armors(4);
+    int a_n = target_msg.armors_num;
+    std::vector<Ballistic::armor_info> armors(a_n);
 
     // 计算未来 T 时间的中心位置
     double newyaw = target_msg.yaw + target_msg.v_yaw * T;
@@ -275,16 +286,16 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
     armors[0].yaw = newyaw;
 
     // 按顺时针方向计算每个装甲板的 yaw，并计算其坐标
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < a_n; ++i) {
         if (i > 0) {
-            armors[i].yaw = armors[i - 1].yaw - pi / 2;
+            armors[i].yaw = armors[i - 1].yaw - 2 * pi / a_n;
         }
         // 设置装甲板的高度,半径
         armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
         armors[i].z = (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
 
-        armors[i].x = newxc + armors[i].r * cos(armors[i].yaw);
-        armors[i].y = newyc + armors[i].r * sin(armors[i].yaw);
+        armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
+        armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
         armors[i].vecto_odom = {armors[i].x, armors[i].y};
@@ -292,8 +303,8 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
 
     // 计算每个装甲板的角度，并存入 map
     std::map<double, armor_info> armorlist_map;
-    std::vector<double> angles(4);
-    for (int i = 0; i < 4; ++i) {
+    std::vector<double> angles(a_n);
+    for (int i = 0; i < a_n; ++i) {
         angles[i] = angleBetweenVectors(armors[i].vecto_odom, armors[i].vec);
         armorlist_map[angles[i]] = armors[i];
     }
@@ -338,7 +349,7 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
     for (int i = 0; i < max_iter; ++i) {
         // 计算 yaw_PTZ
-        double numerator = (M_PI / 2 - 2 * yaw) * v_yaw_PTZ;
+        double numerator = ((2 * M_PI / target_msg.armors_num) - 2 * yaw) * v_yaw_PTZ;
         double denominator = 2 * v_yaw;
         double yaw_PTZ = numerator / denominator;
 
@@ -349,7 +360,6 @@ double Ballistic::findYaw(double v_yaw, double v_yaw_PTZ, double distance, doubl
 
         // 判断是否收敛
         if (fabs(f) < epsilon) {
-            std::cerr << "yaw_PTZ: " << yaw_PTZ << std::endl;
             break;
         }
 
