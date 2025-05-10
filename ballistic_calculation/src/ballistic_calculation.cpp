@@ -65,8 +65,8 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
     double differ;
     double t;
     std::pair<double , double>updateTmpThetaT;
-    double x = target_msg.position.x + target_msg.velocity.x * initT + r * cos(yaw + target_msg.v_yaw * initT);
-    double y = target_msg.position.y + target_msg.velocity.y * initT + r * sin(yaw + target_msg.v_yaw * initT);
+    double x = target_msg.position.x + target_msg.velocity.x * initT - r * cos(yaw + target_msg.v_yaw * initT);
+    double y = target_msg.position.y + target_msg.velocity.y * initT - r * sin(yaw + target_msg.v_yaw * initT);
 
 
     for(int i = 0 ; i < 100 ; i++){
@@ -75,10 +75,10 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
         double newyaw = yaw + target_msg.v_yaw * t;
         double fx = target_msg.position.x + target_msg.velocity.x * t - r * cos(newyaw);
         double fy = target_msg.position.y + target_msg.velocity.y * t - r * sin(newyaw);
-        
-        double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
         fx -= odom2gun.x(), fy -= odom2gun.y(), predheight -= odom2gun.z();
+        
+        double preddist = sqrt(fx * fx + fy * fy);
         
         updateTmpThetaT = fixTiteratPitch(preddist , predheight);
         
@@ -173,7 +173,8 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
             vy = bulletV * sin(tmp_pitch);
 
             fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
-            real_height = vy * fly_time - 0.5 * 9.8 * pow(fly_time, 2);
+            double term = vy + 9.8 / k;
+            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
             delta_height = target_height - real_height;
             tmp_height += delta_height;
 #ifdef DEBUG_COMPENSATION
