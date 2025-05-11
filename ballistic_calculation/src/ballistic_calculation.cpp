@@ -8,6 +8,7 @@
 #include<numeric>
 #include<map>
 #include <algorithm>
+#include <angles/angles.h>
 
 #include <ceres/ceres.h>
 
@@ -64,8 +65,8 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
     double differ;
     double t;
     std::pair<double , double>updateTmpThetaT;
-    double x = target_msg.position.x + target_msg.velocity.x * initT + r * cos(yaw + target_msg.v_yaw * initT);
-    double y = target_msg.position.y + target_msg.velocity.y * initT + r * sin(yaw + target_msg.v_yaw * initT);
+    double x = target_msg.position.x + target_msg.velocity.x * initT - r * cos(yaw + target_msg.v_yaw * initT);
+    double y = target_msg.position.y + target_msg.velocity.y * initT - r * sin(yaw + target_msg.v_yaw * initT);
 
 
     for(int i = 0 ; i < 100 ; i++){
@@ -74,10 +75,10 @@ std::pair<double,double> Ballistic::iteration2(double &thres , double &init_pitc
         double newyaw = yaw + target_msg.v_yaw * t;
         double fx = target_msg.position.x + target_msg.velocity.x * t - r * cos(newyaw);
         double fy = target_msg.position.y + target_msg.velocity.y * t - r * sin(newyaw);
-        
-        double preddist = sqrt(fx * fx + fy * fy);
         double predheight = z + target_msg.velocity.z * t;
         fx -= odom2gun.x(), fy -= odom2gun.y(), predheight -= odom2gun.z();
+        
+        double preddist = sqrt(fx * fx + fy * fy);
         
         updateTmpThetaT = fixTiteratPitch(preddist , predheight);
         
@@ -172,7 +173,8 @@ std::pair<double , double> Ballistic::fixTiteratPitch(double& horizon_dis , doub
             vy = bulletV * sin(tmp_pitch);
 
             fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
-            real_height = vy * fly_time - 0.5 * 9.8 * pow(fly_time, 2);
+            double term = vy + 9.8 / k;
+            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
             delta_height = target_height - real_height;
             tmp_height += delta_height;
 #ifdef DEBUG_COMPENSATION
@@ -298,7 +300,7 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
 
         armors[i].vec = {newxc - armors[i].x, newyc - armors[i].y};
-        armors[i].vecto_odom = {armors[i].x, armors[i].y};
+        armors[i].vecto_odom = {newxc, newyc};
     }
 
     // 计算每个装甲板的角度，并存入 map
@@ -315,9 +317,6 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
             return std::abs(a) < std::abs(b); 
         });
     armor_info chosen_armor = armorlist_map[angles[0]];
-    if((angles[0] < 0 && target_msg.v_yaw > 0) || (angles[0] > 0 && target_msg.v_yaw < 0)) {
-        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
-    }
     /*
     yaw, yaw_PTZ未知
     t = (pi/2 - 2*yaw)/v_yaw
@@ -332,8 +331,17 @@ std::vector<double> Ballistic::stategy_2(double T, double v_yaw_PTZ)
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
     if (abs(angles[0]) > yaw) {
-        chosen_armor = armorlist_map[angles[1]]; 
-        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        double set_yaw; 
+        yaw = angles[0] > 0 ? abs(yaw) : -abs(yaw);
+        if((angles[0] < 0 && target_msg.v_yaw > 0) || (angles[0] > 0 && target_msg.v_yaw < 0)) {
+            set_yaw = chosen_armor.yaw + angles::shortest_angular_distance(angles[0], yaw); 
+            return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        }
+        else {
+            set_yaw = chosen_armor.yaw + angles::shortest_angular_distance(angles[0], -yaw); 
+            chosen_armor = armorlist_map[angles[1]]; 
+            return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        }
     }
     else {
         return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};

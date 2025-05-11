@@ -10,6 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
+  <depend>angles</depend>
   <depend>auto_aim_interfaces</depend> <!-- Added dependency -->
   <depend>eigen</depend> <!-- Added dependency -->
   <depend>geometry_msgs</depend> <!-- Added dependency -->
