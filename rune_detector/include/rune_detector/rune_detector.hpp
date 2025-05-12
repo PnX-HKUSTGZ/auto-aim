@@ -40,11 +40,12 @@ namespace rm_auto_aim {
 class RuneDetector {
 public:
     // Construct a new OpenVINO Detector object
-    RuneDetector(int max_iterations, double distance_threshold, double prob_threshold, EnemyColor detect_color);
+    RuneDetector(int max_iterations, double distance_threshold, double prob_threshold);
     std::vector<cv::Point2f> processHittingLights(); // 处理击打灯条
     std::vector<std::vector<cv::Point2f>> processhitLights(); // 处理 已击中灯条
     std::tuple<cv::Point2f, cv::Mat> detectRTag(const cv::Mat &img, const cv::Point2f &prior); //检查R标
-    std::vector<RuneObject> detectRune(const cv::Mat &img); // 检测能量机关
+    std::vector<RuneObject> detectRune(const cv::Mat &img, int min_lightness); // 检测能量机关
+    EnemyColor detect_color; // 检测颜色
 
 private:
     double calculateAngleDifference(const cv::RotatedRect& rect, const cv::RotatedRect& ellipse); // 计算角度差
@@ -72,7 +73,6 @@ private:
     int max_iterations; // 最大迭代次数(RANSAC)
     double distance_threshold; // 距离阈值(RANSAC)
     double prob_threshold; // 可信度阈值(RANSAC)
-    EnemyColor detect_color; // 检测颜色
 
 
 

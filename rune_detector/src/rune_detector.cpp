@@ -2,11 +2,11 @@
 #include <opencv2/highgui.hpp>
 #include "rune_detector/types.hpp"
 namespace rm_auto_aim {
-RuneDetector::RuneDetector(int max_iterations, double distance_threshold, double prob_threshold, EnemyColor detect_color): 
-    max_iterations(max_iterations), distance_threshold(distance_threshold), prob_threshold(prob_threshold), detect_color(detect_color)
+RuneDetector::RuneDetector(int max_iterations, double distance_threshold, double prob_threshold): 
+    max_iterations(max_iterations), distance_threshold(distance_threshold), prob_threshold(prob_threshold)
 {
 }
-std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
+std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img, int min_lightness){
     frame = img.clone(); 
     cv::Mat gray;
 
@@ -14,13 +14,14 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
 
     // 二值化
-    cv::threshold(gray, aim_img, 80, 255, cv::THRESH_BINARY);
+    cv::threshold(gray, aim_img, min_lightness, 255, cv::THRESH_BINARY);
 
     // 定义结构元素
     cv::Mat element_dilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(9, 9));
     cv::Mat element_erode = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
 
     // 流水灯，先膨胀后侵蚀
+    cv::dilate(aim_img, aim_img, element_erode);
     cv::dilate(aim_img, flow_img, element_dilate);
     cv::erode(flow_img, flow_img, element_erode);
 
@@ -44,8 +45,8 @@ std::vector<RuneObject> RuneDetector::detectRune(const cv::Mat &img){
     
     center = signal_points_hitting[0] + (signal_points_hitting[1] - signal_points_hitting[0]) * 0.5;
     aim_img = aim_img.mul(hitting_light_mask);
-    cv::dilate(aim_img, hit_img, element_erode);
-    arm_img = aim_img.clone();
+    hit_img = aim_img.clone();
+    cv::erode(hit_img, arm_img, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(9, 9)));
 
     std::vector<std::vector<cv::Point2f>> signal_points_hit = processhitLights();
     std::sort(signal_points_hit.begin(), signal_points_hit.end(), [this](const std::vector<cv::Point2f> &a, const std::vector<cv::Point2f> &b){
@@ -160,7 +161,7 @@ std::vector<std::vector<cv::Point2f>> RuneDetector::processhitLights()
     std::vector<std::vector<cv::Point>> contours;
     std::vector<cv::Vec4i> hierarchy;
 
-    // 处理 arm_img
+    // 处理 
     cv::findContours(arm_img, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
     std::vector<cv::RotatedRect> arm_lights;
     for (const auto& contour : contours) {

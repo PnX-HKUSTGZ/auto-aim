@@ -58,6 +58,7 @@ double RuneSolver::init(const auto_aim_interfaces::msg::Rune::SharedPtr received
 
     // 过滤掉异常值
     Eigen::Vector3d t = t_odom_2_rune.block(0, 3, 3, 1);
+    std::cerr << "t_odom_2_rune: " << t.transpose() << std::endl;
     if (t.norm() < MIN_RUNE_DISTANCE || t.norm() > MAX_RUNE_DISTANCE || t == Eigen::Vector3d::Zero()) {
       RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Rune position is out of range");
       return 0;

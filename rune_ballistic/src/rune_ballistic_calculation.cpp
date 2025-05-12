@@ -124,7 +124,8 @@ std::pair<double , double> RuneBallistic::fixTiteratPitch(double& horizon_dis , 
         vy = bulletV * sin(tmp_pitch);
 
         fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
-        real_height = vy * fly_time - 0.5 * 9.8 * pow(fly_time, 2);
+        double term = vy + 9.8 / k;
+        real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
         delta_height = target_height - real_height;
         tmp_height += delta_height;
 #ifdef DEBUG_COMPENSATION

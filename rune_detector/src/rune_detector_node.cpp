@@ -45,7 +45,7 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions &options)
   frame_id_ = declare_parameter("frame_id", "camera_optical_frame");
   detect_r_tag_ = declare_parameter("detect_r_tag", true);
   binary_thresh_ = declare_parameter("min_lightness", 100);
-  detect_color_ = static_cast<EnemyColor>(declare_parameter("detect_color", 1)); 
+  declare_parameter("detect_color", 1); 
 
   // 初始化检测器
   rune_detector_ = initDetector();
@@ -80,7 +80,7 @@ std::unique_ptr<RuneDetector> RuneDetectorNode::initDetector() {
   prob_threshold_ = declare_parameter("prob_threshold", 0.6);
 
   // 创建检测器
-  auto rune_detector = std::make_unique<RuneDetector>(max_iterations_, distance_threshold_, prob_threshold_, detect_color_);
+  auto rune_detector = std::make_unique<RuneDetector>(max_iterations_, distance_threshold_, prob_threshold_);
 
   return rune_detector;
 }
@@ -97,7 +97,8 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
   cv::cvtColor(src_img, src_img, cv::COLOR_BGR2RGB);
 
   // 将图像推送到检测器
-  std::vector<RuneObject> objs = rune_detector_->detectRune(src_img);
+  rune_detector_->detect_color = static_cast<EnemyColor>(get_parameter("detect_color").as_int()); 
+  std::vector<RuneObject> objs = rune_detector_->detectRune(src_img, binary_thresh_);
 
   // 用于绘制调试信息
   cv::Mat debug_img;
