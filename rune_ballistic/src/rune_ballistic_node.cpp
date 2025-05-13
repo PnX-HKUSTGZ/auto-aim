@@ -111,7 +111,7 @@ void RuneBallisticNode::timerCallback()
     fire_msg.yaw = iteration_result.second;
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = "rune"; 
-    fire_msg.iffire = ifFire(iteration_result.first,iteration_result.second);
+    fire_msg.iffire = 0;
     publisher_->publish(fire_msg);
     
     
