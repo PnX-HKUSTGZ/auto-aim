@@ -269,6 +269,9 @@ std::vector<double> Ballistic::stategy_1(double T)
         chosen_armor = armorlist_map[angles[1]];
     }
     last_yaw = chosen_armor.yaw;
+    hit_aim.x = chosen_armor.x; 
+    hit_aim.y = chosen_armor.y; 
+    hit_aim.z = chosen_armor.z; 
 
     return {chosen_armor.yaw - target_msg.v_yaw * T , chosen_armor.z, chosen_armor.r};
 }

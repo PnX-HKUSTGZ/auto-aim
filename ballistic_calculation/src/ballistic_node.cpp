@@ -2,9 +2,11 @@
 #include <auto_aim_interfaces/msg/detail/firecontrol__struct.hpp>
 #include <cmath>
 #include <memory> 
+#include <opencv2/calib3d.hpp>
 #include <string>
 #include <vector>
 #include <chrono>
+#include <Eigen/Eigen>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/publisher.hpp>
@@ -57,8 +59,14 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     last_fire_time = this -> now(); 
     timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&BallisticCalculateNode::timerCallback, this));
     
-    
-  
+    // 在构造函数中添加相机信息订阅
+    cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+        "/camera_info", rclcpp::SensorDataQoS(),
+        [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
+            cam_info_ = *camera_info;
+            cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
+            cam_info_sub_.reset();
+        });
 }
 
 void BallisticCalculateNode::targetCallback( auto_aim_interfaces::msg::Target::SharedPtr _target_msg)
@@ -152,6 +160,7 @@ void BallisticCalculateNode::timerCallback()
     double chosen_yaw;
     double z;
     double r;
+    Eigen::Vector3d odom_pos; 
     std::pair<double,double> iffire_result, final_result; 
     if (target_msg->armors_num == 4 or target_msg->armors_num == 3) {
         std::vector<double>hit_aim = calculator->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_PTZ);
@@ -159,6 +168,9 @@ void BallisticCalculateNode::timerCallback()
         z = hit_aim[1];  
         r = hit_aim[2];
         std::vector<double>hit_aim_fire = calculator->stategy_1(temp_t);
+        odom_pos.x() = calculator->hit_aim.x; 
+        odom_pos.y() = calculator->hit_aim.y; 
+        odom_pos.z() = calculator->hit_aim.z; 
         if(hit_aim.size()==4){//如果返回的结果是4个，说明是第三种策略
             //计算是否开火
             iffire_result = calculator->iteration2(THRES2 , temp_theta , temp_t , hit_aim_fire[0] , hit_aim_fire[1] , hit_aim_fire[2]);
@@ -174,7 +186,17 @@ void BallisticCalculateNode::timerCallback()
     else{
       RCLCPP_ERROR(this->get_logger(),"The number of armors is not 4");
     }
+    // 将 odom 坐标系中的点投影到图像上
+    cv::Point2f projected_point = projectPointToImage(odom_pos);
+
+    // 输出调试信息
+    // 归一化到 [0,1] 范围
+    float normalized_x = projected_point.x / cam_info_.width;
+    float normalized_y = projected_point.y / cam_info_.height;
     
+    RCLCPP_DEBUG(this->get_logger(), 
+                "Projected point: (%.2f, %.2f), Normalized: (%.2f, %.2f)",
+                projected_point.x, projected_point.y, normalized_x, normalized_y);
     
     //发布消息
     firemsg fire_msg;
@@ -183,6 +205,8 @@ void BallisticCalculateNode::timerCallback()
     fire_msg.yaw = final_result.second - rpy_vec[2];
     fire_msg.tracking = target_msg->tracking;
     fire_msg.id = target_msg->id;
+    fire_msg.projected_x = normalized_x;
+    fire_msg.projected_y = normalized_y;
     if(this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)){
       ifFireK += abs(target_msg->v_yaw) * 0.004;
     }
@@ -195,7 +219,78 @@ void BallisticCalculateNode::timerCallback()
   
 }
 
+// 添加在类实现中，其他成员函数旁边
+
+cv::Point2f BallisticCalculateNode::projectPointToImage(const Eigen::Vector3d& point_3d)
+{
+    // 获取相机内参矩阵
+    cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << 
+        cam_info_.k[0], cam_info_.k[1], cam_info_.k[2],
+        cam_info_.k[3], cam_info_.k[4], cam_info_.k[5],
+        cam_info_.k[6], cam_info_.k[7], cam_info_.k[8]);
+
+    // 获取相机畸变系数
+    cv::Mat dist_coeffs = (cv::Mat_<double>(1, 5) << 
+        cam_info_.d[0], cam_info_.d[1], cam_info_.d[2], cam_info_.d[3], cam_info_.d[4]);
     
+    // 世界坐标点
+    std::vector<cv::Point3d> object_point = {cv::Point3d(point_3d.x(), point_3d.y(), point_3d.z())};
+    
+    // 输出的图像点
+    std::vector<cv::Point2d> image_points;
+    
+    cv::Mat rvec, tvec;
+    
+    // ROS 坐标系到 OpenCV 坐标系的变换矩阵
+    cv::Mat ros_to_cv = (cv::Mat_<double>(3,3) <<
+        0,-1, 0,
+        0, 0,-1,
+        1, 0, 0);
+    
+    try {
+        // 获取从 odom 到 camera_link 的变换
+        geometry_msgs::msg::TransformStamped transform_stamped = 
+            tfBuffer->lookupTransform("camera_link", "odom", tf2::TimePointZero);
+        
+        // 提取旋转部分
+        tf2::Quaternion quat(
+            transform_stamped.transform.rotation.x,
+            transform_stamped.transform.rotation.y,
+            transform_stamped.transform.rotation.z,
+            transform_stamped.transform.rotation.w);
+            
+        tf2::Matrix3x3 mat(quat);
+        // 转换旋转矩阵
+        cv::Mat rotation_matrix = (cv::Mat_<double>(3, 3) <<
+            mat[0][0], mat[0][1], mat[0][2],
+            mat[1][0], mat[1][1], mat[1][2],
+            mat[2][0], mat[2][1], mat[2][2]);
+            
+        // 调整旋转矩阵
+        rotation_matrix = ros_to_cv * rotation_matrix;
+        
+        // 将旋转矩阵转换为旋转向量
+        cv::Rodrigues(rotation_matrix, rvec);
+        
+        // 提取平移部分
+        tvec = (cv::Mat_<double>(3, 1) <<
+            transform_stamped.transform.translation.x,
+            transform_stamped.transform.translation.y,
+            transform_stamped.transform.translation.z);
+            
+        // 调整平移向量
+        tvec = ros_to_cv * tvec;
+        
+        // 执行投影
+        cv::projectPoints(object_point, rvec, tvec, camera_matrix, dist_coeffs, image_points);
+        
+        return cv::Point2f(image_points[0].x, image_points[0].y);
+    }
+    catch (tf2::TransformException &ex) {
+        RCLCPP_WARN(this->get_logger(), "Could not transform: %s", ex.what());
+        return cv::Point2f(-1, -1); // 返回无效点
+    }
+}
 
 }// namespace rm_auto_aim
 

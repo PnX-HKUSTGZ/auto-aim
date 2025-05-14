@@ -106,8 +106,8 @@ struct HitAim{
 
     double x;
     double y;
-    double yaw;
-};//描述最终击打目标
+    double z;
+} hit_aim;//描述最终击打目标
 
 double optimizeTime1(double initial_guess);
 

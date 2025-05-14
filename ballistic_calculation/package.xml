@@ -16,6 +16,7 @@
   <depend>geometry_msgs</depend> <!-- Added dependency -->
   <depend>tf2</depend> <!-- Added dependency --> 
   <depend>tf2_ros</depend> <!-- Added dependency -->
+  <depend>cv_bridge</depend>
 
 
   <test_depend>ament_lint_auto</test_depend>

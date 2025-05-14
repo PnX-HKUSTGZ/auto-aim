@@ -14,9 +14,12 @@
 // STD
 #include <memory> 
 #include <string>
+#include <opencv2/core.hpp>
 
 
 #include "ballistic_calculation.hpp"
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <cv_bridge/cv_bridge.h>
 
 
 namespace rm_auto_aim
@@ -67,7 +70,13 @@ void timerCallback();
     double ifFireK; 
     rclcpp::Time last_fire_time;
 
-
+    // 相机信息
+    sensor_msgs::msg::CameraInfo cam_info_;
+    cv::Point2f cam_center_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    
+    // 重投影相关函数
+    cv::Point2f projectPointToImage(const Eigen::Vector3d& point_3d);
 
 
 };

@@ -11,6 +11,8 @@ add_compile_options(-O2)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(OpenCV REQUIRED)
+
 # Compiler options
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -25,7 +27,8 @@ find_package(tf2 REQUIRED)
 ament_auto_find_build_dependencies()
 # Include directories
 include_directories(
-  include
+  include 
+  ${OpenCV_INCLUDE_DIRS} 
   ${CERES_INCLUDE_DIRS}
   ${tf2_INCLUDE_DIRS}
 )
@@ -36,6 +39,7 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 
 target_link_libraries(${PROJECT_NAME}
   ${CERES_LIBRARIES}
+  ${OpenCV_LIBS}
 )
 
 # Add executable
