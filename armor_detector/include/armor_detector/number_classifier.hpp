@@ -20,20 +20,20 @@ namespace rm_auto_aim
 class NumberClassifier
 {
 public:
-  NumberClassifier(
-    const std::string & model_path, const std::string & label_path, const double threshold,
-    const std::vector<std::string> & ignore_classes = {});
+    NumberClassifier(
+        const std::string & model_path, const std::string & label_path, const double threshold,
+        const std::vector<std::string> & ignore_classes = {});
 
-  void extractNumbers(const cv::Mat & src, std::vector<Armor> & armors);
+    void extractNumbers(const cv::Mat & src, std::vector<Armor> & armors);
 
-  void classify(std::vector<Armor> & armors);
+    void classify(std::vector<Armor> & armors);
 
-  double threshold;
+    double threshold;
 
 private:
-  cv::dnn::Net net_;
-  std::vector<std::string> class_names_;
-  std::vector<std::string> ignore_classes_;
+    cv::dnn::Net net_;
+    std::vector<std::string> class_names_;
+    std::vector<std::string> ignore_classes_;
 };
 }  // namespace rm_auto_aim
 

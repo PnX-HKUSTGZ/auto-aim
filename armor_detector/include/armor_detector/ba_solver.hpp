@@ -37,45 +37,45 @@
 #include <g2o/core/robust_kernel.h>
 #include <g2o/core/sparse_optimizer.h>
 // project
-#include "armor_detector/graph_optimizer.hpp"
 #include "armor_detector/armor.hpp"
+#include "armor_detector/graph_optimizer.hpp"
 
-namespace rm_auto_aim {
+namespace rm_auto_aim
+{
 
 // BA algorithm based Optimizer for the armor pose estimation (Particularly for
 // the Yaw angle)
-class BaSolver {
+class BaSolver
+{
 public:
-  BaSolver(const std::array<double, 9> &camera_matrix,
-           const std::vector<double> &dist_coeffs);
+    BaSolver(const std::array<double, 9> & camera_matrix, const std::vector<double> & dist_coeffs);
 
-  // Solve the armor pose using the BA algorithm, return the optimized rotation
-  void solveBa(Armor &armor, 
-               const Eigen::Matrix3d &R_odom_to_camera,
-                const Eigen::Vector3d &t_odom_to_camera) noexcept;
-  void solveTwoArmorsBa(const double &yaw1, const double &yaw2, const double &z1, const double &z2, 
-                        double &x, double &y, double &r1, double &r2,
-                        const std::vector<cv::Point2f> &landmarks, 
-                        const Eigen::Matrix3d &R_odom_to_camera, 
-                        const Eigen::Vector3d &t_odom_to_camera, 
-                        std::string number, ArmorType type);
+    // Solve the armor pose using the BA algorithm, return the optimized rotation
+    void solveBa(
+        Armor & armor, const Eigen::Matrix3d & R_odom_to_camera,
+        const Eigen::Vector3d & t_odom_to_camera) noexcept;
+    void solveTwoArmorsBa(
+        const double & yaw1, const double & yaw2, const double & z1, const double & z2, double & x,
+        double & y, double & r1, double & r2, const std::vector<cv::Point2f> & landmarks,
+        const Eigen::Matrix3d & R_odom_to_camera, const Eigen::Vector3d & t_odom_to_camera,
+        std::string number, ArmorType type);
 
-  bool fixTwoArmors(Armor &armor1, Armor &armor2, 
-                    const Eigen::Matrix3d &R_odom_to_camera, 
-                    const Eigen::Vector3d &t_odom_to_camera);
+    bool fixTwoArmors(
+        Armor & armor1, Armor & armor2, const Eigen::Matrix3d & R_odom_to_camera,
+        const Eigen::Vector3d & t_odom_to_camera);
 
 private:
-  Eigen::Matrix3d K_;
-  g2o::SparseOptimizer optimizer_;
-  g2o::SparseOptimizer two_armor_optimizer_;
-  g2o::OptimizationAlgorithmProperty solver_property_;
-  g2o::OptimizationAlgorithmLevenberg *lm_algorithm_;
-  cv::Mat camera_matrix_;
-  cv::Mat dist_coeffs_;
-  double shortest_angular_distance(double a1, double a2);
-  void initializeOneArmorsOptimization(g2o::SparseOptimizer &optimizer);
-  void initializeTwoArmorsOptimization(g2o::SparseOptimizer &optimizer); 
+    Eigen::Matrix3d K_;
+    g2o::SparseOptimizer optimizer_;
+    g2o::SparseOptimizer two_armor_optimizer_;
+    g2o::OptimizationAlgorithmProperty solver_property_;
+    g2o::OptimizationAlgorithmLevenberg * lm_algorithm_;
+    cv::Mat camera_matrix_;
+    cv::Mat dist_coeffs_;
+    double shortest_angular_distance(double a1, double a2);
+    void initializeOneArmorsOptimization(g2o::SparseOptimizer & optimizer);
+    void initializeTwoArmorsOptimization(g2o::SparseOptimizer & optimizer);
 };
 
-} // namespace rm_auto_aim
-#endif // ARMOR_DETECTOR_BAS_SOLVER_HPP_
+}  // namespace rm_auto_aim
+#endif  // ARMOR_DETECTOR_BAS_SOLVER_HPP_

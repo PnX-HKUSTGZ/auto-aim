@@ -21,34 +21,36 @@
 // 项目头文件
 #include "armor_detector/armor.hpp"
 
-namespace rm_auto_aim {
+namespace rm_auto_aim
+{
 
 // 定义对称轴结构体，包含质心、方向和平均亮度值
-struct SymmetryAxis {
-  cv::Point2f centroid;    // 对称轴的质心
-  cv::Point2f direction;   // 对称轴的方向向量
-  float mean_val;          // 平均亮度值
+struct SymmetryAxis
+{
+    cv::Point2f centroid;   // 对称轴的质心
+    cv::Point2f direction;  // 对称轴的方向向量
+    float mean_val;         // 平均亮度值
 };
 
 // 该类用于提高灯条角点的精度。
 // 首先使用 PCA 算法找到灯条的对称轴，
 // 然后沿着对称轴根据亮度梯度寻找灯条的角点。
-class LightCornerCorrector {
+class LightCornerCorrector
+{
 public:
-  explicit LightCornerCorrector() noexcept {}
+    explicit LightCornerCorrector() noexcept {}
 
-  // 修正装甲板的灯条角点
-  void correctCorners(Armor &armor, const cv::Mat &gray_img);
+    // 修正装甲板的灯条角点
+    void correctCorners(Armor & armor, const cv::Mat & gray_img);
 
 private:
-  // 寻找灯条的对称轴
-  SymmetryAxis findSymmetryAxis(const cv::Mat &gray_img, const Light &light);
+    // 寻找灯条的对称轴
+    SymmetryAxis findSymmetryAxis(const cv::Mat & gray_img, const Light & light);
 
-  // 寻找灯条的角点
-  cv::Point2f findCorner(const cv::Mat &gray_img,
-                         const Light &light,
-                         const SymmetryAxis &axis,
-                         std::string order);
+    // 寻找灯条的角点
+    cv::Point2f findCorner(
+        const cv::Mat & gray_img, const Light & light, const SymmetryAxis & axis,
+        std::string order);
 };
 
 }  // namespace rm_auto_aim

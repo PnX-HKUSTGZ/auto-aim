@@ -4,16 +4,27 @@ namespace rm_auto_aim
 {
 
 ExtendedKalmanFilter::ExtendedKalmanFilter(
-    const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2, const VecVecFunc & h_two, 
-    const VecMatFunc & j_f, const VecMatFunc & j_h1, const VecMatFunc & j_h2, const VecMatFunc & j_h_two,
-    const VoidMatFunc & u_q, const VecMatFunc & u_r, const VecMatFunc u_r_two, const Eigen::MatrixXd & P0)
+    const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2, const VecVecFunc & h_two,
+    const VecMatFunc & j_f, const VecMatFunc & j_h1, const VecMatFunc & j_h2,
+    const VecMatFunc & j_h_two, const VoidMatFunc & u_q, const VecMatFunc & u_r,
+    const VecMatFunc u_r_two, const Eigen::MatrixXd & P0)
 : n(P0.rows()),  // 首先初始化系统维度
-  f(f), h1(h1), h2(h2), h_two(h_two),
-  jacobian_f(j_f), jacobian_h1(j_h1), jacobian_h2(j_h2), jacobian_h_two(j_h_two),
-  update_Q(u_q), update_R(u_r), update_R_two(u_r_two),
+  f(f),
+  h1(h1),
+  h2(h2),
+  h_two(h_two),
+  jacobian_f(j_f),
+  jacobian_h1(j_h1),
+  jacobian_h2(j_h2),
+  jacobian_h_two(j_h_two),
+  update_Q(u_q),
+  update_R(u_r),
+  update_R_two(u_r_two),
   I(Eigen::MatrixXd::Identity(n, n)),
-  x_pri(n), x_post(n),
-  P_post(P0), P_pri(P0.rows(), P0.cols())
+  x_pri(n),
+  x_post(n),
+  P_post(P0),
+  P_pri(P0.rows(), P0.cols())
 {
     // Pre-allocate matrices
     F.resize(n, n);
@@ -27,10 +38,7 @@ ExtendedKalmanFilter::ExtendedKalmanFilter(
     temp_matrix.resize(n, n);
 }
 
-void ExtendedKalmanFilter::setState(const Eigen::VectorXd & x0) 
-{ 
-    x_post = x0; 
-}
+void ExtendedKalmanFilter::setState(const Eigen::VectorXd & x0) { x_post = x0; }
 
 Eigen::VectorXd ExtendedKalmanFilter::predict()
 {
@@ -40,7 +48,7 @@ Eigen::VectorXd ExtendedKalmanFilter::predict()
 
     // State prediction
     x_pri.noalias() = f(x_post);
-    
+
     // Covariance prediction using optimized matrix operations
     temp_matrix.noalias() = F * P_post;
     P_pri.noalias() = temp_matrix * F.transpose() + Q;
@@ -53,15 +61,15 @@ Eigen::VectorXd ExtendedKalmanFilter::predict()
 }
 
 Eigen::MatrixXd ExtendedKalmanFilter::compute_kalman_gain(
-    const Eigen::MatrixXd& H, const Eigen::MatrixXd& R)
+    const Eigen::MatrixXd & H, const Eigen::MatrixXd & R)
 {
     temp_matrix.noalias() = H * P_pri * H.transpose() + R;
     return P_pri * H.transpose() * temp_matrix.inverse();
 }
 
 void ExtendedKalmanFilter::update_state_and_covariance(
-    const Eigen::VectorXd& z, const Eigen::MatrixXd& H, 
-    const VecVecFunc& h_func, const Eigen::MatrixXd& K)
+    const Eigen::VectorXd & z, const Eigen::MatrixXd & H, const VecVecFunc & h_func,
+    const Eigen::MatrixXd & K)
 {
     x_post.noalias() = x_pri + K * (z - h_func(x_pri));
     P_post.noalias() = (I - K * H) * P_pri;

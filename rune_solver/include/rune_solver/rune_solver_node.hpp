@@ -18,10 +18,10 @@
 
 // std
 #include <algorithm>
+#include <auto_aim_interfaces/msg/detail/debug_rune_angle__struct.hpp>
 #include <auto_aim_interfaces/msg/detail/rune_target__struct.hpp>
 #include <deque>
 #include <iostream>
-#include <auto_aim_interfaces/msg/detail/debug_rune_angle__struct.hpp>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -40,64 +40,67 @@
 #include <opencv2/opencv.hpp>
 // project
 #include "auto_aim_interfaces/msg/debug_rune_angle.hpp"
-#include "auto_aim_interfaces/msg/rune_target.hpp"
 #include "auto_aim_interfaces/msg/rune.hpp"
+#include "auto_aim_interfaces/msg/rune_target.hpp"
 #include "auto_aim_interfaces/srv/set_mode.hpp"
 #include "rune_solver/rune_solver.hpp"
 
-namespace rm_auto_aim {
-class RuneSolverNode : public rclcpp::Node {
+namespace rm_auto_aim
+{
+class RuneSolverNode : public rclcpp::Node
+{
 public:
-  RuneSolverNode(const rclcpp::NodeOptions &options);
+    RuneSolverNode(const rclcpp::NodeOptions & options);
 
 private:
-  void runeTargetCallback(const auto_aim_interfaces::msg::Rune::SharedPtr rune_target_msg);
+    void runeTargetCallback(const auto_aim_interfaces::msg::Rune::SharedPtr rune_target_msg);
 
-  void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
-                       std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
+    void setModeCallback(
+        const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+        std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
 
-  // Rune solver
-  std::unique_ptr<RuneSolver> rune_solver_;
-  double predict_offset_;
+    // Rune solver
+    std::unique_ptr<RuneSolver> rune_solver_;
+    double predict_offset_;
 
-  // Tf message
-  std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
+    // Tf message
+    std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
 
-  // Target Subscriber
-  rclcpp::Subscription<auto_aim_interfaces::msg::Rune>::SharedPtr rune_target_sub_;
-  auto_aim_interfaces::msg::Rune last_rune_target_;
+    // Target Subscriber
+    rclcpp::Subscription<auto_aim_interfaces::msg::Rune>::SharedPtr rune_target_sub_;
+    auto_aim_interfaces::msg::Rune last_rune_target_;
 
-  // Target publisher
-  rclcpp::Publisher<auto_aim_interfaces::msg::RuneTarget>::SharedPtr rune_target_pub_;
+    // Target publisher
+    rclcpp::Publisher<auto_aim_interfaces::msg::RuneTarget>::SharedPtr rune_target_pub_;
 
-  // Predict Target publisher
-  rclcpp::TimerBase::SharedPtr pub_timer_;
-  void timerCallback();
+    // Predict Target publisher
+    rclcpp::TimerBase::SharedPtr pub_timer_;
+    void timerCallback();
 
-  // Enable/Disable Rune Solver
-  bool enable_;
-  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
+    // Enable/Disable Rune Solver
+    bool enable_;
+    rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
 
-  // Dynamic Parameter
-  rcl_interfaces::msg::SetParametersResult onSetParameters(
-    std::vector<rclcpp::Parameter> parameters);
-  rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
+    // Dynamic Parameter
+    rcl_interfaces::msg::SetParametersResult onSetParameters(
+        std::vector<rclcpp::Parameter> parameters);
+    rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
 
-  // Camera info part
-  std::shared_ptr<sensor_msgs::msg::CameraInfo> cam_info_;
-  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    // Camera info part
+    std::shared_ptr<sensor_msgs::msg::CameraInfo> cam_info_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
 
-  // Debug info
-  bool debug_;
-  rclcpp::Publisher<auto_aim_interfaces::msg::DebugRuneAngle>::SharedPtr observed_angle_pub_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fitter_text_pub_;
-  visualization_msgs::msg::Marker obs_pos_marker_;
-  visualization_msgs::msg::Marker r_tag_pos_marker_;
-  visualization_msgs::msg::Marker pred_pos_marker_;
-  visualization_msgs::msg::Marker aimming_line_marker_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_; 
-  rclcpp::Time stamp;
+    // Debug info
+    bool debug_;
+    rclcpp::Publisher<auto_aim_interfaces::msg::DebugRuneAngle>::SharedPtr observed_angle_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fitter_text_pub_;
+    visualization_msgs::msg::Marker obs_pos_marker_;
+    visualization_msgs::msg::Marker r_tag_pos_marker_;
+    visualization_msgs::msg::Marker pred_pos_marker_;
+    visualization_msgs::msg::Marker aimming_line_marker_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+    rclcpp::Time stamp;
 };
 }  // namespace rm_auto_aim
 #endif

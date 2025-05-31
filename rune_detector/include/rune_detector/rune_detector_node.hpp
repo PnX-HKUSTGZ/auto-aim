@@ -32,62 +32,65 @@
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
 // project
-#include "rune_detector/types.hpp"
-#include "rune_detector/rune_detector.hpp"
-#include "auto_aim_interfaces/srv/set_mode.hpp"
 #include "auto_aim_interfaces/msg/rune.hpp"
+#include "auto_aim_interfaces/srv/set_mode.hpp"
+#include "rune_detector/rune_detector.hpp"
+#include "rune_detector/types.hpp"
 
-namespace rm_auto_aim {
-class RuneDetectorNode : public rclcpp::Node {
+namespace rm_auto_aim
+{
+class RuneDetectorNode : public rclcpp::Node
+{
 public:
-  RuneDetectorNode(const rclcpp::NodeOptions &options);
+    RuneDetectorNode(const rclcpp::NodeOptions & options);
 
 private:
-  std::unique_ptr<RuneDetector> initDetector();
+    std::unique_ptr<RuneDetector> initDetector();
 
-  void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
+    void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
 
-  void createDebugPublishers();
-  void destroyDebugPublishers();
+    void createDebugPublishers();
+    void destroyDebugPublishers();
 
-  void setModeCallback(const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
-                       std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
-  
-  std::string resolveURL(const std::string &url); // Resolve URL
-  // Dynamic Parameter
-  rcl_interfaces::msg::SetParametersResult onSetParameters(
-    std::vector<rclcpp::Parameter> parameters);
-  rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
+    void setModeCallback(
+        const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
+        std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
 
-  // Image subscription
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+    std::string resolveURL(const std::string & url);  // Resolve URL
+    // Dynamic Parameter
+    rcl_interfaces::msg::SetParametersResult onSetParameters(
+        std::vector<rclcpp::Parameter> parameters);
+    rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
 
-  //Target publisher
-  std::string frame_id_;
-  rclcpp::Publisher<auto_aim_interfaces::msg::Rune>::SharedPtr rune_pub_;
+    // Image subscription
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
 
-  // Enable/Disable Rune Detector
-  rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
+    //Target publisher
+    std::string frame_id_;
+    rclcpp::Publisher<auto_aim_interfaces::msg::Rune>::SharedPtr rune_pub_;
 
-  // Rune detector
-  std::unique_ptr<RuneDetector> rune_detector_;
+    // Enable/Disable Rune Detector
+    rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
 
-  // Rune params
-  int max_iterations_; // 最大迭代次数(RANSAC)
-  double distance_threshold_; // 距离阈值(RANSAC)
-  double prob_threshold_; // 可信度阈值(匹配)
-  EnemyColor detect_color_; // 检测颜色
-  bool is_rune_;
+    // Rune detector
+    std::unique_ptr<RuneDetector> rune_detector_;
 
-  // For R tag detection
-  bool detect_r_tag_;
-  int binary_thresh_;
+    // Rune params
+    int max_iterations_;         // 最大迭代次数(RANSAC)
+    double distance_threshold_;  // 距离阈值(RANSAC)
+    double prob_threshold_;      // 可信度阈值(匹配)
+    EnemyColor detect_color_;    // 检测颜色
+    bool is_rune_;
 
-  // Debug infomation
-  bool debug_;
-  image_transport::Publisher result_img_pub_;
+    // For R tag detection
+    bool detect_r_tag_;
+    int binary_thresh_;
 
-  rclcpp::Time timestamp; 
+    // Debug infomation
+    bool debug_;
+    image_transport::Publisher result_img_pub_;
+
+    rclcpp::Time timestamp;
 };
 }  // namespace rm_auto_aim
 #endif  // DETECTOR_NODE_HPP_
