@@ -33,8 +33,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 // project
-#include "armor_detector/types.hpp"
 #include "armor_detector/graph_optimizer.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {

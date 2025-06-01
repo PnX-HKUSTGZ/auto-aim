@@ -19,8 +19,8 @@
 #include <string>
 #include <vector>
 
-#include "armor_detector/types.hpp"
 #include "armor_detector/number_classifier.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {

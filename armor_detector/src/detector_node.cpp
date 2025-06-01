@@ -249,30 +249,31 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
     cv::Rodrigues(rvec, rotation_matrix);
     Eigen::Matrix3d rotation_matrix_eigen;
     cv::cv2eigen(rotation_matrix, rotation_matrix_eigen);
-    Eigen::Vector3d rpy = (r_odom_to_camera.inverse() * rotation_matrix_eigen).eulerAngles(2, 1, 0);
+    Eigen::Vector3d rpy = rotation_matrix_eigen.eulerAngles(2, 1, 0);
     for (int i = 0; i < 3; ++i) {
         rpy(i) = std::atan2(std::sin(rpy(i)), std::cos(rpy(i)));  // 规范化到 [-π, π]
     }
 
     //对于云台系来说：左侧装甲板yaw角为负，右侧装甲板yaw角为正
-    //roll_g  = pitch_c
+    //roll_g  = yaw_c
     //pitch_g = -roll_c
-    //yaw_g   = -yaw_c
-    //所以对于相机系来说：左侧装甲板yaw角为正，右侧装甲板yaw角为负
+    //yaw_g   = -pitch_c
+    //所以对于相机系来说：左侧装甲板pitch角为正，右侧装甲板pitch角为负
     //前哨站装甲板负倾角
     if (armor.number == "outpost") armor.sign = !armor.sign;
     // armor.sign 为0则为右侧装甲板，为1则为左侧装甲板
     if (!armor.sign) {
-        rpy = Eigen::Vector3d(rpy(0), rpy(1), -abs(rpy(2)));
+        rpy = Eigen::Vector3d(rpy(0), -abs(rpy(1)), rpy(2));
     } else {
-        rpy = Eigen::Vector3d(rpy(0), rpy(1), abs(rpy(2)));
+        rpy = Eigen::Vector3d(rpy(0), abs(rpy(1)), rpy(2));
     }
 
     //构造装甲板的旋转平移矩阵
-    armor.r_odom_armor = (Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX()) *
-                          Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY()) *
-                          Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()))
-                             .toRotationMatrix();
+    armor.r_odom_armor =
+        r_odom_to_camera.inverse() * (Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX()) *
+                                      Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY()) *
+                                      Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()))
+                                         .toRotationMatrix();
     armor.t_odom_armor =
         r_odom_to_camera.inverse() *
         (Eigen::Vector3d(tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2)) -
