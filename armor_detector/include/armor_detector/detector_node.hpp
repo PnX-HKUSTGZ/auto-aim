@@ -17,7 +17,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include <visualization_msgs/msg/marker_array.hpp>
 
 // STD
 #include <Eigen/Core>
@@ -44,6 +43,8 @@ public:
 private:
     void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
 
+    void updateTransform(
+        std::string target_frame, std::string source_frame, rclcpp::Time timestamp);
     void setModeCallback(
         const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
         std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
@@ -59,8 +60,7 @@ private:
     void destroyDebugPublishers();
 
     void publishMarkers();
-    void chooseBestPose(
-        Armor & armor, const std::vector<cv::Mat> & rvecs, const std::vector<cv::Mat> & tvecs);
+    void chooseBestPose(Armor & armor, const cv::Mat & rvec, const cv::Mat & tvec);
     void fix_two_armors(Armor & armor1, Armor & armor2);
     // Light corner corrector
     LightCornerCorrector lcc;
@@ -81,9 +81,6 @@ private:
     rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
 
     // Visualization marker publisher
-    visualization_msgs::msg::Marker armor_marker_;
-    visualization_msgs::msg::Marker text_marker_;
-    visualization_msgs::msg::MarkerArray marker_array_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 
     // Camera info part
@@ -112,46 +109,6 @@ private:
     image_transport::Publisher number_img_pub_;
     image_transport::Publisher result_img_pub_;
 
-    // types
-    enum VisionMode {
-        OUTPOST = 0,
-        HERO = 1,
-        ENGINEER = 2,
-        INFANTRY_1 = 3,
-        INFANTRY_2 = 4,
-        INFANTRY_3 = 5,
-        GUARD = 6,
-        BASE = 7,
-        RUNE = 8,
-        AUTO = 9
-    };
-    inline std::string visionModeToString(VisionMode mode)
-    {
-        switch (mode) {
-            case VisionMode::OUTPOST:
-                return "OUTPOST";
-            case VisionMode::HERO:
-                return "HERO";
-            case VisionMode::ENGINEER:
-                return "ENGINEER";
-            case VisionMode::INFANTRY_1:
-                return "INFANTRY_1";
-            case VisionMode::INFANTRY_2:
-                return "INFANTRY_2";
-            case VisionMode::INFANTRY_3:
-                return "INFANTRY_3";
-            case VisionMode::GUARD:
-                return "GUARD";
-            case VisionMode::BASE:
-                return "BASE";
-            case VisionMode::RUNE:
-                return "RUNE";
-            case VisionMode::AUTO:
-                return "AUTO";
-            default:
-                return "UNKNOWN";
-        }
-    }
     bool enable_ = true;
 };
 

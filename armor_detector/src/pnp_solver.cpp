@@ -32,8 +32,7 @@ PnPSolver::PnPSolver(
     large_armor_points_.emplace_back(cv::Point3f(0, -large_half_y, 0));
 }
 
-bool PnPSolver::solvePnP(
-    const Armor & armor, std::vector<cv::Mat> & rvecs, std::vector<cv::Mat> & tvecs)
+bool PnPSolver::solvePnP(const Armor & armor, cv::Mat & rvec, cv::Mat & tvec)
 {
     std::vector<cv::Point2f> image_armor_points;
 
@@ -49,11 +48,10 @@ bool PnPSolver::solvePnP(
 
     // Solve pnp
     auto object_points = armor.type == ArmorType::SMALL ? small_armor_points_ : large_armor_points_;
-    rvecs.clear();
-    tvecs.clear();
-    return cv::solvePnPGeneric(
-        object_points, image_armor_points, camera_matrix_, dist_coeffs_, rvecs, tvecs, false,
+    bool success = cv::solvePnPGeneric(
+        object_points, image_armor_points, camera_matrix_, dist_coeffs_, rvec, tvec, false,
         cv::SOLVEPNP_IPPE);
+    return success;
 }
 
 float PnPSolver::calculateDistanceToCenter(const cv::Point2f & image_point)

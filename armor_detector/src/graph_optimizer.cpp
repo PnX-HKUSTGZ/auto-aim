@@ -24,7 +24,7 @@
 #include <rclcpp/clock.hpp>
 #include <sophus/so3.hpp>
 // project
-#include "armor_detector/armor.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {

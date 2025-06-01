@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "armor_detector/armor.hpp"
 #include "armor_detector/number_classifier.hpp"
+#include "armor_detector/types.hpp"
 #include "auto_aim_interfaces/msg/debug_armors.hpp"
 #include "auto_aim_interfaces/msg/debug_lights.hpp"
 

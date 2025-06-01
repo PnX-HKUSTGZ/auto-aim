@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "armor_detector/armor.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {

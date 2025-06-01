@@ -37,8 +37,8 @@
 #include <g2o/core/robust_kernel.h>
 #include <g2o/core/sparse_optimizer.h>
 // project
-#include "armor_detector/armor.hpp"
 #include "armor_detector/graph_optimizer.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {

@@ -11,7 +11,7 @@
 #include <array>
 #include <vector>
 
-#include "armor_detector/armor.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {
@@ -23,7 +23,7 @@ public:
         const std::vector<double> & distortion_coefficients);
 
     // Get 3d position
-    bool solvePnP(const Armor & armor, std::vector<cv::Mat> & rvecs, std::vector<cv::Mat> & tvecs);
+    bool solvePnP(const Armor & armor, cv::Mat & rvec, cv::Mat & tvec);
 
     // Calculate the distance between armor center and image center
     float calculateDistanceToCenter(const cv::Point2f & image_point);

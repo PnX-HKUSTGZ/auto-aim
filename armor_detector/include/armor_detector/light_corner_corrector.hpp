@@ -19,7 +19,7 @@
 // OpenCV 头文件
 #include <opencv2/opencv.hpp>
 // 项目头文件
-#include "armor_detector/armor.hpp"
+#include "armor_detector/types.hpp"
 
 namespace rm_auto_aim
 {
