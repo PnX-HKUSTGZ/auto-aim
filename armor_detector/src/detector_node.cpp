@@ -101,7 +101,9 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     auto armors = detectArmors(img_msg, img);
 
     // 提取from odom to gimbal的坐标系变换
-    updateTransform(img_msg->header.frame_id, "odom", img_msg->header.stamp);
+    if(!updateTransform(img_msg->header.frame_id, "odom", img_msg->header.stamp)){
+        return; 
+    }
 
     if (pnp_solver_ == nullptr) return;  //如果pnp解算未初始化
 
@@ -207,7 +209,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         publishMarkers();
     }
 }
-void ArmorDetectorNode::updateTransform(
+bool ArmorDetectorNode::updateTransform(
     std::string target_frame, std::string source_frame, rclcpp::Time timestamp)
 {
     try {
@@ -237,9 +239,10 @@ void ArmorDetectorNode::updateTransform(
         t_odom_to_camera = Eigen::Vector3d(
             odom_to_camera_tf.transform.translation.x, odom_to_camera_tf.transform.translation.y,
             odom_to_camera_tf.transform.translation.z);
+        return 1; 
     } catch (...) {
         RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform");
-        return;
+        return 0;
     }
 }
 void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, const cv::Mat & tvec)
@@ -249,24 +252,33 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
     cv::Rodrigues(rvec, rotation_matrix);
     Eigen::Matrix3d rotation_matrix_eigen;
     cv::cv2eigen(rotation_matrix, rotation_matrix_eigen);
-    Eigen::Vector3d rpy = rotation_matrix_eigen.eulerAngles(2, 1, 0);
-    for (int i = 0; i < 3; ++i) {
-        rpy(i) = std::atan2(std::sin(rpy(i)), std::cos(rpy(i)));  // 规范化到 [-π, π]
-    }
+    Eigen::Vector3d rpy = rotation_matrix_eigen.eulerAngles(0, 1, 2);
 
     //对于云台系来说：左侧装甲板yaw角为负，右侧装甲板yaw角为正
-    //roll_g  = yaw_c
-    //pitch_g = -roll_c
-    //yaw_g   = -pitch_c
-    //所以对于相机系来说：左侧装甲板pitch角为正，右侧装甲板pitch角为负
+    // camera 1.44754 0.0395103 1.51762
+    // gimble 0.039812 0.12316 -0.0580653
+    //roll_g  = yaw_c - pi / 2
+    //pitch_g = -roll_c + pi / 2
+    //yaw_g   = -pitch_c + pi / 2
+    //由于欧拉角的多解性
+    //yaw 加减pi后，只需要翻转roll和pitch来保持相同的旋转
+    //所以pitch_c   = -yaw_g ± pi / 2
+    //所以对于相机系来说：左侧装甲板pitch∈[-pi / 2, 0]∪[pi / 2, pi]，右侧装甲板pitch角反之
+    //统一到[-pi / 2, pi / 2] 后，即左侧装甲板pitch角为负，右侧装甲板pitch角为正
+    rpy(1) = std::atan2(std::sin(rpy(1)), std::cos(rpy(1)));
+    if (abs(rpy(1)) > M_PI/2) {
+        rpy(0) = std::atan2(std::sin(M_PI + rpy(0)), std::cos(M_PI + rpy(0)));// 旋转roll 180度
+        rpy(1) = std::atan2(std::sin(M_PI - rpy(1)), std::cos(M_PI - rpy(1)));// 计算pitch的新值 - 保持同一方向但使用补角
+        rpy(2) = std::atan2(std::sin(M_PI + rpy(2)), std::cos(M_PI + rpy(2)));// 旋转yaw 180度
+    }
     //前哨站装甲板负倾角
     if (armor.number == "outpost") armor.sign = !armor.sign;
     // armor.sign 为0则为右侧装甲板，为1则为左侧装甲板
-    if (!armor.sign) {
-        rpy = Eigen::Vector3d(rpy(0), -abs(rpy(1)), rpy(2));
-    } else {
-        rpy = Eigen::Vector3d(rpy(0), abs(rpy(1)), rpy(2));
-    }
+    // if (!armor.sign) {
+    //     rpy = Eigen::Vector3d(rpy(0), abs(rpy(1)), rpy(2)); //右侧
+    // } else {
+    //     rpy = Eigen::Vector3d(rpy(0), -abs(rpy(1)), rpy(2)); //左侧
+    // }
 
     //构造装甲板的旋转平移矩阵
     armor.r_odom_armor =
@@ -279,7 +291,11 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
         (Eigen::Vector3d(tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2)) -
          t_odom_to_camera);
     armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
-    if (rpy(0) < 0.26) {
+    double roll_g = rpy(2) - M_PI / 2; 
+    if(abs(roll_g) > M_PI/2){
+        roll_g = std::atan2(std::sin(M_PI + roll_g), std::cos(M_PI + roll_g)); 
+    }
+    if (roll_g < 0.26) {
         ba_solver_->solveBa(armor, r_odom_to_camera, t_odom_to_camera);
         armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
     }

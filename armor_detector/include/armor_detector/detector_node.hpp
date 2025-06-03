@@ -43,7 +43,7 @@ public:
 private:
     void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
 
-    void updateTransform(
+    bool updateTransform(
         std::string target_frame, std::string source_frame, rclcpp::Time timestamp);
     void setModeCallback(
         const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
