@@ -431,6 +431,11 @@ double Tracker::orientationToYaw(
     tf2::fromMsg(q, tf_q);
     double roll, pitch, yaw;
     tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw);
+    // 保证输出欧拉角的唯一主值
+    if (pitch > M_PI / 2) {
+        // 略去对pitch和roll的处理
+        yaw = std::atan2(std::sin(M_PI + yaw), std::cos(M_PI + yaw));  // 旋转yaw 180度
+    }
     // Make yaw rang right (-pi~pi to -pi/2~pi/2)
     if (abs(yaw - yaw_target) > (int(tracked_armors_num) == 4)
             ? M_PI / 2
@@ -458,6 +463,11 @@ double Tracker::orientationToYaw(const geometry_msgs::msg::Quaternion & q)
     tf2::fromMsg(q, tf_q);
     double roll, pitch, yaw;
     tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw);
+    // 保证输出欧拉角的唯一主值
+    if (pitch > M_PI / 2) {
+        // 略去对pitch和roll的处理
+        yaw = std::atan2(std::sin(M_PI + yaw), std::cos(M_PI + yaw));  // 旋转yaw 180度
+    }
     return yaw;
 }
 
