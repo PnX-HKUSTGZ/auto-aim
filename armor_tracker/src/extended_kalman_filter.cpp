@@ -38,6 +38,44 @@ ExtendedKalmanFilter::ExtendedKalmanFilter(
     temp_matrix.resize(n, n);
 }
 
+void ExtendedKalmanFilter::setTimeInterval(double dt)
+{
+    // 更新状态转移函数
+    f = [dt](const Eigen::VectorXd & x) {
+        Eigen::VectorXd x_new = x;
+        // 更新位置: 位置 + 速度 * 时间
+        x_new(0) += x(1) * dt;  // xc = xc + v_xc * dt
+        x_new(2) += x(3) * dt;  // yc = yc + v_yc * dt
+        x_new(4) += x(6) * dt;  // zc1 = zc1 + v_zc * dt
+        x_new(5) += x(6) * dt;  // zc2 = zc2 + v_zc * dt
+        
+        // 更新偏航角: 偏航角 + 偏航角速度 * 时间
+        x_new(10) += x(7) * dt; // yaw1 = yaw1 + v_yaw * dt
+        x_new(11) += x(7) * dt; // yaw2 = yaw2 + v_yaw * dt
+        
+        return x_new;
+    };
+    
+    // 同时更新对应的雅可比矩阵函数
+    jacobian_f = [dt](const Eigen::VectorXd &) {
+        Eigen::MatrixXd f(12, 12);
+        // clang-format off
+        f <<1,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // xc = xc + v_xc * dt
+            0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // v_xc = v_xc
+            0,   0,   1,  dt,   0,   0,   0,   0,   0,   0,   0,   0, // yc = yc + v_yc * dt
+            0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0, // v_yc = v_yc
+            0,   0,   0,   0,   1,   0,  dt,   0,   0,   0,   0,   0, // zc1 = zc1 + v_zc * dt
+            0,   0,   0,   0,   0,   1,  dt,   0,   0,   0,   0,   0, // zc2 = zc2 + v_zc * dt
+            0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0, // v_zc = v_zc
+            0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0, // v_yaw = v_yaw
+            0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0, // r1 = r1
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0, // r2 = r2
+            0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   1,   0, // yaw1 = yaw1 + v_yaw * dt
+            0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   0,   1; // yaw2 = yaw2 + v_yaw * dt
+        // clang-format on
+        return f;
+    };
+}
 void ExtendedKalmanFilter::setState(const Eigen::VectorXd & x0) { x_post = x0; }
 
 Eigen::VectorXd ExtendedKalmanFilter::predict()

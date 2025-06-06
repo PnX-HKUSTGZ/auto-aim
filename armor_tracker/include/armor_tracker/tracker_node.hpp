@@ -48,13 +48,14 @@ private:
     void initializeEKF();
     void armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr);
 
-    void publishMarkers(const auto_aim_interfaces::msg::Target & target_msg);
+    void drawMarkers(const auto_aim_interfaces::msg::Target & target_msg, 
+        visualization_msgs::msg::MarkerArray & marker_array);
 
     void setModeCallback(
         const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
         std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
 
-    void publishImgAll(
+    void drawImgAll(
         const auto_aim_interfaces::msg::Target & target_msg, cv::Mat & image,
         bool is_primary_target);
 
@@ -67,16 +68,13 @@ private:
 
     // The time when the last message was received
     rclcpp::Time last_time_ = rclcpp::Time(0);
-    double dt_;
+    double dt_ = 0.01; 
 
     // Armor tracker
     double s2qxy_, s2qz_, s2qyaw_, s2qr_;
     double r_xyz_factor, r_yaw, r_radius;
     double lost_time_thres_;
     std::unique_ptr<TrackerManager> tracker_manager_;
-
-    // Reset tracker service
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_tracker_srv_;
 
     // set_mode service
     rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;

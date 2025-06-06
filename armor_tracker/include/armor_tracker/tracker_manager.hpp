@@ -69,12 +69,17 @@ public:
     }
     // 添加一个方法来设置 EKF 模板
     void setEKFTemplate(const ExtendedKalmanFilter & ekf_template) { ekf_template_ = ekf_template; }
+    void updateEKFTemplate(double dt); // 更新 EKF 模板的时间间隔
     TrackerManager(
         double max_match_distance, double max_match_yaw_diff, int tracking_thres,
         double lost_time_thres, double switch_cooldown = 1.0);
 
     // 更新所有追踪器
-    void update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg);
+    void update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt);
+
+    // 选择最佳目标
+    void selectBestTarget();
+
     //
     std::shared_ptr<Tracker> getTracker(const std::string & id) const
     {
@@ -84,7 +89,7 @@ public:
         return nullptr;
     }
     // 获取当前目标
-    auto_aim_interfaces::msg::Target getCurrentTarget() const;
+    std::string getCurrentTargetID() const;
     auto_aim_interfaces::msg::Target getIDTarget(std::string input_tracked_id_) const;
     std::vector<std::string> getActiveTrackerIDs() const;
 
@@ -98,10 +103,6 @@ private:
     rclcpp::Clock clock_;
     // 评分函数
     double calculateScore(const std::string & id, const std::shared_ptr<Tracker> & tracker);
-
-    // 选择最佳目标
-    void selectBestTarget();
-
     // 初始化新追踪器
     void initNewTracker(
         const std::string & id, const std::vector<auto_aim_interfaces::msg::Armor> & armors,

@@ -64,20 +64,21 @@ public:
 
     Eigen::VectorXd target_state;
 
-    // 新增成员用于评分
     rclcpp::Time last_update_time_;  // 上次更新时间
 
 private:
     void initEKF(const Armor & a);
     void initEKFTwo(const Armor & a, const Armor & b);
 
-    void updateArmorsNum(const Armor & a);
+    void updateArmorsNum();
 
     double orientationToYaw(
         const geometry_msgs::msg::Quaternion & q, geometry_msgs::msg::Point & position,
         const double & yaw_target);
     double orientationToYaw(const geometry_msgs::msg::Quaternion & q);  //overload
     double calYawDiff(double yaw1, double yaw2);
+    int matchArmor(
+        const Armor & armor, const Eigen::VectorXd & ekf_prediction);
 
     std::vector<Eigen::Vector3d> getArmorPositionFromState(const Eigen::VectorXd & x);
 

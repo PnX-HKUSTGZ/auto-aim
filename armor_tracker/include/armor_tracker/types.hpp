@@ -67,6 +67,17 @@ inline std::string visionModeToString(VisionMode mode)
             return "UNKNOWN";
     }
 }
+
+inline std::vector<std::string> ID_LIST{
+    "1",
+    "2",
+    "3", 
+    "4",
+    "5",
+    "outpost",
+    "guard",
+    "base"
+};
 }  // namespace rm_auto_aim
 
 #endif  // ARMOR_TRACKER__TYPES_HPP_

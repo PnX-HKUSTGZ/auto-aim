@@ -33,22 +33,17 @@ void TrackerManager::setWeights(double w_distance, double w_twoD_distance)
     w_twoD_distance_ = w_twoD_distance;
 }
 
+void TrackerManager::updateEKFTemplate(double dt)
+{
+    // 更新 EKF 模板的时间间隔
+    ekf_template_.setTimeInterval(dt);
+}
 //从这一部分开始是状态更新相关函数
 
-void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg)
+void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt)
 {
-    // 计算时间差
-    double dt = 0.0;
+    if (dt <= 0) dt = 0.01;
     rclcpp::Time msg_time = armors_msg->header.stamp;
-    if (!trackers_.empty()) {
-        for (auto & [_, tracker] : trackers_) {
-            dt = (msg_time - tracker->last_update_time_).seconds();
-            break;
-        }
-    }
-    if (dt <= 0) {
-        dt = 0.01;
-    }
     if (trackers_.empty()) {
         RCLCPP_WARN(
             rclcpp::get_logger("armor_tracker"),
@@ -66,47 +61,32 @@ void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr & 
         armors_by_id[armor.number].push_back(armor);
     }
 
-    // 2. 更新现有追踪器
-    for (auto & [id, tracker] : trackers_) {
-        if (armors_by_id.find(id) != armors_by_id.end() && !armors_by_id[id].empty()) {
-            // 设置lost_thres（只要dt有效）
-            if (dt > 0) {
-                tracker->lost_thres = lost_thres;
-            }
+    // 更新和初始化tracker
+    for(const auto& id : ID_LIST){
+        bool has_tracker = trackers_.find(id) != trackers_.end();
+        bool has_armors = armors_by_id.find(id) != armors_by_id.end() && !armors_by_id[id].empty();
+        if (has_tracker && has_armors) {
+            // 如果追踪器存在且当前帧中有装甲板，更新追踪器
+            // 设置lost_thres
+            trackers_[id]->lost_thres = lost_thres; 
+
             // 创建仅包含特定ID装甲板的消息
             auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             id_armors_msg->header = armors_msg->header;
+            id_armors_msg->armors = armors_by_id[id];
+            trackers_[id]->update(id_armors_msg);
 
-            // Add bounds checking when adding armors
-            for (const auto & armor : armors_by_id[id]) {
-                id_armors_msg->armors.push_back(armor);
-            }
-
-            // Only update if message is valid
-            if (!id_armors_msg->armors.empty()) {
-                tracker->update(id_armors_msg);
-            }
-
-            tracker->last_update_time_ = msg_time;
-
-            // 记录已处理的ID
-            armors_by_id.erase(id);
-        } else {
-            // 此ID在当前帧中未检测到，使用空消息更新
+            trackers_[id]->last_update_time_ = msg_time;
+        } else if (has_tracker && !has_armors) {
+            // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
-            tracker->update(empty_msg);
+            trackers_[id]->update(empty_msg);
+        } else if (!has_tracker && has_armors) {
+            // 如果追踪器不存在但当前帧中有装甲板，初始化新的追踪器
+            initNewTracker(id, armors_by_id[id], msg_time);
         }
     }
-
-    // 3. 为新的ID创建追踪器
-    for (const auto & [id, armors] : armors_by_id) {
-        initNewTracker(id, armors, msg_time);
-        //std::cerr << "New tracker initialized for ID: " << id << std::endl;
-    }
-
-    // 4. 选择最佳追踪目标
-    selectBestTarget();
 }
 
 void TrackerManager::initNewTracker(
@@ -123,9 +103,7 @@ void TrackerManager::initNewTracker(
     auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
     id_armors_msg->header.stamp = msg_time;   // 当前时间
     id_armors_msg->header.frame_id = "odom";  // 假设使用odom坐标系
-    for (const auto & armor : armors) {
-        id_armors_msg->armors.push_back(armor);
-    }
+    id_armors_msg->armors = armors; 
 
     // 初始化追踪器
     tracker->init(id_armors_msg);
@@ -138,24 +116,14 @@ void TrackerManager::initNewTracker(
 
 void TrackerManager::cleanInactiveTrackers(rclcpp::Time now)
 {
-    std::vector<std::string> ids_to_remove;
-
-    for (const auto & [id, tracker] : trackers_) {
-        // 如果追踪器长时间没有更新，或者处于LOST状态，则标记为移除
-        if ((now - tracker->last_update_time_).seconds() > lost_time_thres_ ||
-            tracker->tracker_state == Tracker::LOST) {
-            ids_to_remove.push_back(id);
-        }
-    }
-
-    // 移除不活跃的追踪器
-    for (const auto & id : ids_to_remove) {
-        trackers_.erase(id);
-
-        // 如果当前选中的追踪器被移除，需要重新选择
-        if (id == current_tracked_id_) {
-            current_tracked_id_ = "";
-            selectBestTarget();
+    auto it = trackers_.begin();
+    while (it != trackers_.end()) {
+        // 移除不活跃的追踪器
+        if ((now - it->second->last_update_time_).seconds() > lost_time_thres_ || 
+            it->second->tracker_state == Tracker::LOST) {
+            it = trackers_.erase(it);
+        } else {
+            ++it;
         }
     }
 }
@@ -202,19 +170,17 @@ double TrackerManager::calculateScore(
         double px = tracker->target_state(XC);
         double py = tracker->target_state(YC);
 
-        // 将3D位置投影到图像平面（简化计算）
-        // 实际实现中应使用相机内参进行正确的投影
         double normalized_distance =
             (std::sqrt(px * px + py * py) - 3.0) / 2.0;  // 假设最大距离为5m
         center_distance = std::min(normalized_distance, 1.0);
         center_distance = std::max(center_distance, 0.0);
     }
     double distance_score = 1.0 - center_distance;
-    double twoD_distance_ = static_cast<double>(tracker->twoD_distance);
-    double twoD_center_score = 1.0 - std::min(twoD_distance_ / 1000, 1.0);
+    double two_d_distance = static_cast<double>(tracker->twoD_distance);
+    double two_d_center_score = 1.0 - std::min(two_d_distance / 1000, 1.0);
     // 综合评分
     double score =
-        (w_distance_ * distance_score + w_twoD_distance_ * twoD_center_score) * state_score;
+        (w_distance_ * distance_score + w_twoD_distance_ * two_d_center_score) * state_score;
     if (id == "1" && mode_ == VisionMode::HERO) score += 2.0;
     if (id == "2" && mode_ == VisionMode::ENGINEER) score += 2.0;
     if (id == "3" && mode_ == VisionMode::INFANTRY_1) score += 2.0;
@@ -275,60 +241,9 @@ void TrackerManager::selectBestTarget()
 
 //从这一部分开始是目标数据发布与可视化相关函数
 
-auto_aim_interfaces::msg::Target TrackerManager::getCurrentTarget() const
+std::string TrackerManager::getCurrentTargetID() const
 {
-    // 初始化target消息
-    auto_aim_interfaces::msg::Target target_msg;
-
-    // 设置默认帧ID
-    target_msg.header.frame_id = "odom";
-    target_msg.tracking = false;
-
-    // 如果没有正在追踪的目标，返回空消息
-    if (current_tracked_id_.empty() || trackers_.find(current_tracked_id_) == trackers_.end()) {
-        return target_msg;
-    }
-
-    // 获取当前追踪的目标
-    const auto & tracker = trackers_.at(current_tracked_id_);
-
-    // 设置消息的时间戳
-    target_msg.header.stamp = tracker->last_update_time_;
-
-    // 根据追踪状态填充消息
-    if (tracker->tracker_state == Tracker::DETECTING) {
-        target_msg.tracking = false;
-    } else if (
-        tracker->tracker_state == Tracker::TRACKING ||
-        tracker->tracker_state == Tracker::TEMP_LOST) {
-        target_msg.tracking = true;
-
-        // 填充目标消息
-        const auto & state = tracker->target_state;
-        target_msg.id = tracker->tracked_id;
-        target_msg.armors_num = static_cast<int>(tracker->tracked_armors_num);
-
-        // 位置和速度信息
-        target_msg.position.x = state(XC);
-        target_msg.velocity.x = state(VXC);
-        target_msg.position.y = state(YC);
-        target_msg.velocity.y = state(VYC);
-        target_msg.position.z = state(ZC1);
-        target_msg.velocity.z = state(VZC);
-
-        // 角度和旋转信息
-        target_msg.yaw = state(YAW1);
-        target_msg.v_yaw = state(VYAW);
-
-        // 半径信息
-        target_msg.radius_1 = state(R1);
-        target_msg.radius_2 = state(R2);
-
-        // 装甲板高度差
-        target_msg.dz = state(ZC2) - state(ZC1);
-    }
-
-    return target_msg;
+    return current_tracked_id_;
 }
 
 auto_aim_interfaces::msg::Target TrackerManager::getIDTarget(std::string input_tracked_id_) const
@@ -340,6 +255,10 @@ auto_aim_interfaces::msg::Target TrackerManager::getIDTarget(std::string input_t
     target_msg.header.frame_id = "odom";
     target_msg.tracking = false;
 
+    // 如果没有正在追踪的目标，返回空消息
+    if (input_tracked_id_.empty() || trackers_.find(input_tracked_id_) == trackers_.end()) {
+        return target_msg;
+    }
     // 获取当前追踪的目标
     const auto & tracker = trackers_.at(input_tracked_id_);
 

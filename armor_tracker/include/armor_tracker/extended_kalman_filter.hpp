@@ -22,6 +22,8 @@ public:
         const VecMatFunc & j_h2, const VecMatFunc & j_h_two, const VoidMatFunc & u_q,
         const VecMatFunc & u_r, const VecMatFunc u_r_two, const Eigen::MatrixXd & P0);
 
+    void setTimeInterval(double dt); 
+
     void setState(const Eigen::VectorXd & x0);
     Eigen::VectorXd predict();
     Eigen::VectorXd update1(const Eigen::VectorXd & z);
