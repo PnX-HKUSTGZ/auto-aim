@@ -124,10 +124,17 @@ void BaSolver::solveBa(
     r_odom_armor = (R_yaw * R_pitch).matrix();
     //通过面积比矫正距离
     double area_measure = 0, l = 0, w = 0;
-    l = sqrt(pow(landmarks[0].x - landmarks[1].x, 2) + pow(landmarks[0].y - landmarks[1].y, 2)) +
-        sqrt(pow(landmarks[2].x - landmarks[3].x, 2) + pow(landmarks[2].y - landmarks[3].y, 2));
-    w = sqrt(pow(landmarks[1].x - landmarks[2].x, 2) + pow(landmarks[1].y - landmarks[2].y, 2)) +
-        sqrt(pow(landmarks[3].x - landmarks[0].x, 2) + pow(landmarks[3].y - landmarks[0].y, 2));
+    // 计算两点之间的欧几里得距离
+    auto calcDistance = [](const auto & p1, const auto & p2) -> double {
+        if constexpr (std::is_same_v<std::decay_t<decltype(p1)>, cv::Point2f>) {
+            return sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2));
+        } else {
+            return sqrt(pow(p1.x() - p2.x(), 2) + pow(p1.y() - p2.y(), 2));
+        }
+    };
+
+    l = calcDistance(landmarks[0], landmarks[1]) + calcDistance(landmarks[2], landmarks[3]);
+    w = calcDistance(landmarks[1], landmarks[2]) + calcDistance(landmarks[3], landmarks[0]);
     area_measure = l * w / 4;
     double area_expect = 0;
     Eigen::Vector2d expect_points[4];
@@ -135,18 +142,11 @@ void BaSolver::solveBa(
         expect_points[i] =
             (R_odom_to_camera * r_odom_armor * object_points[i] + t_camera_armor).hnormalized();
     }
-    l = sqrt(
-            pow(expect_points[0].x() - expect_points[1].x(), 2) +
-            pow(expect_points[0].y() - expect_points[1].y(), 2)) +
-        sqrt(
-            pow(expect_points[2].x() - expect_points[3].x(), 2) +
-            pow(expect_points[2].y() - expect_points[3].y(), 2));
-    w = sqrt(
-            pow(expect_points[1].x() - expect_points[2].x(), 2) +
-            pow(expect_points[1].y() - expect_points[2].y(), 2)) +
-        sqrt(
-            pow(expect_points[3].x() - expect_points[0].x(), 2) +
-            pow(expect_points[3].y() - expect_points[0].y(), 2));
+
+    l = calcDistance(expect_points[0], expect_points[1]) +
+        calcDistance(expect_points[2], expect_points[3]);
+    w = calcDistance(expect_points[1], expect_points[2]) +
+        calcDistance(expect_points[3], expect_points[0]);
     area_expect = l * w / 4;
     t_camera_armor *= sqrt(area_expect / area_measure);
     t_odom_armor = R_camera_to_odom * t_camera_armor + t_camera_to_odom;

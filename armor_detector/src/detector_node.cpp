@@ -286,9 +286,8 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
     if (abs(rpy(0)) < 0.26) {
         ba_solver_->solveBa(armor, r_odom_to_camera, t_odom_to_camera);
         armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
-    }
-    else {
-        RCLCPP_WARN(this->get_logger(), "The car is on the slope"); 
+    } else {
+        RCLCPP_WARN(this->get_logger(), "The car is on the slope");
     }
 }
 std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
@@ -403,8 +402,10 @@ void ArmorDetectorNode::drawResults(
         Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2);  //提取欧拉角
         // 归一化
         if (abs(rpy(1)) > M_PI / 2) {
-            rpy(0) = std::atan2(std::sin(M_PI + rpy(0)), std::cos(M_PI + rpy(0)));  // 旋转roll 180度
-            rpy(1) = std::atan2(std::sin(M_PI - rpy(1)), std::cos(M_PI - rpy(1)));  // pitch, 使用补角
+            rpy(0) =
+                std::atan2(std::sin(M_PI + rpy(0)), std::cos(M_PI + rpy(0)));  // 旋转roll 180度
+            rpy(1) =
+                std::atan2(std::sin(M_PI - rpy(1)), std::cos(M_PI - rpy(1)));  // pitch, 使用补角
             rpy(2) = std::atan2(std::sin(M_PI + rpy(2)), std::cos(M_PI + rpy(2)));  // 旋转yaw 180度
         }
         double distance = armor.t_camera_armor.norm();
