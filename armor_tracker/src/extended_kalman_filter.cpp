@@ -48,14 +48,14 @@ void ExtendedKalmanFilter::setTimeInterval(double dt)
         x_new(2) += x(3) * dt;  // yc = yc + v_yc * dt
         x_new(4) += x(6) * dt;  // zc1 = zc1 + v_zc * dt
         x_new(5) += x(6) * dt;  // zc2 = zc2 + v_zc * dt
-        
+
         // 更新偏航角: 偏航角 + 偏航角速度 * 时间
-        x_new(10) += x(7) * dt; // yaw1 = yaw1 + v_yaw * dt
-        x_new(11) += x(7) * dt; // yaw2 = yaw2 + v_yaw * dt
-        
+        x_new(10) += x(7) * dt;  // yaw1 = yaw1 + v_yaw * dt
+        x_new(11) += x(7) * dt;  // yaw2 = yaw2 + v_yaw * dt
+
         return x_new;
     };
-    
+
     // 同时更新对应的雅可比矩阵函数
     jacobian_f = [dt](const Eigen::VectorXd &) {
         Eigen::MatrixXd f(12, 12);

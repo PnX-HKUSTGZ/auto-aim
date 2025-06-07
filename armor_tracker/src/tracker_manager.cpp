@@ -40,7 +40,8 @@ void TrackerManager::updateEKFTemplate(double dt)
 }
 //从这一部分开始是状态更新相关函数
 
-void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt)
+void TrackerManager::update(
+    const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt)
 {
     if (dt <= 0) dt = 0.01;
     rclcpp::Time msg_time = armors_msg->header.stamp;
@@ -62,13 +63,13 @@ void TrackerManager::update(const auto_aim_interfaces::msg::Armors::SharedPtr & 
     }
 
     // 更新和初始化tracker
-    for(const auto& id : ID_LIST){
+    for (const auto & id : ID_LIST) {
         bool has_tracker = trackers_.find(id) != trackers_.end();
         bool has_armors = armors_by_id.find(id) != armors_by_id.end() && !armors_by_id[id].empty();
         if (has_tracker && has_armors) {
             // 如果追踪器存在且当前帧中有装甲板，更新追踪器
             // 设置lost_thres
-            trackers_[id]->lost_thres = lost_thres; 
+            trackers_[id]->lost_thres = lost_thres;
 
             // 创建仅包含特定ID装甲板的消息
             auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
@@ -103,7 +104,7 @@ void TrackerManager::initNewTracker(
     auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
     id_armors_msg->header.stamp = msg_time;   // 当前时间
     id_armors_msg->header.frame_id = "odom";  // 假设使用odom坐标系
-    id_armors_msg->armors = armors; 
+    id_armors_msg->armors = armors;
 
     // 初始化追踪器
     tracker->init(id_armors_msg);
@@ -119,7 +120,7 @@ void TrackerManager::cleanInactiveTrackers(rclcpp::Time now)
     auto it = trackers_.begin();
     while (it != trackers_.end()) {
         // 移除不活跃的追踪器
-        if ((now - it->second->last_update_time_).seconds() > lost_time_thres_ || 
+        if ((now - it->second->last_update_time_).seconds() > lost_time_thres_ ||
             it->second->tracker_state == Tracker::LOST) {
             it = trackers_.erase(it);
         } else {
@@ -241,10 +242,7 @@ void TrackerManager::selectBestTarget()
 
 //从这一部分开始是目标数据发布与可视化相关函数
 
-std::string TrackerManager::getCurrentTargetID() const
-{
-    return current_tracked_id_;
-}
+std::string TrackerManager::getCurrentTargetID() const { return current_tracked_id_; }
 
 auto_aim_interfaces::msg::Target TrackerManager::getIDTarget(std::string input_tracked_id_) const
 {

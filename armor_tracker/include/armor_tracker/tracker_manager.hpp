@@ -27,6 +27,12 @@
 namespace rm_auto_aim
 {
 
+/**
+ * @brief 追踪器管理类
+ * 
+ * 该类负责管理多个装甲板追踪器，包括创建、更新、选择最佳目标和清理非活跃追踪器。
+ * 支持多目标同时追踪，并提供基于评分的目标选择机制。
+ */
 class TrackerManager
 {
 private:
@@ -55,8 +61,22 @@ private:
     VisionMode mode_ = VisionMode::AUTO;
 
 public:
+    /**
+     * @brief 设置评分权重参数
+     * 
+     * @param w_distance 3D距离权重，用于距离评分计算
+     * @param w_twoD_distance 2D图像距离权重，用于图像中心距离评分
+     */
     void setWeights(double w_distance, double w_twoD_distance_);
 
+    /**
+     * @brief 设置视觉模式
+     * 
+     * 根据不同的视觉模式调整目标选择策略，为特定目标类型提供额外的评分加成。
+     * 
+     * @param mode 视觉模式枚举值
+     * @return 设置是否成功
+     */
     bool setMode(VisionMode mode)
     {
         try {
@@ -67,20 +87,63 @@ public:
             return false;
         }
     }
-    // 添加一个方法来设置 EKF 模板
+
+    /**
+     * @brief 设置EKF模板
+     * 
+     * 为所有新创建的追踪器提供EKF滤波器模板
+     * 
+     * @param ekf_template EKF滤波器模板
+     */
     void setEKFTemplate(const ExtendedKalmanFilter & ekf_template) { ekf_template_ = ekf_template; }
-    void updateEKFTemplate(double dt); // 更新 EKF 模板的时间间隔
+
+    /**
+     * @brief 更新EKF模板的时间间隔
+     * 
+     * 根据当前帧率更新EKF模板中的时间间隔参数，保证状态预测的准确性。
+     * 
+     * @param dt 时间间隔（秒）
+     */
+    void updateEKFTemplate(double dt);
+
+    /**
+     * @brief 构造追踪器管理器
+     * 
+     * @param max_match_distance 装甲板匹配的最大位置距离阈值
+     * @param max_match_yaw_diff 装甲板匹配的最大偏航角差阈值  
+     * @param tracking_thres 追踪状态转换阈值
+     * @param lost_time_thres 目标丢失时间阈值
+     * @param switch_cooldown 目标切换冷却时间，默认1.0秒
+     */
     TrackerManager(
         double max_match_distance, double max_match_yaw_diff, int tracking_thres,
         double lost_time_thres, double switch_cooldown = 1.0);
 
-    // 更新所有追踪器
+    /**
+     * @brief 更新所有追踪器
+     * 
+     * 根据新的装甲板观测数据更新所有活跃的追踪器状态，
+     * 包括创建新追踪器和更新现有追踪器。
+     * 
+     * @param armors_msg 包含所有观测到装甲板的消息
+     * @param dt 时间间隔
+     */
     void update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt);
 
-    // 选择最佳目标
+    /**
+     * @brief 选择最佳追踪目标
+     * 
+     * 基于多种评分因子（距离、追踪状态、模式偏好等）选择当前最佳的追踪目标，
+     * 具有切换冷却机制以避免频繁切换。
+     */
     void selectBestTarget();
 
-    //
+    /**
+     * @brief 根据ID获取指定的追踪器
+     * 
+     * @param id 追踪器ID
+     * @return 追踪器指针，如果不存在则返回nullptr
+     */
     std::shared_ptr<Tracker> getTracker(const std::string & id) const
     {
         if (trackers_.find(id) != trackers_.end()) {
@@ -88,22 +151,72 @@ public:
         }
         return nullptr;
     }
-    // 获取当前目标
+
+    /**
+     * @brief 获取当前选中的目标ID
+     * 
+     * @return 当前追踪目标的ID字符串
+     */
     std::string getCurrentTargetID() const;
+
+    /**
+     * @brief 根据ID获取目标信息
+     * 
+     * 将追踪器的状态信息转换为ROS消息格式，用于发布给其他节点。
+     * 
+     * @param input_tracked_id_ 要获取的目标ID
+     * @return 目标信息消息
+     */
     auto_aim_interfaces::msg::Target getIDTarget(std::string input_tracked_id_) const;
+
+    /**
+     * @brief 获取所有活跃追踪器的ID列表
+     * 
+     * @return 活跃追踪器ID的字符串向量
+     */
     std::vector<std::string> getActiveTrackerIDs() const;
 
-    // 清理不活跃的追踪器
+    /**
+     * @brief 清理非活跃的追踪器
+     * 
+     * 移除超过丢失时间阈值或状态为LOST的追踪器，释放内存资源。
+     * 
+     * @param now 当前时间
+     */
     void cleanInactiveTrackers(rclcpp::Time now);
 
-    // 重置所有追踪器
+    /**
+     * @brief 重置所有追踪器
+     * 
+     * 清除所有追踪器和目标选择状态，通常在系统重启或模式切换时使用。
+     */
     void reset();
 
 private:
     rclcpp::Clock clock_;
-    // 评分函数
+
+    /**
+     * @brief 计算追踪器的综合评分
+     * 
+     * 基于追踪状态、距离、2D图像距离和模式偏好等因素计算综合评分，
+     * 用于选择最佳追踪目标。
+     * 
+     * @param id 追踪器ID
+     * @param tracker 追踪器指针
+     * @return 计算得到的评分
+     */
     double calculateScore(const std::string & id, const std::shared_ptr<Tracker> & tracker);
-    // 初始化新追踪器
+
+    /**
+     * @brief 初始化新的追踪器
+     * 
+     * 为指定ID创建新的追踪器实例，使用EKF模板进行初始化，
+     * 并设置相关参数。
+     * 
+     * @param id 追踪器ID
+     * @param armors 用于初始化的装甲板数据
+     * @param msg_time 消息时间戳
+     */
     void initNewTracker(
         const std::string & id, const std::vector<auto_aim_interfaces::msg::Armor> & armors,
         rclcpp::Time msg_time);

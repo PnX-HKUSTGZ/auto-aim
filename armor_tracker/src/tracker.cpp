@@ -254,8 +254,7 @@ void Tracker::initEKF(const Armor & a)
 {
     auto p = a.pose.position;
     double yaw = orientationToYaw(a.pose.orientation);
-    if (yaw < 0) {  //暂时不确定
-        // Set initial position at 0.2m behind the target
+    if (yaw < 0) {
         target_state = Eigen::VectorXd::Zero(12);
         double r = 0.2765;
         double xc = p.x + r * cos(yaw);
@@ -266,7 +265,6 @@ void Tracker::initEKF(const Armor & a)
 
         ekf.setState(target_state);
     } else {
-        // Set initial position at 0.2m behind the target
         target_state = Eigen::VectorXd::Zero(12);
         double r = 0.2765;
         double xc = p.x + r * cos(yaw);
@@ -298,9 +296,6 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
         RCLCPP_ERROR(rclcpp::get_logger("tracker"), "Init failed");
         return;
     }
-    // double yaw_avg = (yaw_a + yaw_b) / 2;
-    // yaw_a = yaw_avg - M_PI / 4;
-    // yaw_b = yaw_avg + M_PI / 4;
 
     target_state = Eigen::VectorXd::Zero(12);
     double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya));

@@ -39,22 +39,74 @@
 namespace rm_auto_aim
 {
 using tf2_filter = tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>;
+
+/**
+ * @brief 装甲板追踪节点类
+ * 
+ * 该节点负责接收装甲板检测结果，进行多目标追踪，并发布最佳追踪目标信息。
+ * 支持坐标变换、EKF状态估计、可视化标记发布等功能。
+ */
 class ArmorTrackerNode : public rclcpp::Node
 {
 public:
+    /**
+     * @brief 构造函数，初始化追踪节点
+     * 
+     * @param options ROS节点选项
+     */
     explicit ArmorTrackerNode(const rclcpp::NodeOptions & options);
 
 private:
+    /**
+     * @brief 初始化扩展卡尔曼滤波器
+     * 
+     * 设置EKF的状态转移函数、观测函数、雅可比矩阵和噪声协方差矩阵。
+     */
     void initializeEKF();
+
+    /**
+     * @brief 装甲板数据回调函数
+     * 
+     * 接收装甲板检测结果，进行坐标变换、滤波、追踪状态更新，
+     * 并发布追踪目标信息和可视化数据。
+     * 
+     * @param armors_ptr 装甲板消息指针
+     */
     void armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr);
 
-    void drawMarkers(const auto_aim_interfaces::msg::Target & target_msg, 
+    /**
+     * @brief 绘制可视化标记
+     * 
+     * 在RViz中绘制追踪目标的位置、速度、轨迹等可视化标记。
+     * 
+     * @param target_msg 目标消息
+     * @param marker_array 标记数组
+     */
+    void drawMarkers(
+        const auto_aim_interfaces::msg::Target & target_msg,
         visualization_msgs::msg::MarkerArray & marker_array);
 
+    /**
+     * @brief 设置模式服务回调函数
+     * 
+     * 处理来自其他节点的模式设置请求，切换追踪器的工作模式。
+     * 
+     * @param request 服务请求
+     * @param response 服务响应
+     */
     void setModeCallback(
         const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
         std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
 
+    /**
+     * @brief 在图像上绘制追踪结果
+     * 
+     * 在图像上绘制装甲板位置、追踪框、预测轨迹等信息，用于调试和可视化。
+     * 
+     * @param target_msg 目标消息
+     * @param image 输入输出图像
+     * @param is_primary_target 是否为主要目标
+     */
     void drawImgAll(
         const auto_aim_interfaces::msg::Target & target_msg, cv::Mat & image,
         bool is_primary_target);
@@ -68,7 +120,7 @@ private:
 
     // The time when the last message was received
     rclcpp::Time last_time_ = rclcpp::Time(0);
-    double dt_ = 0.01; 
+    double dt_ = 0.01;
 
     // Armor tracker
     double s2qxy_, s2qz_, s2qyaw_, s2qr_;
