@@ -244,18 +244,16 @@ void TrackerManager::selectBestTarget()
 
 std::string TrackerManager::getCurrentTargetID() const { return current_tracked_id_; }
 
-auto_aim_interfaces::msg::Target TrackerManager::getIDTarget(std::string input_tracked_id_) const
+bool TrackerManager::getIDTarget(
+    std::string input_tracked_id_, auto_aim_interfaces::msg::Target & target_msg) const
 {
-    // 初始化target消息
-    auto_aim_interfaces::msg::Target target_msg;
-
     // 设置默认帧ID
     target_msg.header.frame_id = "odom";
     target_msg.tracking = false;
 
     // 如果没有正在追踪的目标，返回空消息
     if (input_tracked_id_.empty() || trackers_.find(input_tracked_id_) == trackers_.end()) {
-        return target_msg;
+        return false;
     }
     // 获取当前追踪的目标
     const auto & tracker = trackers_.at(input_tracked_id_);
@@ -270,33 +268,32 @@ auto_aim_interfaces::msg::Target TrackerManager::getIDTarget(std::string input_t
         tracker->tracker_state == Tracker::TRACKING ||
         tracker->tracker_state == Tracker::TEMP_LOST) {
         target_msg.tracking = true;
-
-        // 填充目标消息
-        const auto & state = tracker->target_state;
-        target_msg.id = tracker->tracked_id;
-        target_msg.armors_num = static_cast<int>(tracker->tracked_armors_num);
-
-        // 位置和速度信息
-        target_msg.position.x = state(XC);
-        target_msg.velocity.x = state(VXC);
-        target_msg.position.y = state(YC);
-        target_msg.velocity.y = state(VYC);
-        target_msg.position.z = state(ZC1);
-        target_msg.velocity.z = state(VZC);
-
-        // 角度和旋转信息
-        target_msg.yaw = state(YAW1);
-        target_msg.v_yaw = state(VYAW);
-
-        // 半径信息
-        target_msg.radius_1 = state(R1);
-        target_msg.radius_2 = state(R2);
-
-        // 装甲板高度差
-        target_msg.dz = state(ZC2) - state(ZC1);
     }
+    // 填充目标消息
+    const auto & state = tracker->target_state;
+    target_msg.id = tracker->tracked_id;
+    target_msg.armors_num = static_cast<int>(tracker->tracked_armors_num);
 
-    return target_msg;
+    // 位置和速度信息
+    target_msg.position.x = state(XC);
+    target_msg.velocity.x = state(VXC);
+    target_msg.position.y = state(YC);
+    target_msg.velocity.y = state(VYC);
+    target_msg.position.z = state(ZC1);
+    target_msg.velocity.z = state(VZC);
+
+    // 角度和旋转信息
+    target_msg.yaw = state(YAW1);
+    target_msg.v_yaw = state(VYAW);
+
+    // 半径信息
+    target_msg.radius_1 = state(R1);
+    target_msg.radius_2 = state(R2);
+
+    // 装甲板高度差
+    target_msg.dz = state(ZC2) - state(ZC1);
+
+    return true;
 }
 
 std::vector<std::string> TrackerManager::getActiveTrackerIDs() const

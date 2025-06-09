@@ -109,7 +109,7 @@ private:
      * @param R 观测噪声协方差矩阵
      * @return 计算得到的卡尔曼增益矩阵
      */
-    Eigen::MatrixXd compute_kalman_gain(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R);
+    Eigen::MatrixXd computeKalmanGain(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R);
 
     /**
      * @brief 更新状态向量和协方差矩阵
@@ -122,7 +122,7 @@ private:
      * @param h_func 观测函数
      * @param K 卡尔曼增益矩阵
      */
-    void update_state_and_covariance(
+    void updateStateAndCovariance(
         const Eigen::VectorXd & z, const Eigen::MatrixXd & H, const VecVecFunc & h_func,
         const Eigen::MatrixXd & K);
 

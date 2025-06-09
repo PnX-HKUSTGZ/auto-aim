@@ -98,14 +98,14 @@ Eigen::VectorXd ExtendedKalmanFilter::predict()
     return x_pri;
 }
 
-Eigen::MatrixXd ExtendedKalmanFilter::compute_kalman_gain(
+Eigen::MatrixXd ExtendedKalmanFilter::computeKalmanGain(
     const Eigen::MatrixXd & H, const Eigen::MatrixXd & R)
 {
     temp_matrix.noalias() = H * P_pri * H.transpose() + R;
     return P_pri * H.transpose() * temp_matrix.inverse();
 }
 
-void ExtendedKalmanFilter::update_state_and_covariance(
+void ExtendedKalmanFilter::updateStateAndCovariance(
     const Eigen::VectorXd & z, const Eigen::MatrixXd & H, const VecVecFunc & h_func,
     const Eigen::MatrixXd & K)
 {
@@ -117,8 +117,8 @@ Eigen::VectorXd ExtendedKalmanFilter::update1(const Eigen::VectorXd & z)
 {
     H1.noalias() = jacobian_h1(x_pri);
     R.noalias() = update_R(z);
-    K.noalias() = compute_kalman_gain(H1, R);
-    update_state_and_covariance(z, H1, h1, K);
+    K.noalias() = computeKalmanGain(H1, R);
+    updateStateAndCovariance(z, H1, h1, K);
     return x_post;
 }
 
@@ -126,8 +126,8 @@ Eigen::VectorXd ExtendedKalmanFilter::update2(const Eigen::VectorXd & z)
 {
     H2.noalias() = jacobian_h2(x_pri);
     R.noalias() = update_R(z);
-    K.noalias() = compute_kalman_gain(H2, R);
-    update_state_and_covariance(z, H2, h2, K);
+    K.noalias() = computeKalmanGain(H2, R);
+    updateStateAndCovariance(z, H2, h2, K);
     return x_post;
 }
 
@@ -135,8 +135,8 @@ Eigen::VectorXd ExtendedKalmanFilter::updateTwo(const Eigen::VectorXd & z)
 {
     H_two.noalias() = jacobian_h_two(x_pri);
     R_two.noalias() = update_R_two(z);
-    K.noalias() = compute_kalman_gain(H_two, R_two);
-    update_state_and_covariance(z, H_two, h_two, K);
+    K.noalias() = computeKalmanGain(H_two, R_two);
+    updateStateAndCovariance(z, H_two, h_two, K);
     return x_post;
 }
 

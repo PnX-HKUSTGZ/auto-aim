@@ -1,5 +1,3 @@
-// Copyright 2022 Chen Jun
-
 #include "armor_tracker/tracker.hpp"
 
 #include <Eigen/src/Core/Matrix.h>

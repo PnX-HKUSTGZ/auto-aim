@@ -167,7 +167,7 @@ public:
      * @param input_tracked_id_ 要获取的目标ID
      * @return 目标信息消息
      */
-    auto_aim_interfaces::msg::Target getIDTarget(std::string input_tracked_id_) const;
+    bool getIDTarget(std::string input_tracked_id_, auto_aim_interfaces::msg::Target & target_msg) const;
 
     /**
      * @brief 获取所有活跃追踪器的ID列表

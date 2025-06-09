@@ -2,6 +2,7 @@
 #include "armor_tracker/tracker_node.hpp"
 
 // STD
+#include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <iostream>
 #include <memory>
 #include <opencv2/calib3d.hpp>
@@ -340,7 +341,11 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     tracker_manager_->selectBestTarget();
     // 获取当前追踪目标
     auto current_target_id = tracker_manager_->getCurrentTargetID();
-    auto target_msg = tracker_manager_->getIDTarget(current_target_id);
+    auto_aim_interfaces::msg::Target target_msg;
+    bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
+    if (!success) {
+        return;
+    }
     target_msg.header.stamp = time;
     target_msg.header.frame_id = target_frame_;
     target_pub_->publish(target_msg);  //发布target信息
@@ -382,7 +387,9 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             for (const auto & id : active_ids) {
                 if (id != target_msg.id && !id.empty()) {  // 排除当前已处理的ID和空ID
                     // 获取该ID的目标信息
-                    auto id_target_msg = tracker_manager_->getIDTarget(id);
+                    auto_aim_interfaces::msg::Target id_target_msg;
+                    bool success = tracker_manager_->getIDTarget(id, id_target_msg);
+                    if (!success) continue;
 
                     // 在相同图像上绘制此ID的装甲板
                     drawImgAll(id_target_msg, combined_image, false);  // false表示不是主要目标
