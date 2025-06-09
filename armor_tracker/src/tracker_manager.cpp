@@ -240,7 +240,6 @@ void TrackerManager::selectBestTarget()
     }
 }
 
-//从这一部分开始是目标数据发布与可视化相关函数
 
 std::string TrackerManager::getCurrentTargetID() const { return current_tracked_id_; }
 

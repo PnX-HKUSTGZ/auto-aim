@@ -19,8 +19,9 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <string>
 
-#include "ballistic_calculator.hpp"
-#include "types.hpp"
+#include "ballistic_calculation/ballistic_calculator.hpp"
+#include "ballistic_calculation/aim_info.hpp"
+#include "ballistic_calculation/armor_selector.hpp"
 
 namespace rm_auto_aim
 {
@@ -29,58 +30,108 @@ using target = auto_aim_interfaces::msg::Target;
 class BallisticCalculateNode : public rclcpp::Node
 {
 public:
+    /**
+     * @brief 构造函数
+     * 
+     * 初始化节点参数、订阅者、发布者和各种计算组件
+     * 
+     * @param options ROS2节点选项
+     */
     explicit BallisticCalculateNode(const rclcpp::NodeOptions & options);
 
 private:
-    //接收串口的云台位姿，当云台位姿和枪口预测位置相差小于某一个阈值时，返回true
+    /**
+     * @brief 判断是否满足开火条件
+     * 
+     * 通过比较当前云台位姿和预测射击位置的差异，
+     * 判断是否满足开火条件
+     * 
+     * @param prepitch 预测俯仰角
+     * @param preyaw 预测偏航角
+     * @return true 满足开火条件
+     * @return false 不满足开火条件
+     */
     bool ifFire(double prepitch, double preyaw);
 
+    /**
+     * @brief 装甲车辆目标回调函数
+     * 
+     * 处理装甲车辆目标信息，进行弹道计算和装甲板选择，
+     * 最终发布火控指令
+     * 
+     * @param msg 目标消息
+     */
     void carTargetCallback(const auto_aim_interfaces::msg::Target::SharedPtr msg);
+    
+    /**
+     * @brief 能量机关目标回调函数
+     * 
+     * 处理能量机关目标信息，进行弹道计算，
+     * 最终发布火控指令
+     * 
+     * @param msg 能量机关目标消息
+     */
     void runeTargetCallback(const auto_aim_interfaces::msg::RuneTarget::SharedPtr msg);
 
-    std::unique_ptr<Ballistic> calculator;
-    rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;
+    // 核心计算组件
+    std::unique_ptr<Ballistic> calculator;           // 弹道计算器
+    std::shared_ptr<ArmorSelector> armor_selector_;  // 装甲板选择器
+    
+    // ROS2通信组件
+    rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;  // 火控指令发布者
 
-    rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr car_target_sub_;
-    auto_aim_interfaces::msg::Target::SharedPtr car_target_msg;
-    std::shared_ptr<CarInfo> car_info_;
-    std::unique_ptr<ArmorInfo> armor_info_;
+    // 装甲车辆目标相关
+    rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr car_target_sub_;  // 目标订阅者
+    auto_aim_interfaces::msg::Target::SharedPtr car_target_msg;  // 目标消息缓存
+    std::shared_ptr<CarInfo> car_info_;     // 车辆信息处理器
+    std::unique_ptr<ArmorInfo> armor_info_; // 装甲板信息处理器
 
-    rclcpp::Subscription<auto_aim_interfaces::msg::RuneTarget>::SharedPtr rune_target_sub_;
-    auto_aim_interfaces::msg::RuneTarget::SharedPtr rune_target_msg;
-    std::unique_ptr<RuneInfo> rune_info_;
+    // 能量机关目标相关
+    rclcpp::Subscription<auto_aim_interfaces::msg::RuneTarget>::SharedPtr rune_target_sub_;  // 能量机关订阅者
+    auto_aim_interfaces::msg::RuneTarget::SharedPtr rune_target_msg;  // 能量机关消息缓存
+    std::unique_ptr<RuneInfo> rune_info_;  // 能量机关信息处理器
 
-    //tf2
-    std::shared_ptr<tf2_ros::Buffer> tfBuffer;
-    std::shared_ptr<tf2_ros::TransformListener> tfListener;
-    std::string target_frame_;
+    // tf2坐标变换
+    std::shared_ptr<tf2_ros::Buffer> tfBuffer;         // tf2缓冲区
+    std::shared_ptr<tf2_ros::TransformListener> tfListener;  // tf2监听器
+    std::string target_frame_;  // 目标坐标系
 
-    double K1;             //第一次大迭代时的步长，需要parameter_declare来调整参数
-    double K2;             //第一次大迭代时的步长，需要parameter_declare来调整参数
-    double K;              //空气阻力系数，需要parameter_declare来调整参数
-    double BULLET_V;       //子弹出膛速度，需要parameter_declare来调整参数
-    double THRES1 = 0.01;  //第一次迭代的阈值，需要parameter_declare来调整参数
-    double THRES2 = 0.005;  //第二次迭代的阈值，需要parameter_declare来调整参数
-    double ifFireK_;        //判断是否开火的阈值，需要parameter_declare来调整参数
-    double min_v;  //一级策略切换二级策略速度临界，需要parameter_declare来调整参数
-    double max_v;  //二级策略切换三级策略速度临界，需要parameter_declare来调整参数
-    double v_yaw_gimble;             //云台最大yaw速度，需要parameter_declare来调整参数
-    double stop_fire_time;        //停止开火时间，需要parameter_declare来调整参数
-    double fire_delay;  //开火延迟，需要parameter_declare来调整参数
-    std::vector<double> xyz_vec;  //枪口的xyz坐标
-    std::vector<double> rpy_vec;  //枪口的rpy角度
+    // 算法参数（通过ROS参数服务器配置）
+    double K1;             // 第一次大迭代时的步长
+    double K2;             // 第二次大迭代时的步长
+    double K;              // 空气阻力系数
+    double BULLET_V;       // 子弹出膛速度
+    double THRES1 = 0.01;  // 第一次迭代的收敛阈值
+    double THRES2 = 0.005; // 第二次迭代的收敛阈值
+    double ifFireK_;       // 判断是否开火的角度阈值
+    double min_v;          // 一级策略切换二级策略速度临界值
+    double max_v;          // 二级策略切换三级策略速度临界值
+    double v_yaw_gimble;   // 云台最大yaw速度
+    double stop_fire_time; // 停止开火时间
+    double fire_delay;     // 开火延迟
+    std::vector<double> xyz_vec;  // 枪口的xyz坐标
+    std::vector<double> rpy_vec;  // 枪口的rpy角度
 
-    bool ifstart = false;
-    int rate = 1000;
-    double ifFireK;
-    rclcpp::Time last_fire_time;
+    // 状态变量
+    bool ifstart = false;           // 是否开始标志
+    int rate = 1000;               // 节点运行频率
+    double ifFireK;                // 动态开火阈值
+    rclcpp::Time last_fire_time;   // 上次开火时间
 
-    // 相机信息
-    sensor_msgs::msg::CameraInfo cam_info_;
-    cv::Point2f cam_center_;
-    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    // 相机信息和图像投影
+    sensor_msgs::msg::CameraInfo cam_info_;  // 相机内参信息
+    cv::Point2f cam_center_;                 // 相机中心点
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;  // 相机信息订阅者
 
-    // 重投影相关函数
+    /**
+     * @brief 将3D点投影到图像平面
+     * 
+     * 使用相机内参和坐标变换，将odom坐标系中的3D点
+     * 投影到图像平面上
+     * 
+     * @param point_3d odom坐标系中的3D点
+     * @return cv::Point2f 图像平面上的2D点（归一化坐标）
+     */
     cv::Point2f projectPointToImage(const Eigen::Vector3d & point_3d);
 };
 

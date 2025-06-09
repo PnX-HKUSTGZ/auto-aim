@@ -40,17 +40,14 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     double fire_delay = this->declare_parameter("fire_delay", 0.0);
     xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
     rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
+    Eigen::Vector3d odom2gunxyz(xyz_vec[0], xyz_vec[1], xyz_vec[2]);
+    Eigen::Vector3d odom2gunrpy(rpy_vec[0], rpy_vec[1], rpy_vec[2]);
 
     calculator = std::make_unique<rm_auto_aim::Ballistic>(K, BULLET_V, fire_delay);
-    car_info_ = std::make_shared<CarInfo>(
-        Eigen::Vector3d(xyz_vec[0], xyz_vec[1], xyz_vec[2]),
-        Eigen::Vector3d(rpy_vec[0], rpy_vec[1], rpy_vec[2]));
-    armor_info_ = std::make_unique<ArmorInfo>(
-        Eigen::Vector3d(xyz_vec[0], xyz_vec[1], xyz_vec[2]),
-        Eigen::Vector3d(rpy_vec[0], rpy_vec[1], rpy_vec[2]));
-    rune_info_ = std::make_unique<RuneInfo>(
-        Eigen::Vector3d(xyz_vec[0], xyz_vec[1], xyz_vec[2]),
-        Eigen::Vector3d(rpy_vec[0], rpy_vec[1], rpy_vec[2]));
+    car_info_ = std::make_shared<CarInfo>(odom2gunxyz, odom2gunrpy);
+    armor_info_ = std::make_unique<ArmorInfo>(odom2gunxyz, odom2gunrpy);
+    rune_info_ = std::make_unique<RuneInfo>(odom2gunxyz, odom2gunrpy);
+    armor_selector_ = std::make_shared<ArmorSelector>();
 
     //创建监听器，监听云台位姿
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -109,6 +106,7 @@ void BallisticCalculateNode::carTargetCallback(
     this->car_target_msg = std::move(_target_msg);
 
     car_info_->updateTarget(*car_target_msg);
+    armor_selector_->updateTarget(*car_target_msg);
 
     ifFireK = ifFireK_ + abs(car_target_msg->v_yaw) * 0.002;
     //进入第一次大迭代
@@ -130,10 +128,10 @@ void BallisticCalculateNode::carTargetCallback(
     //预测平衡步兵的最佳装甲板
     std::pair<double, double> iffire_result, final_result;
     if (car_target_msg->armors_num == 4 or car_target_msg->armors_num == 3) {
-        std::vector<double> hit_aim =
-            car_info_->predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_gimble);
-        std::vector<double> hit_aim_fire =
-            car_info_->predictInfantryBestArmor(temp_t, DBL_MAX, DBL_MAX, v_yaw_gimble);
+        std::vector<double> hit_aim = armor_selector_->
+            predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_gimble);
+        std::vector<double> hit_aim_fire = armor_selector_->
+            predictInfantryBestArmor(temp_t, DBL_MAX, DBL_MAX, v_yaw_gimble);
         
         //计算瞄准目标
         armor_info_->updateTarget(
