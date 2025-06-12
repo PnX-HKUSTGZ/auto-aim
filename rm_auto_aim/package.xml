@@ -15,6 +15,12 @@
   <depend>ballistic_calculation</depend>
   <depend>rune_detector</depend>
   <depend>rune_solver</depend>
+  
+  <!-- System library dependencies -->  
+  <depend>atlas</depend>
+  <depend>libopenblas-dev</depend>
+  <depend>libgoogle-glog-dev</depend>
+  <depend>suitesparse</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

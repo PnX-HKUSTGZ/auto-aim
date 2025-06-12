@@ -22,7 +22,6 @@
   <depend>image_transport_plugins</depend>
   <depend>vision_opencv</depend>
   <depend>cv_bridge</depend>
-  <depend>ceres</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
 

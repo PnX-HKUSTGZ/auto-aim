@@ -11,6 +11,12 @@ add_compile_options(-O2)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Add third_party_install to CMAKE_PREFIX_PATH
+get_filename_component(ABS_PREFIX_PREFIX "../../../third_party_install" ABSOLUTE)
+set(CMAKE_PREFIX_PREFIX ${ABS_PREFIX_PREFIX})
+message(STATUS "ABS_PREFIX_PREFIX: ${ABS_PREFIX_PREFIX}")
+list(APPEND CMAKE_PREFIX_PATH ${ABS_PREFIX_PREFIX})
+
 find_package(OpenCV REQUIRED)
 
 # Compiler options
