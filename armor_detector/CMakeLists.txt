@@ -24,19 +24,21 @@ list(APPEND CMAKE_PREFIX_PATH ${ABS_PREFIX_PREFIX})
 #######################
 ## Find dependencies ##
 #######################
-
-set(EXTERNAL_INCLUDE_DIRS ${G2O_INCLUDE_DIR})
-set(EXTERNAL_LIBS ${G2O_LIBRARIES})
-
 find_package(ament_cmake_auto REQUIRED)
-find_package(g2o REQUIRED)
+find_package(g2o CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(fmt REQUIRED)
+find_package(Sophus REQUIRED)
+find_package(Ceres REQUIRED)
+
+#set(CMAKE_FIND_DEBUG_MODE TRUE)
+
+
 ament_auto_find_build_dependencies()
 if(NOT g2o_FOUND OR NOT OpenCV_FOUND OR NOT fmt_FOUND)
-  message(WARNING "g2o, OpenCV or fmt not found, skipping ${PROJECT_NAME}")
+  message(ERROR "g2o, OpenCV or fmt not found, skipping ${PROJECT_NAME}")
   return()
-else ()
+else()
   message(STATUS "g2o, OpenCV and fmt found, building ${PROJECT_NAME}")
 endif()
 
@@ -48,18 +50,21 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
   DIRECTORY src
 )
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${OpenCV_INCLUDE_DIRS} ${Sophus_INCLUDE_DIRS} ${g2o_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PUBLIC ${OpenCV_INCLUDE_DIRS}
+  ${Sophus_INCLUDE_DIRS} ${g2o_INCLUDE_DIRS}
+  ${ABS_PREFIX_PREFIX}/include
+)
 
 target_link_libraries(${PROJECT_NAME}
-${OpenCV_LIBS}
-g2o_core
-g2o_stuff
-g2o_solver_csparse
-g2o_types_sba
-g2o_types_slam3d
-g2o_solver_dense
-fmt::fmt
-tbb
+  ${OpenCV_LIBS}
+  g2o::core
+  g2o::stuff
+  g2o::solver_csparse
+  g2o::types_sba
+  g2o::types_slam3d
+  g2o::solver_dense
+  fmt::fmt
+  tbb
 )
 
 rclcpp_components_register_node(${PROJECT_NAME}
