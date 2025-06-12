@@ -5,6 +5,12 @@ project(rune_solver)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Add third_party_install to CMAKE_PREFIX_PATH
+get_filename_component(ABS_PREFIX_PREFIX "../../../third_party_install" ABSOLUTE)
+set(CMAKE_PREFIX_PREFIX ${ABS_PREFIX_PREFIX})
+message(STATUS "ABS_PREFIX_PREFIX: ${ABS_PREFIX_PREFIX}")
+list(APPEND CMAKE_PREFIX_PATH ${ABS_PREFIX_PREFIX})
+
 ## By adding -Wall and -Werror, the compiler does not ignore warnings anymore,
 ## enforcing cleaner code.
 add_definitions(-Wall -Werror -O2)

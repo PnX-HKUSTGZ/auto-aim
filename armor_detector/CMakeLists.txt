@@ -15,21 +15,15 @@ add_compile_options(-O2)
 ## Export compile commands for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-#######################
-## Find dependencies ##
-#######################
+# Add third_party_install to CMAKE_PREFIX_PATH
 get_filename_component(ABS_PREFIX_PREFIX "../../../third_party_install" ABSOLUTE)
 set(CMAKE_PREFIX_PREFIX ${ABS_PREFIX_PREFIX})
 message(STATUS "ABS_PREFIX_PREFIX: ${ABS_PREFIX_PREFIX}")
-
-# Add third_party_install to CMAKE_PREFIX_PATH
-# list(APPEND CMAKE_PREFIX_PATH ${ABS_INSTALL_PREFIX}/lib/cmake/g2o)
-# list(APPEND CMAKE_PREFIX_PATH ${ABS_INSTALL_PREFIX}/share/sophus/cmake)
-# list(APPEND CMAKE_PREFIX_PATH ${ABS_INSTALL_PREFIX}/lib/cmake/Ceres)
-# set(EXTERNAL_INCLUDE_DIRS ${G2O_INCLUDE_DIR})
-# set(EXTERNAL_LIBS ${G2O_LIBRARIES})
 list(APPEND CMAKE_PREFIX_PATH ${ABS_PREFIX_PREFIX})
 
+#######################
+## Find dependencies ##
+#######################
 find_package(ament_cmake_auto REQUIRED)
 find_package(g2o CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)
