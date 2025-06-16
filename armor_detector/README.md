@@ -107,15 +107,8 @@
 
 ## light_corner_corrector.cpp
 
-在原版rm_vision中，使用旋转矩形的上顶点作为灯条角点，这种方法很受二值化图像的影响，当给不同的二值化阈值或者环境光照不均匀时，识别到的角点位置会发生变化，如图旋转矩形顶点1和2。这会导致角点实际坐标与types.hpp中定义的物体坐标不对应，影响到PnP的准确性。
-
-| ![](docs/origin1.png) | ![](docs/origin2.png) | ![](docs/pca2.png) | ![](docs/pca1.png) |
-| :-------------------: | :--------------------: | :-------------------: | :-------------------: |
-|         旋转矩形顶点1          |       旋转矩形顶点2        |         PCA1         |        PCA2         |
-
-为了解决这个问题，我们使用PCA方法对灯条的角点进行矫正，先利用[主成分分析](https://docs.opencv.org/4.x/d1/dee/tutorial_introduction_to_pca.html)(Principal Component Analysis, PCA)方法获取灯条的对称轴，然后根据沿着对称轴方向寻找上下两个亮度变化最大的点（通常是图PCA2中那样的明暗交界处），作为灯条的角点。
-
-如图PCA1和PCA2所示，这种方法获得的角点在不同光照下表现出一致性，可以提高PnP的准确性。
+在原版rm_vision中，使用旋转矩形的上顶点作为灯条角点，这种方法很受二值化图像的影响，当给不同的二值化阈值或者环境光照不均匀时，识别到的角点位置会发生变化。这会导致角点实际坐标与types.hpp中定义的物体坐标不对应，影响到PnP的准确性。
+为了解决这个问题，我们使用PCA方法对灯条的角点进行矫正，先利用[主成分分析](https://docs.opencv.org/4.x/d1/dee/tutorial_introduction_to_pca.html)(Principal Component Analysis, PCA)方法获取灯条的对称轴，然后根据沿着对称轴方向寻找上下两个亮度变化最大的点作为灯条的角点。这种方法获得的角点在不同光照下表现出一致性，可以提高PnP的准确性。
 
 ### correctCorners
 修正装甲板的灯条角点，通过寻找灯条的对称轴和角点来优化灯条的位置信息。
@@ -134,8 +127,6 @@ PnP解算器将 `cv::solvePnP()` 封装，接口中传入 `Armor` 类型的数�
 考虑到装甲板的四个点在一个平面上，在PnP解算方法上我们选择了 `cv::SOLVEPNP_IPPE` (Method is based on the paper of T. Collins and A. Bartoli. ["Infinitesimal Plane-Based Pose Estimation"](https://link.springer.com/article/10.1007/s11263-014-0725-5). This method requires coplanar object points.)
 
 ## ba_solver.cpp
-
-![](docs/BA.png)
 
 <!-- 根据RoboMaster机器人制作规范，非平衡机器人在平地上，每块装甲板相对地面坐标系的姿态角应为Roll=0，Pitch=15°，Yaw=$\theta$，其中只有Yaw角度是未知的。可以根据这个特征求取装甲板的Yaw角度，参考上海交通大学2023年全国赛青工会上的展示。
 
