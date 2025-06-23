@@ -1,28 +1,30 @@
 # armor_tracker
 
-- [ArmorTrackerNode](#armortrackernode)
-  - [Tracker](#tracker)
-    - [KalmanFilter](#kalmanfilter)
+装甲板跟踪系统
 
-## ArmorTrackerNode
+## tracker_node.cpp
 装甲板处理节点
 
-订阅识别节点发布的装甲板三维位置及机器人的坐标转换信息，将装甲板三维位置变换到指定惯性系（一般是以云台中心为原点，IMU 上电时的 Yaw 朝向为 X 轴的惯性系）下，然后将装甲板目标送入跟踪器中，输出跟踪机器人在指定惯性系下的状态
+ArmorTrackerNode是一个用于装甲目标跟踪的ROS节点，主要实现了两大核心功能：在RViz中可视化目标标记和在图像上绘制目标信息。该节点通过接收目标消息，结合跟踪器管理和坐标变换，实现了对装甲目标的实时可视化展示，适用于机器人视觉跟踪系统。
 
-订阅：
-- 已识别到的装甲板 `/detector/armors`
-- 机器人的坐标转换信息 `/tf` `/tf_static`
+### 核心功能
 
-发布：
-- 最终锁定的目标 `/tracker/target`
+1. 目标标记可视化（drawMarkers函数）
+根据目标消息在RViz中生成可视化标记，包括位置标记、线速度箭头、角速度箭头和装甲板模型
+* 当目标处于跟踪状态时，获取对应跟踪器并解析目标状态参数（位置、速度、偏航角等）
+* 生成位置标记点，线速度箭头（从位置点指向速度方向），角速度箭头（垂直于位置点，反映偏航角速度）
+* 根据装甲数量（armors_num）和类型（小/大装甲）绘制装甲板分布
 
-参数：
-- 跟踪器参数 tracker
-  - 两帧间目标可匹配的最大距离 max_match_distance
-  - `DETECTING` 状态进入 `TRACKING` 状态的阈值 tracking_threshold
-  - `TRACKING` 状态进入 `LOST` 状态的阈值 lost_threshold
+2. 图像目标绘制（drawImgAll函数）
+在相机图像上绘制目标的装甲板轮廓和ID信息，支持主要目标高亮显示
+* 解析相机内参与畸变参数，用于坐标变换
+* 根据目标ID生成差异化颜色，主要目标使用绿色高亮
+* 计算每个装甲板的世界坐标，考虑pitch角度（前哨站为-0.26，其他为0.26）
+* 通过TF变换获取相机到世界坐标系的转换矩阵，实现3D到2D投影
+* 使用projectPoints函数将装甲板角点从世界坐标投影到图像平面
+* 在图像右上角标注目标ID，并绘制装甲板四边形轮廓
 
-## ExtendedKalmanFilter
+## extended_kalman_filter.cpp
 
 $$ x_c = x_a + r * cos (\theta) $$
 $$ y_c = y_a + r * sin (\theta) $$
@@ -53,7 +55,9 @@ $$ x_{k|k} = x_{k|k-1} + K * (z_k - H * x_{k|k-1}) $$
 
 $$ P_{k|k} = (I - K * H) * P_{k|k-1} $$
 
-## Tracker
+## tracker.cpp
+
+Tracker类实现了基于扩展卡尔曼滤波器 (EKF) 的装甲目标跟踪系统，用于敌方装甲目标的状态估计与跟踪。该跟踪器支持单装甲和双装甲初始化，能够根据传感器数据更新目标状态，并通过状态机管理跟踪状态（检测中、跟踪中、临时丢失、完全丢失）。
 
 参考 [SORT(Simple online and realtime tracking)](https://ieeexplore.ieee.org/abstract/document/7533003/) 中对于目标匹配的方法，使用卡尔曼滤波器对单目标在三维空间中进行跟踪
 
@@ -81,4 +85,20 @@ $$ P_{k|k} = (I - K * H) * P_{k|k-1} $$
   
   最后选取位置相差最小的目标作为最佳匹配项，更新卡尔曼滤波器，将更新后的状态作为跟踪器的结果输出
 
+## tracker_manager.cpp
 
+TrackerManager类是跟踪器的管理中枢，提供了跟踪器生命周期管理、目标信息获取、跟踪器状态更新等功能，负责创建、维护和协调管理多个跟踪器。
+
+1. 跟踪器生命周期管理
+* 跟踪器创建：根据目标ID创建新的跟踪器实例
+* 跟踪器存储：使用std::unordered_map存储跟踪器，键为目标ID
+* 跟踪器清理：移除长时间未更新的跟踪器（超过lost_time_thres_）；移除状态为LOST的跟踪器
+* 冷却机制：跟踪器切换后设置冷却时间switch_cooldown_，避免频繁切换
+
+2. 目标信息获取与封装
+* 单目标信息获取：getIDTarget方法根据ID获取目标状态，封装为auto_aim_interfaces::msg::Target消息，包含位置、速度、角度、半径等跟踪状态参数，同时根据跟踪状态标记tracking字段（DETECTING为false，TRACKING/TEMP_LOST为true）
+* 活跃跟踪器列表：getActiveTrackerIDs获取所有非LOST状态的跟踪器ID
+
+3. 跟踪器统一控制
+* EKF模板更新：updateEKFTemplate统一设置所有跟踪器的EKF时间间隔
+* 批量状态更新：配合外部逻辑实现跟踪器的批量更新
