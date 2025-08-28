@@ -38,9 +38,17 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : Node("armor_detector", options)
 {
     RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
+    
+    // 是否使用 AI detector 参数
+    use_ai_detector_ = this->declare_parameter("use_ai_detector", false);
 
-    // 初始化Detector参数
-    detector_ = initDetector();
+    if (use_ai_detector_) {
+        // 初始化 AI 检测器
+        ai_detector_ = initAIDetector();
+    } else {
+        // 初始化Detector参数
+        detector_ = initDetector();
+    }
 
     //提取相机内参
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
@@ -98,7 +106,13 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
 
     // 检测装甲板
     cv::Mat img;
-    auto armors = detectArmors(img_msg, img);
+    std::vector<Armor> armors;
+    if (use_ai_detector_) {
+        armors = aiDetectArmors(img_msg, img);
+    } else {
+        armors = detectArmors(img_msg, img);
+    }
+    
 
     // 提取from odom to gimbal的坐标系变换
     if (!updateTransform(img_msg->header.frame_id, "odom", img_msg->header.stamp)) {
@@ -336,11 +350,32 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
     return detector;
 }
 
+std::unique_ptr<AIDetector> ArmorDetectorNode::initAIDetector()
+{
+    // 声明AI检测器相关参数
+    auto model_path = this->declare_parameter("ai_model_path", 
+        ament_index_cpp::get_package_share_directory("armor_detector") + "/model/0526.onnx");
+    auto device = this->declare_parameter("ai_device", "CPU");
+    auto conf_threshold = this->declare_parameter("ai_conf_threshold", 0.65);
+    auto nms_threshold = this->declare_parameter("ai_nms_threshold", 0.45);
+    
+    // 创建AI检测器实例
+    auto ai_detector = std::make_unique<AIDetector>(
+        model_path, device, 
+        static_cast<float>(conf_threshold), 
+        static_cast<float>(nms_threshold));
+    
+    RCLCPP_INFO(this->get_logger(), "AI Detector initialized with model: %s", model_path.c_str());
+    
+    return ai_detector;
+}
+
 std::vector<Armor> ArmorDetectorNode::detectArmors(
     const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
 {
     // Convert ROS img to cv::Mat
     img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+    
     // Update params
     detector_->binary_thres = get_parameter("binary_thres").as_int();
     detector_->detect_color = get_parameter("detect_color").as_int();
@@ -385,6 +420,30 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
     }
     return armors;
 }
+
+std::vector<Armor> ArmorDetectorNode::aiDetectArmors(
+    const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
+{
+    // Convert ROS img to cv::Mat
+    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+    
+    // 使用 AI 检测器
+    int detect_color = get_parameter("detect_color").as_int();
+    auto armors = ai_detector_->detect(img, detect_color);
+
+    // Publish debug info
+    if (debug_) {
+        //计算延迟
+        auto final_time = this->now();
+        auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+        RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
+
+        // 发布 AI 检测器调试信息
+        armors_data_pub_->publish(ai_detector_->debug_armors);
+    }
+    return armors;
+}
+
 void ArmorDetectorNode::drawResults(
     const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img,
     const std::vector<Armor> & armors)
@@ -396,7 +455,11 @@ void ArmorDetectorNode::drawResults(
     if (!debug_) {
         return;
     }
-    detector_->drawResults(img);
+    if (!use_ai_detector_){
+        detector_->drawResults(img);
+    } else {
+        ai_detector_->drawResults(img);
+    }
     // Show yaw, pitch, roll
     for (const auto & armor : armors) {
         Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2);  //提取欧拉角

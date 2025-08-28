@@ -26,6 +26,7 @@
 
 #include "armor_detector/ba_solver.hpp"
 #include "armor_detector/detector.hpp"
+#include "armor_detector/ai_detector.hpp"
 #include "armor_detector/light_corner_corrector.hpp"
 #include "armor_detector/number_classifier.hpp"
 #include "armor_detector/pnp_solver.hpp"
@@ -59,12 +60,27 @@ private:
     std::unique_ptr<Detector> initDetector();
 
     /**
+     * @brief 初始化AI检测器
+     * @return 初始化好的AI检测器实例
+     */
+    std::unique_ptr<AIDetector> initAIDetector();
+
+    /**
      * @brief 执行装甲板检测
      * @param img_msg 输入的图像消息
      * @param img 输出的OpenCV图像
      * @return 检测到的装甲板列表
      */
     std::vector<Armor> detectArmors(
+        const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img);
+
+    /**
+     * @brief 使用AI检测器执行装甲板检测
+     * @param img_msg 输入的图像消息
+     * @param img 输出的OpenCV图像
+     * @return 检测到的装甲板列表
+     */
+    std::vector<Armor> aiDetectArmors(
         const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img);
 
     // -------------------- 坐标变换和位姿处理 --------------------
@@ -138,6 +154,7 @@ private:
 
     // Armor Detector
     std::unique_ptr<Detector> detector_;
+    std::unique_ptr<AIDetector> ai_detector_;
 
     // set_mode service
     rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
@@ -176,6 +193,7 @@ private:
     image_transport::Publisher result_img_pub_;
 
     bool enable_ = true;
+    bool use_ai_detector_ = false;
 };
 
 }  // namespace rm_auto_aim
