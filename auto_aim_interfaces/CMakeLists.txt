@@ -17,11 +17,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Target.msg"
   "msg/Firecontrol.msg"
 
-  "msg/DebugLight.msg" 
-  "msg/DebugLights.msg"
-  "msg/DebugArmor.msg"
-  "msg/DebugArmors.msg"
-
   "msg/TrackerInfo.msg"
   "msg/Point2d.msg"
   "msg/Point3d.msg"

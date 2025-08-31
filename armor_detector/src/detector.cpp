@@ -11,29 +11,37 @@
 // STD
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include "armor_detector/detector.hpp"
-#include "auto_aim_interfaces/msg/debug_armor.hpp"
-#include "auto_aim_interfaces/msg/debug_light.hpp"
 
 namespace rm_auto_aim
 {
 Detector::Detector(
-    const int & bin_thres, const int & color, const LightParams & l, const ArmorParams & a)
-: binary_thres(bin_thres), detect_color(color), l(l), a(a)
+    const int & bin_thres, const LightParams & l, const ArmorParams & a,
+    const std::string & model_path, const std::string & label_path, const float & threshold,
+    const std::vector<std::string> & ignore_classes)
+: binary_thres(bin_thres), l(l), a(a)
 {
+    this->classifier =
+        std::make_unique<NumberClassifier>(model_path, label_path, threshold, ignore_classes);
 }
 
-std::vector<Armor> Detector::detect(const cv::Mat & input)  //侦测，分类装甲板的主函数
+std::vector<Armor> Detector::detect(
+    const cv::Mat & input, int detect_color)  //侦测，分类装甲板的主函数
 {
     preprocessImage(input);  //生成二值化后的图片
     lights_ = findLights(input, binary_img);
-    armors_ = matchLights(lights_);
+    armors_ = matchLights(lights_, detect_color);
 
     if (!armors_.empty()) {
         classifier->extractNumbers(input, armors_);
         classifier->classify(armors_);
+    }
+
+    for (auto & armor : armors_) {
+        lcc.correctCorners(armor, gray_img);
     }
 
     return armors_;
@@ -55,7 +63,6 @@ std::vector<Light> Detector::findLights(
     cv::findContours(binary_img, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
     vector<Light> lights;
-    this->debug_lights.data.clear();
 
     for (const auto & contour : contours) {
         if (contour.size() < 5) continue;
@@ -93,23 +100,13 @@ bool Detector::isLight(const Light & light)  //findlights中用于判断是否�
 
     bool is_light = ratio_ok && angle_ok;
 
-    // Fill in debug information
-    auto_aim_interfaces::msg::DebugLight light_data;
-    light_data.center_x = light.center.x;
-    light_data.ratio = ratio;
-    light_data.angle = abs(light.tilt_angle);
-    light_data.is_light = is_light;
-
-    this->debug_lights.data.emplace_back(light_data);
-
     return is_light;
 }
 
 std::vector<Armor> Detector::matchLights(
-    const std::vector<Light> & lights)  //将灯条合成装甲板的魔法，返回合格的装甲板
+    const std::vector<Light> & lights, int detect_color)  //将灯条合成装甲板的魔法，返回合格的装甲板
 {
     std::vector<Armor> armors;
-    this->debug_armors.data.clear();
 
     // Loop all the pairing of lights
     for (auto light_1 = lights.begin(); light_1 != lights.end(); light_1++) {
@@ -185,15 +182,6 @@ ArmorType Detector::isArmor(
         type = ArmorType::INVALID;
     }
 
-    // Fill in debug information
-    auto_aim_interfaces::msg::DebugArmor armor_data;
-    armor_data.type = ARMOR_TYPE_STR[static_cast<int>(type)];
-    armor_data.center_x = (light_1.center.x + light_2.center.x) / 2;
-    armor_data.light_ratio = light_length_ratio;
-    armor_data.center_distance = center_distance;
-    armor_data.angle = angle;
-    this->debug_armors.data.emplace_back(armor_data);
-
     return type;
 }
 
@@ -212,6 +200,8 @@ cv::Mat Detector::getAllNumbersImage()
         return all_num_img;
     }
 }
+
+cv::Mat Detector::getBinaryImage() { return binary_img; }
 
 void Detector::drawResults(cv::Mat & img)
 {

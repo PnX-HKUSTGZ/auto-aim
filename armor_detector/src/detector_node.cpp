@@ -34,6 +34,7 @@
 
 namespace rm_auto_aim
 {
+// ==================== 构造函数 ====================
 ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : Node("armor_detector", options)
 {
@@ -99,6 +100,67 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
         });
 }
 
+// ==================== 初始化功能 ====================
+std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
+{
+    rcl_interfaces::msg::ParameterDescriptor param_desc;  //用于描述填充参数
+    //设置二值化参数
+    param_desc.integer_range.resize(1);
+    param_desc.integer_range[0].step = 1;
+    param_desc.integer_range[0].from_value = 0;
+    param_desc.integer_range[0].to_value = 255;
+    int binary_thres = declare_parameter("binary_thres", 80, param_desc);
+    //填充light和armor类所需要的参数
+    LightParams l_params = {
+
+        .min_ratio = declare_parameter("light.min_ratio", 0.1),
+        .max_ratio = declare_parameter("light.max_ratio", 0.4),
+        .max_angle = declare_parameter("light.max_angle", 40.0)};
+
+    ArmorParams a_params = {
+        .min_light_ratio = declare_parameter("armor.min_light_ratio", 0.7),
+        .min_small_center_distance = declare_parameter("armor.min_small_center_distance", 0.8),
+        .max_small_center_distance = declare_parameter("armor.max_small_center_distance", 3.2),
+        .min_large_center_distance = declare_parameter("armor.min_large_center_distance", 3.2),
+        .max_large_center_distance = declare_parameter("armor.max_large_center_distance", 5.5),
+        .max_angle = declare_parameter("armor.max_angle", 35.0)};
+
+    //number classifier 参数
+    auto pkg_path = ament_index_cpp::get_package_share_directory("armor_detector");
+    auto model_path = pkg_path + "/model/mlp.onnx";
+    auto label_path = pkg_path + "/model/label.txt";
+    double threshold = this->declare_parameter("classifier_threshold", 0.7);
+    std::vector<std::string> ignore_classes = this->declare_parameter(
+        "ignore_classes", std::vector<std::string>{"negative"});  ////这里的this并非必须
+
+    //初始化 detector
+    auto detector = std::make_unique<Detector>(
+        binary_thres, l_params, a_params, model_path, label_path, threshold, ignore_classes);
+
+    RCLCPP_INFO(this->get_logger(), "Detector initialized");
+
+    return detector;
+}
+
+std::unique_ptr<AIDetector> ArmorDetectorNode::initAIDetector()
+{
+    // 声明AI检测器相关参数
+    auto model_path = ament_index_cpp::get_package_share_directory("armor_detector") +
+                      this->declare_parameter("ai_model_path", "/model/0526.onnx");
+    auto device = this->declare_parameter("ai_device", "CPU");
+    auto conf_threshold = this->declare_parameter("ai_conf_threshold", 0.65);
+    auto nms_threshold = this->declare_parameter("ai_nms_threshold", 0.45);
+
+    // 创建AI检测器实例
+    auto ai_detector = std::make_unique<AIDetector>(
+        model_path, device, static_cast<float>(conf_threshold), static_cast<float>(nms_threshold));
+
+    RCLCPP_INFO(this->get_logger(), "AI Detector initialized with model: %s", model_path.c_str());
+
+    return ai_detector;
+}
+
+// ==================== 核心处理功能 ====================
 void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
     // 如果当前模式为打符模式，不进行装甲板检测
@@ -132,6 +194,8 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         armor_marker_.id = 0;
         text_marker_.id = 0;
     }
+
+    // 进行位姿解算和降自由度优化
 
     //将装甲板分类存放，无效装甲板的装甲板数标为-1
     // std::string         int           std::vector<int>
@@ -225,6 +289,58 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         publishMarkers();
     }
 }
+
+std::vector<Armor> ArmorDetectorNode::detectArmors(
+    const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
+{
+    // Convert ROS img to cv::Mat
+    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+
+    // get color
+    int detect_color = get_parameter("detect_color").as_int();
+
+    auto armors = detector_->detect(img, detect_color);
+
+    // Publish debug info
+    if (debug_) {
+        //计算延迟
+        auto final_time = this->now();
+        auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+        RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
+
+        binary_img_pub_.publish(
+            cv_bridge::CvImage(img_msg->header, "mono8", detector_->getBinaryImage()).toImageMsg());
+
+        if (!armors.empty()) {
+            number_img_pub_.publish(
+                *cv_bridge::CvImage(img_msg->header, "mono8", detector_->getAllNumbersImage())
+                     .toImageMsg());
+        }
+    }
+    return armors;
+}
+
+std::vector<Armor> ArmorDetectorNode::aiDetectArmors(
+    const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
+{
+    // Convert ROS img to cv::Mat
+    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+
+    // 使用 AI 检测器
+    int detect_color = get_parameter("detect_color").as_int();
+    auto armors = ai_detector_->detect(img, detect_color);
+
+    // Publish debug info
+    if (debug_) {
+        //计算延迟
+        auto final_time = this->now();
+        auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+        RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
+    }
+    return armors;
+}
+
+// ==================== 坐标变换和位姿处理 ====================
 bool ArmorDetectorNode::updateTransform(
     std::string target_frame, std::string source_frame, rclcpp::Time timestamp)
 {
@@ -261,6 +377,7 @@ bool ArmorDetectorNode::updateTransform(
         return 0;
     }
 }
+
 void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, const cv::Mat & tvec)
 {
     //提取云台系欧拉角
@@ -306,146 +423,8 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
         RCLCPP_WARN(this->get_logger(), "The car is on the slope");
     }
 }
-std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
-{
-    rcl_interfaces::msg::ParameterDescriptor param_desc;  //用于描述填充参数
-    //设置二值化参数
-    param_desc.integer_range.resize(1);
-    param_desc.integer_range[0].step = 1;
-    param_desc.integer_range[0].from_value = 0;
-    param_desc.integer_range[0].to_value = 255;
-    int binary_thres = declare_parameter("binary_thres", 80, param_desc);
-    auto detect_color = get_parameter("detect_color").as_int();
-    //填充light和armor类所需要的参数
-    Detector::LightParams l_params = {
 
-        .min_ratio = declare_parameter("light.min_ratio", 0.1),
-        .max_ratio = declare_parameter("light.max_ratio", 0.4),
-        .max_angle = declare_parameter("light.max_angle", 40.0)};
-
-    Detector::ArmorParams a_params = {
-        .min_light_ratio = declare_parameter("armor.min_light_ratio", 0.7),
-        .min_small_center_distance = declare_parameter("armor.min_small_center_distance", 0.8),
-        .max_small_center_distance = declare_parameter("armor.max_small_center_distance", 3.2),
-        .min_large_center_distance = declare_parameter("armor.min_large_center_distance", 3.2),
-        .max_large_center_distance = declare_parameter("armor.max_large_center_distance", 5.5),
-        .max_angle = declare_parameter("armor.max_angle", 35.0)};
-
-    //初始化 detector
-    auto detector = std::make_unique<Detector>(binary_thres, detect_color, l_params, a_params);
-
-    //初始化 number classifier
-    auto pkg_path = ament_index_cpp::get_package_share_directory("armor_detector");
-    auto model_path = pkg_path + "/model/mlp.onnx";
-    auto label_path = pkg_path + "/model/label.txt";
-    double threshold = this->declare_parameter("classifier_threshold", 0.7);
-    std::vector<std::string> ignore_classes = this->declare_parameter(
-        "ignore_classes", std::vector<std::string>{"negative"});  ////这里的this并非必须
-
-    detector->classifier =
-        std::make_unique<NumberClassifier>(model_path, label_path, threshold, ignore_classes);
-
-    return detector;
-}
-
-std::unique_ptr<AIDetector> ArmorDetectorNode::initAIDetector()
-{
-    // 声明AI检测器相关参数
-    auto model_path = ament_index_cpp::get_package_share_directory("armor_detector") +
-                      this->declare_parameter("ai_model_path", "/model/0526.onnx");
-    auto device = this->declare_parameter("ai_device", "CPU");
-    auto conf_threshold = this->declare_parameter("ai_conf_threshold", 0.65);
-    auto nms_threshold = this->declare_parameter("ai_nms_threshold", 0.45);
-
-    // 创建AI检测器实例
-    auto ai_detector = std::make_unique<AIDetector>(
-        model_path, device, static_cast<float>(conf_threshold), static_cast<float>(nms_threshold));
-
-    RCLCPP_INFO(this->get_logger(), "AI Detector initialized with model: %s", model_path.c_str());
-
-    return ai_detector;
-}
-
-std::vector<Armor> ArmorDetectorNode::detectArmors(
-    const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
-{
-    // Convert ROS img to cv::Mat
-    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-
-    // Update params
-    detector_->binary_thres = get_parameter("binary_thres").as_int();
-    detector_->detect_color = get_parameter("detect_color").as_int();
-    detector_->classifier->threshold = get_parameter("classifier_threshold").as_double();
-
-    //   //动态调参
-    // param_callback_handle_ = this->add_on_set_parameters_callback(
-    //   std::bind(&ArmorDetectorNode::onParameterChanged, this, std::placeholders::_1)
-    // );
-
-    auto armors = detector_->detect(img);
-    for (auto & armor : armors) {
-        lcc.correctCorners(armor, detector_->gray_img);
-    }
-
-    // Publish debug info
-    if (debug_) {
-        //计算延迟
-        auto final_time = this->now();
-        auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
-        RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
-
-        binary_img_pub_.publish(
-            cv_bridge::CvImage(img_msg->header, "mono8", detector_->binary_img).toImageMsg());
-
-        // Sort lights and armors data by x coordinate
-        std::sort(
-            detector_->debug_lights.data.begin(), detector_->debug_lights.data.end(),
-            [](const auto & l1, const auto & l2) { return l1.center_x < l2.center_x; });
-        std::sort(
-            detector_->debug_armors.data.begin(), detector_->debug_armors.data.end(),
-            [](const auto & a1, const auto & a2) { return a1.center_x < a2.center_x; });
-
-        lights_data_pub_->publish(detector_->debug_lights);
-        armors_data_pub_->publish(detector_->debug_armors);
-
-        if (!armors.empty()) {
-            auto all_num_img = detector_->getAllNumbersImage();
-            number_img_pub_.publish(
-                *cv_bridge::CvImage(img_msg->header, "mono8", all_num_img).toImageMsg());
-        }
-    }
-    return armors;
-}
-
-std::vector<Armor> ArmorDetectorNode::aiDetectArmors(
-    const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
-{
-    // Convert ROS img to cv::Mat
-    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-
-    // 使用 AI 检测器
-    int detect_color = get_parameter("detect_color").as_int();
-    auto armors = ai_detector_->detect(img, detect_color);
-
-    cv::Mat gray_img; 
-    cv::cvtColor(img, gray_img, cv::COLOR_RGB2GRAY);
-    for (auto & armor : armors) {
-        lcc.correctCorners(armor, gray_img);
-    }
-
-    // Publish debug info
-    if (debug_) {
-        //计算延迟
-        auto final_time = this->now();
-        auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
-        RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
-
-        // 发布 AI 检测器调试信息
-        armors_data_pub_->publish(ai_detector_->debug_armors);
-    }
-    return armors;
-}
-
+// ==================== 可视化和调试功能 ====================
 void ArmorDetectorNode::drawResults(
     const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img,
     const std::vector<Armor> & armors)
@@ -493,75 +472,9 @@ void ArmorDetectorNode::drawResults(
         img, latency_s, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
     result_img_pub_.publish(cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
 }
-// //动态调参
-//  rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParameterChanged(const std::vector<rclcpp::Parameter> &parameters)
-//  {
-//   rcl_interfaces::msg::SetParametersResult result;
-//   result.successful = true;
-
-//   for(const auto & param : parameters)
-//   {
-//     if(param.get_name() == "binary_thres")
-//     {
-//       detector_->binary_thres = param.as_int();
-//     }
-//     else if(param.get_name() == "light.min_ratio")
-//     {
-//       detector_->l.min_ratio = param.as_double();
-//     }
-//     else if(param.get_name() == "light.max_ratio")
-//     {
-//       detector_->l.max_ratio = param.as_double();
-//     }
-//     else if(param.get_name() == "light.max_angle")
-//     {
-//       detector_->l.max_angle = param.as_double();
-//     }
-
-//     else if(param.get_name() == "armor.min_light_ratio")
-//     {
-//       detector_->a.min_light_ratio = param.as_double();
-//     }
-//     else if(param.get_name() == "armor.min_small_center_distance")
-//     {
-//       detector_->a.min_small_center_distance = param.as_double();
-//     }
-//     else if(param.get_name() == "armor.max_small_center_distance")
-//     {
-//       detector_->a.max_small_center_distance = param.as_double();
-//     }
-//     else if(param.get_name() == "armor.min_large_center_distance")
-//     {
-//       detector_->a.min_large_center_distance = param.as_double();
-//     }
-//     else if(param.get_name() == "armor.max_large_center_distance")
-//     {
-//       detector_->a.max_large_center_distance = param.as_double();
-//     }
-//     else if(param.get_name() == "armor.max_angle")
-//     {
-//       detector_->a.max_angle = param.as_double();
-//     }
-
-//     else if(param.get_name() == "classifier_threshold")
-//     {
-//       detector_->classifier->threshold = param.as_double();
-//     }
-//     else
-//     {
-//       result.successful = false;
-//       result.reason = "Unknown parameter: " + param.get_name();
-//     }
-//   }
-//   return result;
-//  }
 
 void ArmorDetectorNode::createDebugPublishers()
 {
-    lights_data_pub_ =
-        this->create_publisher<auto_aim_interfaces::msg::DebugLights>("/detector/debug_lights", 10);
-    armors_data_pub_ =
-        this->create_publisher<auto_aim_interfaces::msg::DebugArmors>("/detector/debug_armors", 10);
     marker_pub_ =
         this->create_publisher<visualization_msgs::msg::MarkerArray>("/detector/marker", 10);
 
@@ -572,8 +485,6 @@ void ArmorDetectorNode::createDebugPublishers()
 
 void ArmorDetectorNode::destroyDebugPublishers()
 {
-    lights_data_pub_.reset();
-    armors_data_pub_.reset();
     marker_pub_.reset();
 
     binary_img_pub_.shutdown();
@@ -589,6 +500,7 @@ void ArmorDetectorNode::publishMarkers()
     marker_pub_->publish(marker_array_);
 }
 
+// ==================== 服务回调 ====================
 void ArmorDetectorNode::setModeCallback(
     const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
     std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response)

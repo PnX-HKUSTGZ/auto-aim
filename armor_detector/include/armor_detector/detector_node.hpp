@@ -24,10 +24,9 @@
 #include <string>
 #include <vector>
 
+#include "armor_detector/ai_detector.hpp"
 #include "armor_detector/ba_solver.hpp"
 #include "armor_detector/detector.hpp"
-#include "armor_detector/ai_detector.hpp"
-#include "armor_detector/light_corner_corrector.hpp"
 #include "armor_detector/number_classifier.hpp"
 #include "armor_detector/pnp_solver.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
@@ -46,13 +45,7 @@ public:
     ArmorDetectorNode(const rclcpp::NodeOptions & options);
 
 private:
-    // -------------------- 核心处理功能 --------------------
-    /**
-     * @brief 订阅图像的回调函数，处理图像并进行装甲板检测
-     * @param img_msg 输入的图像消息
-     */
-    void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
-
+    // -------------------- 初始化功能 --------------------
     /**
      * @brief 初始化装甲板检测器
      * @return 初始化好的检测器实例
@@ -64,6 +57,13 @@ private:
      * @return 初始化好的AI检测器实例
      */
     std::unique_ptr<AIDetector> initAIDetector();
+
+    // -------------------- 核心处理功能 --------------------
+    /**
+     * @brief 订阅图像的回调函数，处理图像并进行装甲板检测
+     * @param img_msg 输入的图像消息
+     */
+    void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
 
     /**
      * @brief 执行装甲板检测
@@ -102,13 +102,6 @@ private:
      */
     void chooseBestPose(Armor & armor, const cv::Mat & rvec, const cv::Mat & tvec);
 
-    /**
-     * @brief 处理同一车辆上的两块装甲板，提高解算精度
-     * @param armor1 第一块装甲板
-     * @param armor2 第二块装甲板
-     */
-    void fix_two_armors(Armor & armor1, Armor & armor2);
-
     // -------------------- 可视化和调试功能 --------------------
     /**
      * @brief 绘制检测结果到图像上
@@ -144,56 +137,87 @@ private:
     void setModeCallback(
         const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
         std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response);
-    // Light corner corrector
-    LightCornerCorrector lcc;
 
-    //dynamic parameter
-    OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
-    rcl_interfaces::msg::SetParametersResult onParameterChanged(
-        const std::vector<rclcpp::Parameter> & parameters);
-
-    // Armor Detector
+    // -------------------- 核心检测器 --------------------
     std::unique_ptr<Detector> detector_;
     std::unique_ptr<AIDetector> ai_detector_;
+    bool use_ai_detector_ = false;
 
-    // set_mode service
-    rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
-
-    // Detected armors publisher
-    auto_aim_interfaces::msg::Armors armors_msg_;
-    rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
-
-    // Visualization marker publisher
-    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
-
-    // Camera info part
+    // -------------------- 相机相关 --------------------
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
     cv::Point2f cam_center_;
     std::shared_ptr<sensor_msgs::msg::CameraInfo> cam_info_;
     std::unique_ptr<PnPSolver> pnp_solver_;
     std::unique_ptr<BaSolver> ba_solver_;
 
-    // Image subscrpition
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+    // -------------------- 发布器 --------------------
+    auto_aim_interfaces::msg::Armors armors_msg_;
+    rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 
-    // tf2
+    // -------------------- 服务 --------------------
+    rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
+
+    // -------------------- TF2坐标变换 --------------------
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
     Eigen::Matrix3d r_odom_to_camera;
     Eigen::Vector3d t_odom_to_camera;
 
-    // Debug information
+    // -------------------- 调试相关 --------------------
     bool debug_;
     std::shared_ptr<rclcpp::ParameterEventHandler> debug_param_sub_;
     std::shared_ptr<rclcpp::ParameterCallbackHandle> debug_cb_handle_;
-    rclcpp::Publisher<auto_aim_interfaces::msg::DebugLights>::SharedPtr lights_data_pub_;
-    rclcpp::Publisher<auto_aim_interfaces::msg::DebugArmors>::SharedPtr armors_data_pub_;
     image_transport::Publisher binary_img_pub_;
     image_transport::Publisher number_img_pub_;
     image_transport::Publisher result_img_pub_;
+    
+    /**
+    * @brief 装甲板可视化标记
+    * 用于在RViz中显示检测到的装甲板
+    */
+    visualization_msgs::msg::Marker armor_marker_ = [] {
+        visualization_msgs::msg::Marker marker;
+        marker.ns = "armors";
+        marker.action = visualization_msgs::msg::Marker::ADD;
+        marker.type = visualization_msgs::msg::Marker::CUBE;
+        marker.scale.x = 0.05;
+        marker.scale.z = 0.125;
+        marker.color.a = 1.0;
+        marker.color.g = 0.5;
+        marker.color.b = 1.0;
+        marker.lifetime = rclcpp::Duration::from_seconds(0.1);
+        return marker;
+    }();
 
+
+    /**
+    * @brief 文本可视化标记
+    * 用于在RViz中显示装甲板的分类结果
+    */
+    visualization_msgs::msg::Marker text_marker_ = [] {
+        visualization_msgs::msg::Marker marker;
+        marker.ns = "classification";
+        marker.action = visualization_msgs::msg::Marker::ADD;
+        marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+        marker.scale.z = 0.1;
+        marker.color.a = 1.0;
+        marker.color.r = 1.0;
+        marker.color.g = 1.0;
+        marker.color.b = 1.0;
+        marker.lifetime = rclcpp::Duration::from_seconds(0.1);
+        return marker;
+    }();
+
+    /**
+    * @brief 标记数组
+    * 用于批量管理可视化标记
+    */
+    visualization_msgs::msg::MarkerArray marker_array_;
+
+    // -------------------- 状态控制 --------------------
     bool enable_ = true;
-    bool use_ai_detector_ = false;
 };
 
 }  // namespace rm_auto_aim
