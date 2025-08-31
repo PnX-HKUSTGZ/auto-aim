@@ -6,6 +6,7 @@
 
 #include <Eigen/Core>
 #include <opencv2/core.hpp>
+#include <opencv2/core/types.hpp>
 #include <rclcpp/duration.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -43,6 +44,17 @@ struct Light : public cv::RotatedRect
         length = cv::norm(top - bottom);
         width = cv::norm(p[0] - p[1]);
 
+        tilt_angle = std::atan2(bottom.x - top.x, bottom.y - top.y);
+        tilt_angle = tilt_angle / CV_PI * 180;
+    }
+
+    explicit Light(int color, cv::Point2f top, cv::Point2f bottom) : 
+        cv::RotatedRect((top + bottom) / 2, cv::Size2f(cv::norm(top - bottom) / 4, cv::norm(top - bottom)), 
+                        std::atan2(bottom.x - top.x, bottom.y - top.y) * 180 / CV_PI),
+        color(color), top(top), bottom(bottom)
+    {
+        length = cv::norm(top - bottom);
+        width = length / 4;
         tilt_angle = std::atan2(bottom.x - top.x, bottom.y - top.y);
         tilt_angle = tilt_angle / CV_PI * 180;
     }

@@ -58,18 +58,23 @@ std::vector<Armor> AIDetector::detect(const cv::Mat & input, int detect_color)
     objects_.clear();
     tmp_objects_.clear();
     ious_.clear();
+    armors_.clear();
     debug_armors.data.clear();
+    
+    // 记录原始图像尺寸用于坐标缩放
+    original_width_ = input.cols;
+    original_height_ = input.rows;
     
     // 执行推理
     infer(input, detect_color);
     
     // 将检测对象转换为装甲板
-    std::vector<Armor> armors;
-    armors.reserve(tmp_objects_.size());
+    armors_.reserve(tmp_objects_.size());
     
     for (const auto & obj : tmp_objects_) {
         Armor armor = objectToArmor(obj);
-        armors.push_back(armor);
+        if (armor.type == ArmorType::INVALID) continue;
+        armors_.push_back(armor);
         
         // 添加调试信息
         auto_aim_interfaces::msg::DebugArmor debug_armor;
@@ -81,13 +86,22 @@ std::vector<Armor> AIDetector::detect(const cv::Mat & input, int detect_color)
         debug_armors.data.push_back(debug_armor);
     }
     
-    return armors;
+    return armors_;
 }
 
 void AIDetector::infer(const cv::Mat & img, int detect_color)
 {
+    // 清空之前的结果
+    objects_.clear();
+    tmp_objects_.clear();
+    ious_.clear();
+    
+    // Resize图像到模型输入尺寸
+    cv::Mat resized_img;
+    cv::resize(img, resized_img, cv::Size(IMAGE_WIDTH, IMAGE_HEIGHT));
+    
     // 创建输入张量
-    uchar* input_data = (uchar*)img.data;
+    uchar* input_data = (uchar*)resized_img.data;
     ov::Tensor input_tensor = ov::Tensor(
         compiled_model.input().get_element_type(), 
         compiled_model.input().get_shape(), 
@@ -117,7 +131,7 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
         // 获取置信度 (第8列)
         float confidence = output_buffer.at<float>(i, 8);
         confidence = sigmoid(confidence);
-        
+
         if (confidence < conf_threshold_) {
             continue;
         }
@@ -131,17 +145,17 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
         cv::minMaxLoc(classes_scores, nullptr, &score_num, nullptr, &class_id);
         cv::minMaxLoc(color_scores, nullptr, &score_color, nullptr, &color_id);
         
-        // 过滤不需要的颜色
+        // 过滤不需要的颜色 (修正颜色判断逻辑)
         // color_id.x: 0=red, 1=blue, 2=none, 3=purple
         if (color_id.x == 2 || color_id.x == 3) {  // None 或 Purple
             continue;
         }
         
-        if (detect_color == 0 && color_id.x == 1) {  // 检测蓝色但发现红色
+        if (detect_color == 0 && color_id.x == 1) {  // detect blue but found red
             continue;
         }
         
-        if (detect_color == 1 && color_id.x == 0) {  // 检测红色但发现蓝色
+        if (detect_color == 1 && color_id.x == 0) {  // detect red but found blue
             continue;
         }
         
@@ -151,16 +165,23 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
         obj.color = color_id.x;
         obj.label = class_id.x;
         
-        // 获取关键点坐标 (前8列)
+        // 获取关键点坐标 (前8列) 并缩放到原始图像尺寸
+        float scale_x = static_cast<float>(original_width_) / IMAGE_WIDTH;
+        float scale_y = static_cast<float>(original_height_) / IMAGE_HEIGHT;
+        
         for (int j = 0; j < 8; j++) {
-            obj.landmarks[j] = output_buffer.at<float>(i, j);
+            if (j % 2 == 0) {
+                // x 坐标 (偶数索引)
+                obj.landmarks[j] = output_buffer.at<float>(i, j) * scale_x;
+            } else {
+                // y 坐标 (奇数索引)
+                obj.landmarks[j] = output_buffer.at<float>(i, j) * scale_y;
+            }
         }
         
-        // 计算长度和宽度
-        obj.length = cv::norm(cv::Point2f(obj.landmarks[0] - obj.landmarks[6], 
-                                         obj.landmarks[1] - obj.landmarks[7]));
-        obj.width = cv::norm(cv::Point2f(obj.landmarks[0] - obj.landmarks[2], 
-                                        obj.landmarks[1] - obj.landmarks[3]));
+        // 计算长度和宽度 (按照示范代码修正)
+        obj.length = cv::norm(cv::Point2f(obj.landmarks[0] - obj.landmarks[6]) - cv::Point2f(obj.landmarks[1] - obj.landmarks[7]));
+        obj.width = cv::norm(cv::Point2f(obj.landmarks[0] - obj.landmarks[2]) - cv::Point2f(obj.landmarks[1] - obj.landmarks[3]));
         obj.ratio = obj.length / obj.width;
         
         // 构建四个角点 (左上逆时针 -> 左上顺时针)
@@ -177,18 +198,18 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
         float min_y = points[0].y;
         float max_y = points[0].y;
         
-        for (size_t j = 1; j < points.size(); j++) {
-            min_x = std::min(min_x, points[j].x);
-            max_x = std::max(max_x, points[j].x);
-            min_y = std::min(min_y, points[j].y);
-            max_y = std::max(max_y, points[j].y);
+        for (size_t k = 1; k < points.size(); k++) {
+            min_x = std::min(min_x, points[k].x);
+            max_x = std::max(max_x, points[k].x);
+            min_y = std::min(min_y, points[k].y);
+            max_y = std::max(max_y, points[k].y);
         }
         
         obj.rect = cv::Rect(min_x, min_y, max_x - min_x, max_y - min_y);
         
         objects_.push_back(obj);
         boxes.push_back(obj.rect);
-        confidences.push_back(static_cast<float>(score_num));
+        confidences.push_back(score_num); 
     }
     
     // 非极大值抑制 (NMS)
@@ -204,76 +225,75 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
 
 Armor AIDetector::objectToArmor(const Object & obj)
 {
-    Armor armor;
-    
-    // 设置装甲板类型 (根据长宽比判断)
-    armor.type = (obj.ratio > 2.0) ? ArmorType::LARGE : ArmorType::SMALL;
-    
-    // 创建虚拟的左右灯条
-    Light left_light, right_light;
-    
     // 使用关键点信息构建灯条
     cv::Point2f left_top(obj.landmarks[0], obj.landmarks[1]);
     cv::Point2f left_bottom(obj.landmarks[2], obj.landmarks[3]);
     cv::Point2f right_top(obj.landmarks[6], obj.landmarks[7]);
     cv::Point2f right_bottom(obj.landmarks[4], obj.landmarks[5]);
     
-    // 左灯条
-    left_light.top = left_top;
-    left_light.bottom = left_bottom;
-    left_light.center = (left_top + left_bottom) / 2;
-    left_light.length = cv::norm(left_top - left_bottom);
-    left_light.width = 5.0; // 估计值
-    left_light.color = obj.color;
-    left_light.tilt_angle = 0.0; // 初始化角度
-    
-    // 右灯条
-    right_light.top = right_top;
-    right_light.bottom = right_bottom;
-    right_light.center = (right_top + right_bottom) / 2;
-    right_light.length = cv::norm(right_top - right_bottom);
-    right_light.width = 5.0; // 估计值
-    right_light.color = obj.color;
-    right_light.tilt_angle = 0.0; // 初始化角度
-    
-    armor.left_light = left_light;
-    armor.right_light = right_light;
-    armor.center = (left_light.center + right_light.center) / 2;
-    
+    // 创建虚拟的左右灯条
+    Light left_light(obj.color, left_top, left_bottom);
+    Light right_light(obj.color, right_top, right_bottom);
+    Armor invalid_armor;
+    invalid_armor.type = ArmorType::INVALID;
+
+    // 检验灯条矩形是否越界或者为空
+    if (left_light.boundingRect().area() == 0 || right_light.boundingRect().area() == 0) {
+        return invalid_armor;  // 返回一个空的装甲板对象
+    }
+    if (left_light.boundingRect().x < 0 || left_light.boundingRect().y < 0 ||
+        right_light.boundingRect().x < 0 || right_light.boundingRect().y < 0) {
+        return invalid_armor;  // 返回一个空的装甲板对象
+    }
+    if (left_light.boundingRect().x + left_light.boundingRect().width > original_width_ ||
+        left_light.boundingRect().y + left_light.boundingRect().height > original_height_ ||
+        right_light.boundingRect().x + right_light.boundingRect().width > original_width_ ||
+        right_light.boundingRect().y + right_light.boundingRect().height > original_height_) {
+        return invalid_armor;  // 返回一个空的装甲板对象
+    }
+
+    // 创建装甲板
+    Armor armor(left_light, right_light);
+
     // 设置数字识别结果
-    armor.number = std::to_string(obj.label);
+    std::vector<std::string> classes = {
+        "outpost",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "guard",
+        "base",
+        "base"
+    };
+    armor.number = classes[obj.label];
     armor.confidence = obj.prob;
-    armor.classfication_result = std::to_string(obj.label);
+    std::stringstream result_ss;
+    result_ss << armor.number << ": " << std::fixed << std::setprecision(1)
+                << armor.confidence * 100.0 << "%";
+    armor.classfication_result = result_ss.str();
+    
+    // 设置装甲板类型 (根据数字判断)
+    if (armor.number == "1" || armor.number == "base") armor.type = ArmorType::LARGE; 
+    else armor.type = ArmorType::SMALL;
     
     return armor;
 }
 
 void AIDetector::drawResults(cv::Mat & img)
 {
-    for (const auto & obj : tmp_objects_) {
-        // 绘制边界框
-        cv::rectangle(img, obj.rect, cv::Scalar(0, 255, 0), 2);
-        
-        // 绘制关键点
-        std::vector<cv::Point2f> points;
-        points.reserve(4);
-        for (int i = 0; i < 4; i++) {
-            points.push_back(cv::Point2f(obj.landmarks[i*2], obj.landmarks[i*2+1]));
-        }
-        
-        // 绘制装甲板四个角点
-        for (size_t i = 0; i < points.size(); i++) {
-            cv::circle(img, points[i], 3, cv::Scalar(0, 0, 255), -1);
-            cv::line(img, points[i], points[(i+1) % points.size()], cv::Scalar(255, 0, 0), 2);
-        }
-        
-        // 显示类别和置信度
-        std::string label = "Class: " + std::to_string(obj.label) + 
-                           " Color: " + (obj.color == 0 ? "Red" : "Blue") + 
-                           " Conf: " + std::to_string(obj.prob);
-        
-        cv::putText(img, label, cv::Point(obj.rect.x, obj.rect.y - 10), 
-                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 2);
+    // Draw armors
+    for (const auto & armor : armors_) {
+        cv::line(img, armor.left_light.top, armor.right_light.bottom, cv::Scalar(0, 255, 0), 2);
+        cv::line(img, armor.left_light.bottom, armor.right_light.top, cv::Scalar(0, 255, 0), 2);
+    }
+
+    // Show numbers and confidence
+    for (const auto & armor : armors_) {
+        cv::putText(
+            img, armor.classfication_result, armor.left_light.top, cv::FONT_HERSHEY_SIMPLEX, 0.8,
+            cv::Scalar(0, 255, 255), 2);
     }
 }
 

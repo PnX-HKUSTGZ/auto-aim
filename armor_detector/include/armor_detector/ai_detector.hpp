@@ -124,11 +124,16 @@ private:
     float conf_threshold_;  ///< 置信度阈值
     float nms_threshold_;   ///< NMS 阈值
     std::vector<size_t> input_shape;  ///< 输入形状
+    
+    // 原始图像尺寸 (用于坐标缩放)
+    int original_width_;    ///< 原始图像宽度
+    int original_height_;   ///< 原始图像高度
 
     // 检测结果
     std::vector<Object> objects_;      ///< 原始检测对象
     std::vector<Object> tmp_objects_;  ///< NMS 后的检测对象
     std::vector<float> ious_;          ///< IoU 数组
+    std::vector<Armor> armors_;         ///< 检测到的装甲板
 };
 
 }  // namespace rm_auto_aim

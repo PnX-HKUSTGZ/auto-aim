@@ -38,9 +38,12 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : Node("armor_detector", options)
 {
     RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
-    
+
     // 是否使用 AI detector 参数
     use_ai_detector_ = this->declare_parameter("use_ai_detector", false);
+
+    //设置需要探测的颜色
+    declare_parameter("detect_color", RED);
 
     if (use_ai_detector_) {
         // 初始化 AI 检测器
@@ -112,7 +115,6 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     } else {
         armors = detectArmors(img_msg, img);
     }
-    
 
     // 提取from odom to gimbal的坐标系变换
     if (!updateTransform(img_msg->header.frame_id, "odom", img_msg->header.stamp)) {
@@ -313,11 +315,7 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
     param_desc.integer_range[0].from_value = 0;
     param_desc.integer_range[0].to_value = 255;
     int binary_thres = declare_parameter("binary_thres", 80, param_desc);
-    //设置需要探测的颜色
-    param_desc.description = "0-RED, 1-BLUE";
-    param_desc.integer_range[0].from_value = 0;
-    param_desc.integer_range[0].to_value = 1;
-    auto detect_color = declare_parameter("detect_color", RED, param_desc);
+    auto detect_color = get_parameter("detect_color").as_int();
     //填充light和armor类所需要的参数
     Detector::LightParams l_params = {
 
@@ -353,20 +351,18 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 std::unique_ptr<AIDetector> ArmorDetectorNode::initAIDetector()
 {
     // 声明AI检测器相关参数
-    auto model_path = this->declare_parameter("ai_model_path", 
-        ament_index_cpp::get_package_share_directory("armor_detector") + "/model/0526.onnx");
+    auto model_path = ament_index_cpp::get_package_share_directory("armor_detector") +
+                      this->declare_parameter("ai_model_path", "/model/0526.onnx");
     auto device = this->declare_parameter("ai_device", "CPU");
     auto conf_threshold = this->declare_parameter("ai_conf_threshold", 0.65);
     auto nms_threshold = this->declare_parameter("ai_nms_threshold", 0.45);
-    
+
     // 创建AI检测器实例
     auto ai_detector = std::make_unique<AIDetector>(
-        model_path, device, 
-        static_cast<float>(conf_threshold), 
-        static_cast<float>(nms_threshold));
-    
+        model_path, device, static_cast<float>(conf_threshold), static_cast<float>(nms_threshold));
+
     RCLCPP_INFO(this->get_logger(), "AI Detector initialized with model: %s", model_path.c_str());
-    
+
     return ai_detector;
 }
 
@@ -375,7 +371,7 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
 {
     // Convert ROS img to cv::Mat
     img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-    
+
     // Update params
     detector_->binary_thres = get_parameter("binary_thres").as_int();
     detector_->detect_color = get_parameter("detect_color").as_int();
@@ -426,10 +422,16 @@ std::vector<Armor> ArmorDetectorNode::aiDetectArmors(
 {
     // Convert ROS img to cv::Mat
     img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-    
+
     // 使用 AI 检测器
     int detect_color = get_parameter("detect_color").as_int();
     auto armors = ai_detector_->detect(img, detect_color);
+
+    cv::Mat gray_img; 
+    cv::cvtColor(img, gray_img, cv::COLOR_RGB2GRAY);
+    for (auto & armor : armors) {
+        lcc.correctCorners(armor, gray_img);
+    }
 
     // Publish debug info
     if (debug_) {
@@ -455,7 +457,7 @@ void ArmorDetectorNode::drawResults(
     if (!debug_) {
         return;
     }
-    if (!use_ai_detector_){
+    if (!use_ai_detector_) {
         detector_->drawResults(img);
     } else {
         ai_detector_->drawResults(img);
