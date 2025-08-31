@@ -15,34 +15,54 @@
 
 #include "armor_detector/light_corner_corrector.hpp"
 
-#include <numeric>
 #include <iostream>
+#include <numeric>
+#include <opencv2/core/types.hpp>
+#include <opencv2/highgui.hpp>
+
 
 namespace rm_auto_aim
 {
 
 // 辅助函数：获取Mat类型的字符串表示
-std::string getMatType(const cv::Mat& mat) {
+std::string getMatType(const cv::Mat & mat)
+{
     int type = mat.type();
-    
+
     std::string r;
     uchar depth = type & CV_MAT_DEPTH_MASK;
     uchar chans = 1 + (type >> CV_CN_SHIFT);
-    
+
     switch (depth) {
-        case CV_8U:  r = "8U"; break;
-        case CV_8S:  r = "8S"; break;
-        case CV_16U: r = "16U"; break;
-        case CV_16S: r = "16S"; break;
-        case CV_32S: r = "32S"; break;
-        case CV_32F: r = "32F"; break;
-        case CV_64F: r = "64F"; break;
-        default:     r = "User"; break;
+        case CV_8U:
+            r = "8U";
+            break;
+        case CV_8S:
+            r = "8S";
+            break;
+        case CV_16U:
+            r = "16U";
+            break;
+        case CV_16S:
+            r = "16S";
+            break;
+        case CV_32S:
+            r = "32S";
+            break;
+        case CV_32F:
+            r = "32F";
+            break;
+        case CV_64F:
+            r = "64F";
+            break;
+        default:
+            r = "User";
+            break;
     }
-    
+
     r += "C";
     r += (chans + '0');
-    
+
     return r;
 }
 
@@ -99,16 +119,33 @@ SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat & gray_img, co
     constexpr float MAX_BRIGHTNESS = 25.0f;  // 最大亮度值
     constexpr float scale = 0.07f;           // 缩放比例
 
-    // 缩放灯条的边界框并限制在图像范围内
-    cv::Rect light_box = light.boundingRect();
-    light_box.x -= static_cast<int>(light_box.width * scale);
-    light_box.y -= static_cast<int>(light_box.height * scale);
-    light_box.width += static_cast<int>(light_box.width * scale * 2);
-    light_box.height += static_cast<int>(light_box.height * scale * 2);
-    light_box &= cv::Rect(0, 0, gray_img.cols, gray_img.rows);
+    // 创建扩展的旋转矩形并限制在图像范围内
+    cv::RotatedRect scaled_rect(
+        light.center, 
+        cv::Size2f(light.width * (1 + scale * 2), light.length * (1 + scale * 2)),
+        light.angle);
+    cv::Rect light_box = scaled_rect.boundingRect() & cv::Rect(0, 0, gray_img.cols, gray_img.rows);
 
-    // 提取并归一化灯条区域
+    // 提取ROI并创建掩码
     cv::Mat roi = gray_img(light_box).clone();
+    cv::Mat mask = cv::Mat::zeros(roi.size(), CV_8UC1);
+
+    // 调整旋转矩形到ROI坐标系
+    scaled_rect.center -= cv::Point2f(light_box.x, light_box.y);
+
+    // 创建多边形掩码
+    cv::Point2f vertices[4];
+    scaled_rect.points(vertices);
+    std::vector<cv::Point> polygon;
+    for (const auto& vertex : vertices) {
+        polygon.emplace_back(static_cast<int>(vertex.x), static_cast<int>(vertex.y));
+    }
+    cv::fillPoly(mask, std::vector<std::vector<cv::Point>>{polygon}, 255);
+
+    // 应用掩码并计算均值
+    roi.setTo(0, ~mask);
+    cv::imshow("roi", roi);
+    cv::waitKey(0);
     float mean_val = cv::mean(roi)[0];  // 计算平均亮度值
     roi.convertTo(roi, CV_32F);
     cv::normalize(roi, roi, 0, MAX_BRIGHTNESS, cv::NORM_MINMAX);

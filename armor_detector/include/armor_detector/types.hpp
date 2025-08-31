@@ -183,8 +183,8 @@ struct Light : public cv::RotatedRect
      */
     explicit Light(int color, cv::Point2f top, cv::Point2f bottom)
     : cv::RotatedRect(
-          (top + bottom) / 2, cv::Size2f(cv::norm(top - bottom) / 4, cv::norm(top - bottom)),
-          std::atan2(bottom.x - top.x, bottom.y - top.y) * 180 / CV_PI),
+          (top + bottom) / 2, cv::Size2f(cv::norm(top - bottom), cv::norm(top - bottom) / 4),
+          -std::atan2(bottom.x - top.x, bottom.y - top.y) * 180 / CV_PI),
       color(color),
       top(top),
       bottom(bottom)
