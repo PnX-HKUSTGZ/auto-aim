@@ -2,6 +2,10 @@
 
 订阅相机参数及图像流进行装甲板的识别并解算三维位置，输出识别到的装甲板在输入图像帧下的三维坐标（相机坐标系或通过坐标变换得到的世界坐标系）。
 
+支持两种检测模式：
+- **传统检测器** (`Detector`) - 基于图像处理的装甲板检测
+- **AI检测器** (`AIDetector`) - 基于深度学习模型的装甲板检测
+
 ## detector_node.cpp
 
 装甲板识别与位姿解算节点
@@ -28,29 +32,81 @@
 ### 参数 
 
 * `debug` (`bool`, default: false) - 是否开启调试模式（开启后发布调试信息）
-* `binary_thres` (`int`, default: 80) - 灯条检测的二值化阈值
+* `use_ai_detector` (`bool`, default: false) - 是否使用AI检测器进行装甲板检测
 * `detect_color` (`int`, default: 0) - 检测颜色，0为红，1为蓝
+
+#### 传统检测器参数
+
+* `binary_thres` (`int`, default: 80) - 灯条检测的二值化阈值
 * `classifier_threshold` (`double`, default: 0.7) - 数字分类的置信度阈值
 * `ignore_classes` (`vector<string>`, default: ["negative"]) - 被忽略的分类类别
 
-#### 灯条检测参数 (light)
+#### AI检测器参数
+
+* `ai_model_path` (`string`, default: "/model/0526.onnx") - AI模型文件路径（相对于包的share目录）
+* `ai_device` (`string`, default: "CPU") - 推理设备 ("CPU", "GPU", etc.)
+* `ai_conf_threshold` (`double`, default: 0.65) - AI检测器的置信度阈值
+* `ai_nms_threshold` (`double`, default: 0.45) - 非极大值抑制阈值
+
+#### 灯条检测参数 (light) - 仅适用于传统检测器
 
 * `light.min_ratio` (`double`, default: 0.1) - 灯条最小长宽比
 * `light.max_ratio` (`double`, default: 0.4) - 灯条最大长宽比
 * `light.max_angle` (`double`, default: 40.0) - 灯条最大倾斜角度
 
-#### 装甲板检测参数 (armor)
+#### 装甲板检测参数 (armor) - 仅适用于传统检测器
 
 * `armor.min_light_ratio` (`double`, default: 0.7) - 最小灯条高度比
 * `armor.min_small_center_distance` (`double`, default: 0.8) - 小装甲板中心最小间距比
-* `armor.max_small_center_distance` (`double`, default: 3.2) - 小装甲板中心最小间距比
-* `armor.min_large_center_distance` (`double`, default: 3.2) - 小装甲板中心最小间距比
-* `armor.max_large_center_distance` (`double`, default: 5.5) - 小装甲板中心最小间距比
+* `armor.max_small_center_distance` (`double`, default: 3.2) - 小装甲板中心最大间距比
+* `armor.min_large_center_distance` (`double`, default: 3.2) - 大装甲板中心最小间距比
+* `armor.max_large_center_distance` (`double`, default: 5.5) - 大装甲板中心最大间距比
 * `armor.max_angle` (`double`, default: 35.0) - 装甲板对之间的最大倾斜角
+
+## base_detector.hpp
+
+装甲板检测器基类，定义了所有装甲板检测器的统一接口。
+
+### 主要功能
+
+- **detect()** - 纯虚函数，实现装甲板检测
+- **drawResults()** - 纯虚函数，绘制检测结果
+- **getDetectorType()** - 获取检测器类型名称
+
+## ai_detector.cpp
+
+基于OpenVINO深度学习框架的AI装甲板检测器
+
+### 主要特性
+
+- 使用ONNX模型进行端到端的装甲板检测和数字识别
+- 支持CPU和GPU推理
+- 集成非极大值抑制(NMS)算法
+- 自动进行坐标缩放和角点矫正
+
+### 核心功能
+
+#### AIDetector 构造函数
+初始化AI检测器，加载ONNX模型并配置OpenVINO推理环境
+
+#### detect
+执行AI模型推理，检测装甲板并识别数字
+
+#### infer
+- 图像预处理（缩放到模型输入尺寸）
+- 模型推理
+- 输出解析（置信度、颜色、数字类别、关键点坐标）
+- 非极大值抑制
+
+#### objectToArmor
+将AI检测的原始输出转换为标准的Armor结构
+
+### 支持的数字类别
+`["outpost", "1", "2", "3", "4", "5", "guard", "base", "base"]`
 
 ## detector.cpp
 
-装甲板识别器
+传统装甲板识别器（继承自BaseDetector）
 
 ### preprocessImage
 对输入的RGB图像进行预处理，生成二值化后的图片
