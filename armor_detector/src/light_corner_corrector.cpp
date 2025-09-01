@@ -144,8 +144,6 @@ SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat & gray_img, co
 
     // 应用掩码并计算均值
     roi.setTo(0, ~mask);
-    cv::imshow("roi", roi);
-    cv::waitKey(0);
     float mean_val = cv::mean(roi)[0];  // 计算平均亮度值
     roi.convertTo(roi, CV_32F);
     cv::normalize(roi, roi, 0, MAX_BRIGHTNESS, cv::NORM_MINMAX);
