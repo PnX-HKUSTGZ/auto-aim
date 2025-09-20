@@ -37,7 +37,10 @@ namespace rm_auto_aim
 // ==================== 构造函数 ====================
 ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : Node("armor_detector", options)
-{
+{   // 参数化话题名
+    image_topic_ = this->declare_parameter<std::string>("image_topic", "/image_raw");
+    camera_info_topic_ = this->declare_parameter<std::string>("camera_info_topic", "/camera_info");
+    result_topic_ = this->declare_parameter<std::string>("result_topic", "/detector/armors");
     RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
 
     // 是否使用 AI detector 参数
@@ -56,7 +59,7 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
     //提取相机内参
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-        "/camera_info", rclcpp::SensorDataQoS(),
+        camera_info_topic_, rclcpp::SensorDataQoS(),
         [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             cam_info_ = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
@@ -73,12 +76,12 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
     //收到图像信息后回调imageCallback函数
     img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-        "/image_raw", rclcpp::SensorDataQoS(),
+        image_topic_, rclcpp::SensorDataQoS(),
         std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
 
     // 初始化Armors Publisher
     armors_pub_ = this->create_publisher<auto_aim_interfaces::msg::Armors>(
-        "/detector/armors", rclcpp::SensorDataQoS());
+        result_topic_, rclcpp::SensorDataQoS());
 
     //tf2
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());

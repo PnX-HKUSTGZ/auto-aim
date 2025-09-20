@@ -45,6 +45,10 @@ public:
     ArmorDetectorNode(const rclcpp::NodeOptions & options);
 
 private:
+    // ==================== 参数声明 ====================
+    std::string image_topic_;
+    std::string camera_info_topic_;
+    std::string result_topic_;
     // -------------------- 初始化功能 --------------------
     /**
      * @brief 初始化装甲板检测器

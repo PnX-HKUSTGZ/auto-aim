@@ -61,11 +61,13 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // 将TF2消息与Armors消息绑定
     armors_sub_.subscribe(this, "/detector/armors", rmw_qos_profile_sensor_data);
+    wide_armors_sub_.subscribe(this, "/wide_detector/armors", rmw_qos_profile_sensor_data);
     target_frame_ = this->declare_parameter("target_frame", "odom");
     tf2_filter_ = std::make_shared<tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>>(
         armors_sub_, *tf2_buffer_, target_frame_, 10, this->get_node_logging_interface(),
         this->get_node_clock_interface(), std::chrono::duration<int>(1));
     tf2_filter_->registerCallback(&ArmorTrackerNode::armorsCallback, this);
+    wide_armors_sub_.registerCallback(&ArmorTrackerNode::wideArmorsCallback, this);
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
@@ -297,10 +299,16 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
         frame_count++;
     }
 
+    auto armors_msg_used = armors_msg;
+    // 如果主相机 armors 为空，且有广角数据，则用广角
+    if (armors_msg_used->armors.empty() && last_wide_armors_ && !last_wide_armors_->armors.empty()) {
+        armors_msg_used = last_wide_armors_;
+    }
+
     // Tranform armor position from image frame to odom coordinate
-    for (auto & armor : armors_msg->armors) {
+    for (auto & armor : armors_msg_used->armors) {
         geometry_msgs::msg::PoseStamped ps;
-        ps.header = armors_msg->header;
+        ps.header = armors_msg_used->header;
         ps.pose = armor.pose;
         try {
             armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
@@ -311,17 +319,17 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     }
 
     // Filter abnormal armors
-    armors_msg->armors.erase(
+    armors_msg_used->armors.erase(
         std::remove_if(
-            armors_msg->armors.begin(), armors_msg->armors.end(),
+            armors_msg_used->armors.begin(), armors_msg_used->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
                 return Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
                        max_armor_distance_;
             }),
-        armors_msg->armors.end());
+        armors_msg_used->armors.end());
 
     // 计算时间差
-    rclcpp::Time time = armors_msg->header.stamp;
+    rclcpp::Time time = armors_msg_used->header.stamp;
     try {
         dt_ = (time - last_time_).seconds();
     } catch (const std::exception & e) {
@@ -334,7 +342,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     // 更新dt
     tracker_manager_->updateEKFTemplate(dt_);
     // 使用 TrackerManager 更新所有追踪器
-    tracker_manager_->update(armors_msg, dt_);
+    tracker_manager_->update(armors_msg_used, dt_);
     // 清理不活跃的追踪器
     tracker_manager_->cleanInactiveTrackers(this->now());
     // 选择最佳追踪目标
@@ -367,7 +375,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             }
         }
 
-        if (!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_) {
+        if (!armors_msg_used->image.data.empty() && armors_msg_used->image.header.stamp != last_img_time_) {
             // 获取所有活跃的跟踪器ID
             std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
 
@@ -375,7 +383,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             visualization_msgs::msg::MarkerArray marker_array;
 
             // 创建一个副本用于绘制
-            cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
+            cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg_used->image, "bgr8")->image;
 
             // 首先绘制当前活跃的主要目标
             if (target_msg.tracking) {
@@ -400,7 +408,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             // 添加通用信息（如相机中心、延迟等）
             cv::circle(combined_image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
             auto latency =
-                (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000;
+                (this->now() - rclcpp::Time(armors_msg_used->image.header.stamp)).seconds() * 1000;
             std::stringstream text;
             text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
             cv::putText(
@@ -409,13 +417,18 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
 
             // 发布最终的组合图像
             auto processed_image_msg =
-                cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
+                cv_bridge::CvImage(armors_msg_used->image.header, "bgr8", combined_image).toImageMsg();
             tracker_img_pub_.publish(*processed_image_msg);
             marker_pub_->publish(marker_array);
 
-            last_img_time_ = armors_msg->image.header.stamp;
+            last_img_time_ = armors_msg_used->image.header.stamp;
         }
     }
+}
+
+void ArmorTrackerNode::wideArmorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr msg)
+{
+    last_wide_armors_ = msg;
 }
 
 void ArmorTrackerNode::drawImgAll(
