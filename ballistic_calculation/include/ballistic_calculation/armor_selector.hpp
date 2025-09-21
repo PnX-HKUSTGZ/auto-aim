@@ -3,7 +3,7 @@
 
 #include <angles/angles.h>
 #include <ceres/ceres.h>
-#include "math_uitl.hpp"
+#include "math_util.hpp"
 
 namespace rm_auto_aim
 {
@@ -18,6 +18,7 @@ class ArmorSelector
 using target = auto_aim_interfaces::msg::Target;
 
 public:
+    ArmorSelector(): lock_id(-1), coming_angle_(70.0 / 57.3), leaving_angle_(30.0 / 57.3) {}
     /**
      * @brief 更新目标信息
      * 
@@ -36,6 +37,12 @@ public:
      * 二级策略：引入放弃角度，选择更容易击中的装甲板
      * 三级策略：高速瞄准中心点
      * 
+     * 保持原有接口：输入预测时间 T，以及速度阈值 min_v/max_v。
+     * 内部使用类似 auto_aim::Aimer 中的装甲板选择策略：
+     * - 若目标角速度过快（> max_v），直接瞄向中心点（三级策略）
+     * - 若目标不“快速旋转”（小角速度），选择在可射击视野内且角度差最小的装甲（锁定机制）
+     * - 在“旋转”场景下，使用 coming/leaving 角度判断优先出现的装甲板
+     * 
      * @param T 预测时间
      * @param min_v 一级策略切换二级策略的速度临界值
      * @param max_v 二级策略切换三级策略的速度临界值
@@ -46,14 +53,14 @@ public:
         double T, double min_v, double max_v, double v_yaw_gimble)
     {
         // 三级策略：目标角速度过快时，瞄准中心点
-        if (abs(target_msg.v_yaw) > max_v) {
+        if (std::abs(target_msg.v_yaw) > max_v) {
             return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0};
         }
         
         int a_n = target_msg.armors_num;  // 装甲板数量
         std::vector<Armor> armors(a_n);   // 装甲板容器
 
-        // 计算未来 T 时间的目标中心位置
+        // 计算未来 T 时间的目标中心位置（线性运动预测）
         double newyaw = target_msg.yaw + target_msg.v_yaw * T;        // 预测偏航角
         double newxc = target_msg.position.x + target_msg.velocity.x * T;  // 预测X坐标
         double newyc = target_msg.position.y + target_msg.velocity.y * T;  // 预测Y坐标
@@ -64,7 +71,7 @@ public:
         // 按顺时针方向计算每个装甲板的位置和属性
         for (int i = 0; i < a_n; ++i) {
             // 计算装甲板的偏航角
-            armors[i].yaw = i == 0 ? newyaw : armors[i - 1].yaw + 2 * M_PI / a_n;
+            armors[i].yaw = (i == 0) ? newyaw : armors[i - 1].yaw + 2 * M_PI / a_n;
 
             // 设置装甲板半径（奇偶装甲板可能有不同半径）
             armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
@@ -78,40 +85,86 @@ public:
             armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
             
             // 计算装甲板到枪口的最短角度距离（代价函数）
-            armors[i].cost = angles::shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
+            armors[i].cost = shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
         }
 
-        // 按角度距离排序，找到最容易击中的装甲板
-        std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
-            return std::abs(a.cost) < std::abs(b.cost);
+        // 当角速度较小，选在可射击范围（±60°）内代价最小的装甲板，并提供锁定机制
+        const double small_spin_threshold = 2.0; // 阈值选择与Aimer中的保持一致
+        if (std::abs(target_msg.v_yaw) <= small_spin_threshold) {
+            // 收集在可射击视野内的装甲（±60度）
+            std::vector<int> id_list;
+            const double visible_limit = 60.0 / 57.3;
+            for (int i = 0; i < static_cast<int>(armors.size()); ++i) {
+                if (std::abs(shortest_angular_distance(armors[i].yaw, gun_to_center_angle)) > visible_limit)
+                    continue;
+                id_list.push_back(i);
+            }
+        
+            // 若没有装甲在视野内，退回到代价最小的那个装甲
+            if (id_list.empty()) {
+                // 选代价最小的装甲
+                auto it = std::min_element(armors.begin(), armors.end(), [](const Armor & A, const Armor & B){
+                    return std::abs(A.cost) < std::abs(B.cost);
+                });
+                Armor chosen = *it;
+                double set_yaw = chosen.yaw;
+                // 返回补偿旋转后的偏航
+                return {set_yaw - target_msg.v_yaw * T, chosen.z, chosen.r};
+            } 
+
+            // 如果多个装甲在视野内，使用锁定（lock_id_）避免在两个装甲间来回切换
+            if (id_list.size() > 1) {
+                int id0 = id_list[0];
+                int id1 = id_list[1];
+                if (lock_id != id0 && lock_id != id1) {
+                    lock_id = (std::abs(armors[id0].cost) < std::abs(armors[id1].cost)) ? id0 : id1;
+                }
+                Armor chosen = armors[lock_id];
+                double set_yaw = chosen.yaw;
+                return {set_yaw - target_msg.v_yaw * T, chosen.z, chosen.r};
+            }
+
+            // 只有一个装甲在可射击范围内，退出锁定并选它
+            lock_id = -1;
+            Armor chosen = armors[id_list[0]];
+            double set_yaw = chosen.yaw;
+            return {set_yaw - target_msg.v_yaw * T, chosen.z, chosen.r};
+        }
+
+
+        // 处理“陀螺/快速旋转”情形（coming/leaving逻辑）
+        double coming_angle = coming_angle_;
+        double leaving_angle = leaving_angle_;
+
+        for (int i = 0; i < static_cast<int>(armors.size()); ++i) {
+            double delta_angle = shortest_angular_distance(armors[i].yaw, std::atan2(newyc, newxc));
+            if (std::abs(delta_angle) > coming_angle) continue;
+            if (target_msg.v_yaw > 0 && delta_angle < leaving_angle) {
+                Armor chosen = armors[i];
+                double set_yaw = chosen.yaw;
+                return {set_yaw - target_msg.v_yaw * T, chosen.z, chosen.r};
+            }
+            if (target_msg.v_yaw < 0 && delta_angle > -leaving_angle) {
+                Armor chosen = armors[i];
+                double set_yaw = chosen.yaw;
+                return {set_yaw - target_msg.v_yaw * T, chosen.z, chosen.r};
+            }
+        }
+
+        // 若以上规则都没命中，则回退到代价最小的装甲（与点乘策略相似）
+        auto it = std::min_element(armors.begin(), armors.end(), [](const Armor & A, const Armor & B) {
+            return std::abs(A.cost) < std::abs(B.cost);
         });
-        Armor chosen_armor = armors[0];  // 选择角度距离最小的装甲板
-        
-        // 计算放弃角度（用于二级策略判断）
-        double yaw = findYaw(
-            abs(target_msg.v_yaw), v_yaw_gimble, sqrt(pow(newxc, 2) + pow(newyc, 2)),
-            chosen_armor.r, target_msg.armors_num);
-            
-        // 一级策略：低速或最优装甲板角度小于放弃角度时，直接选择最优装甲板
-        if (std::isnan(yaw) || abs(target_msg.v_yaw) < min_v || abs(armors[0].cost) <= yaw) {
-            return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
-        }
-        
-        // 二级策略：考虑运动方向，选择更容易击中的装甲板
-        if ((armors[0].cost < 0 && target_msg.v_yaw < 0) ||
-            (armors[0].cost > 0 && target_msg.v_yaw > 0)) {
-            chosen_armor = armors[1];  // 选择次优装甲板
-        }
-        
-        // 根据运动方向调整放弃角度的符号
-        yaw = chosen_armor.cost > 0 ? abs(yaw) : -abs(yaw);
-        double set_yaw = gun_to_center_angle + yaw;
-        
-        return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        Armor chosen = *it;
+        double set_yaw = chosen.yaw;
+        return {set_yaw - target_msg.v_yaw * T, chosen.z, chosen.r};
     }
 
 private: 
-    target target_msg;  // 目标信息缓存
+    target target_msg;          // 目标信息缓存
+    int lock_id;                // 锁定的装甲索引，避免来回切换
+    double coming_angle_;       // coming angle (rad)
+    double leaving_angle_;      // leaving angle (rad)
 
     /**
      * @brief 装甲板结构体
@@ -129,7 +182,7 @@ private:
     };
     
     /**
-     * @brief 通过优化求解放弃角度
+     * @brief 通过优化求解放弃角度（保留原接口实现）
      * 
      * 使用Ceres优化器求解满足几何约束的最优放弃角度
      * 
