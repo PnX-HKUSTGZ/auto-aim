@@ -384,7 +384,6 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
 
             // 创建一个副本用于绘制
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg_used->image, "bgr8")->image;
-
             // 首先绘制当前活跃的主要目标
             if (target_msg.tracking) {
                 drawImgAll(target_msg, combined_image, true);  // true表示是主要目标，用绿色标识

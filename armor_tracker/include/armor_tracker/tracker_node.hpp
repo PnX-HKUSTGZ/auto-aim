@@ -75,6 +75,15 @@ private:
     void armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr);
 
     /**
+     * @brief 广角装甲板数据回调函数
+     * 
+     * 接收广角相机的装甲板检测结果，进行缓存以供主相机使用。
+     * 
+     * @param msg 装甲板消息指针
+     */
+    void wideArmorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr msg);
+
+    /**
      * @brief 绘制可视化标记
      * 
      * 在RViz中绘制追踪目标的位置、速度、轨迹等可视化标记。
@@ -121,6 +130,9 @@ private:
     // The time when the last message was received
     rclcpp::Time last_time_ = rclcpp::Time(0);
     double dt_ = 0.01;
+
+    // 广角相机缓存
+    auto_aim_interfaces::msg::Armors::SharedPtr last_wide_armors_;
 
     // Armor tracker
     double s2qxy_, s2qz_, s2qyaw_, s2qr_;

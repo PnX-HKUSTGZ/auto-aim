@@ -41,6 +41,7 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     image_topic_ = this->declare_parameter<std::string>("image_topic", "/image_raw");
     camera_info_topic_ = this->declare_parameter<std::string>("camera_info_topic", "/camera_info");
     result_topic_ = this->declare_parameter<std::string>("result_topic", "/detector/armors");
+    result_img_topic_ = this->declare_parameter<std::string>("result_img_topic", "/detector_main/result_img");
     RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
 
     // 是否使用 AI detector 参数
@@ -70,9 +71,9 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
     // 设置自瞄模式
     set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
-        "armor_detector/set_mode", std::bind(
-                                       &ArmorDetectorNode::setModeCallback, this,
-                                       std::placeholders::_1, std::placeholders::_2));
+    std::string(this->get_name()) + "/set_mode", std::bind(
+        &ArmorDetectorNode::setModeCallback, this,
+        std::placeholders::_1, std::placeholders::_2));
 
     //收到图像信息后回调imageCallback函数
     img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
@@ -376,7 +377,8 @@ bool ArmorDetectorNode::updateTransform(
             odom_to_camera_tf.transform.translation.z);
         return 1;
     } catch (...) {
-        RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform");
+        RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform: target_frame=%s, source_frame=%s",
+                 target_frame.c_str(), source_frame.c_str());
         return 0;
     }
 }
@@ -483,7 +485,7 @@ void ArmorDetectorNode::createDebugPublishers()
 
     binary_img_pub_ = image_transport::create_publisher(this, "/detector/binary_img");
     number_img_pub_ = image_transport::create_publisher(this, "/detector/number_img");
-    result_img_pub_ = image_transport::create_publisher(this, "/detector/result_img");
+    result_img_pub_ = image_transport::create_publisher(this, result_img_topic_ );
 }
 
 void ArmorDetectorNode::destroyDebugPublishers()
