@@ -22,6 +22,7 @@
 #include "ballistic_calculation/ballistic_calculator.hpp"
 #include "ballistic_calculation/aim_info.hpp"
 #include "ballistic_calculation/armor_selector.hpp"
+#include "ballistic_calculation/mpc_controller.hpp"
 
 namespace rm_auto_aim
 {
@@ -101,8 +102,8 @@ private:
     double K2;             // 第二次大迭代时的步长
     double K;              // 空气阻力系数
     double BULLET_V;       // 子弹出膛速度
-    double THRES1 = 0.01;  // 第一次迭代的收敛阈值
-    double THRES2 = 0.005; // 第二次迭代的收敛阈值
+    static const double THRES1;  // 第一次迭代的收敛阈值
+    static const double THRES2; // 第二次迭代的收敛阈值
     double ifFireK_;       // 判断是否开火的角度阈值
     double min_v;          // 一级策略切换二级策略速度临界值
     double max_v;          // 二级策略切换三级策略速度临界值
@@ -133,6 +134,10 @@ private:
      * @return cv::Point2f 图像平面上的2D点（归一化坐标）
      */
     cv::Point2f projectPointToImage(const Eigen::Vector3d & point_3d);
+
+    Eigen::Vector4d getCurrentGimbalState();
+
+    std::unique_ptr<rm_auto_aim::MPCController> mpc_controller_;
 };
 
 }  // namespace rm_auto_aim

@@ -35,45 +35,6 @@ private:
     double fire_delay;  // 开火延迟，需要parameter_declare来调整参数
 
     /**
-     * @brief 固定迭代法计算俯仰角
-     * 
-     * @param horizon_dis 水平距离（引用传递）
-     * @param height 垂直高度（引用传递）
-     * @return std::pair<double, double> 返回计算得到的俯仰角和飞行时间
-     */
-    std::pair<double, double> fixTiteratPitch(double & horizon_dis, double & height)
-    {
-        double dist_horizon = horizon_dis;  // 和目标在水平方向上的距离
-        double target_height = height;      // 和目标在垂直方向上的距离
-
-        // 迭代参数初始化
-        double vx, vy, fly_time, tmp_height = target_height, delta_height = 0, tmp_pitch,
-                                 real_height;
-        
-        // 进行10次迭代优化
-        for (size_t i = 0; i < 10; i++) {
-            // 计算当前俯仰角
-            tmp_pitch = atan((tmp_height) / dist_horizon);
-            
-            // 分解初始速度
-            vx = bulletV * cos(tmp_pitch);
-            vy = bulletV * sin(tmp_pitch);
-
-            // 计算飞行时间（考虑空气阻力）
-            fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
-            
-            // 计算实际高度（考虑重力和空气阻力）
-            double term = vy + 9.8 / k;
-            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
-            
-            // 计算高度误差并修正
-            delta_height = target_height - real_height;
-            tmp_height += delta_height;
-        }
-        return std::make_pair(tmp_pitch, fly_time + fire_delay);
-    };
-
-    /**
      * @brief 使用 Ceres 优化器优化飞行时间
      * 
      * @tparam T 目标信息类型模板
@@ -188,7 +149,7 @@ public:
      */
     template <typename T>
     std::pair<double, double> iteration(
-        double & thres, double & init_pitch, double & init_t, T & target_info)
+        const double & thres, double & init_pitch, double & init_t, T & target_info)
     {
         double pitch = init_pitch, t = init_t;  // 初始化pitch和t
         double differ;  // 角度差值
@@ -235,6 +196,46 @@ public:
     {
         return bulletV;
     }
+
+    /**
+     * @brief 固定迭代法计算俯仰角
+     * 
+     * @param horizon_dis 水平距离（引用传递）
+     * @param height 垂直高度（引用传递）
+     * @return std::pair<double, double> 返回计算得到的俯仰角和飞行时间
+     */
+    std::pair<double, double> fixTiteratPitch(double & horizon_dis, double & height)
+    {
+        double dist_horizon = horizon_dis;  // 和目标在水平方向上的距离
+        double target_height = height;      // 和目标在垂直方向上的距离
+
+        // 迭代参数初始化
+        double vx, vy, fly_time, tmp_height = target_height, delta_height = 0, tmp_pitch,
+                                 real_height;
+        
+        // 进行10次迭代优化
+        for (size_t i = 0; i < 10; i++) {
+            // 计算当前俯仰角
+            tmp_pitch = atan((tmp_height) / dist_horizon);
+            
+            // 分解初始速度
+            vx = bulletV * cos(tmp_pitch);
+            vy = bulletV * sin(tmp_pitch);
+
+            // 计算飞行时间（考虑空气阻力）
+            fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
+            
+            // 计算实际高度（考虑重力和空气阻力）
+            double term = vy + 9.8 / k;
+            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
+            
+            // 计算高度误差并修正
+            delta_height = target_height - real_height;
+            tmp_height += delta_height;
+        }
+        return std::make_pair(tmp_pitch, fly_time + fire_delay);
+    };
+
 };
 
 }  //namespace rm_auto_aim
