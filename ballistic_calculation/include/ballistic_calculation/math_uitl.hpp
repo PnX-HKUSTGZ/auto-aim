@@ -17,23 +17,6 @@ namespace rm_auto_aim
 enum class EulerOrder { XYZ, XZY, YXZ, YZX, ZXY, ZYX };
 
 /**
- * @brief 计算两个角度之间的最短角距离
- * 
- * 将角度差规范化到 [-π, π] 范围
- * 
- * @param a 角度1（弧度）
- * @param b 角度2（弧度）
- * @return double 最短角距离（弧度）
- */
-inline double shortest_angular_distance(double a, double b)
-{
-    double diff = a - b;
-    while (diff > M_PI) diff -= 2.0 * M_PI;
-    while (diff < -M_PI) diff += 2.0 * M_PI;
-    return diff;
-}
-
-/**
  * @brief 将欧拉角转换为旋转矩阵
  * 
  * @param euler 欧拉角向量 [roll, pitch, yaw]

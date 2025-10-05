@@ -7,7 +7,7 @@
 #include <Eigen/Dense>
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
-#include "math_util.hpp"
+#include "math_uitl.hpp"
 #include <map>
 namespace rm_auto_aim
 {
