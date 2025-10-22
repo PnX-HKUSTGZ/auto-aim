@@ -61,13 +61,16 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // 将TF2消息与Armors消息绑定
     armors_sub_.subscribe(this, "/detector/armors", rmw_qos_profile_sensor_data);
-    wide_armors_sub_.subscribe(this, "/wide_detector/armors", rmw_qos_profile_sensor_data);
     target_frame_ = this->declare_parameter("target_frame", "odom");
     tf2_filter_ = std::make_shared<tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>>(
         armors_sub_, *tf2_buffer_, target_frame_, 10, this->get_node_logging_interface(),
         this->get_node_clock_interface(), std::chrono::duration<int>(1));
     tf2_filter_->registerCallback(&ArmorTrackerNode::armorsCallback, this);
-    wide_armors_sub_.registerCallback(&ArmorTrackerNode::wideArmorsCallback, this);
+    // wide_armors_sub_.registerCallback(&ArmorTrackerNode::wideArmorsCallback, this);
+    wide_armors_sub_ = this->create_subscription<auto_aim_interfaces::msg::Armors>(
+    "/wide_detector/armors",
+    rclcpp::SensorDataQoS(),
+    std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1));
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
@@ -302,7 +305,15 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     auto armors_msg_used = armors_msg;
     // 如果主相机 armors 为空，且有广角数据，则用广角
     if (armors_msg_used->armors.empty() && last_wide_armors_ && !last_wide_armors_->armors.empty()) {
-        armors_msg_used = last_wide_armors_;
+        // 检查时间差，确保广角相机数据不会太旧
+        double time_diff = std::abs(
+    (rclcpp::Time(armors_msg->header.stamp) - rclcpp::Time(last_wide_armors_->header.stamp)).seconds());
+        if (time_diff < 0.1) { // 允许100ms的时差
+            RCLCPP_DEBUG(this->get_logger(), "Using wide camera data, time diff: %f ms", time_diff * 1000);
+            armors_msg_used = last_wide_armors_;
+        } else {
+            RCLCPP_WARN(this->get_logger(), "Wide camera data too old: %f ms", time_diff * 1000);
+        }
     }
 
     // Tranform armor position from image frame to odom coordinate
@@ -352,7 +363,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     auto_aim_interfaces::msg::Target target_msg;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
     if (!success) {
-        return;
+        target_msg.tracking = false;  // 如果没有有效目标，设置tracking为false
     }
     target_msg.header.stamp = time;
     target_msg.header.frame_id = target_frame_;
