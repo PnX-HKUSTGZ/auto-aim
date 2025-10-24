@@ -118,6 +118,8 @@ private:
     int rate = 1000;               // 节点运行频率
     double ifFireK;                // 动态开火阈值
     rclcpp::Time last_fire_time;   // 上次开火时间
+    float current_yaw_vel = 0.0;
+    float current_pitch_vel = 0.0;
 
     // 相机信息和图像投影
     sensor_msgs::msg::CameraInfo cam_info_;  // 相机内参信息

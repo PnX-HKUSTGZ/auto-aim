@@ -16,12 +16,20 @@ namespace rm_auto_aim
  */
 enum class EulerOrder { XYZ, XZY, YXZ, YZX, ZXY, ZYX };
 
-inline double limit_rad(double angle)
-{
-    while (angle > M_PI) angle -= 2 * M_PI;
-    while (angle < -M_PI) angle += 2 * M_PI;
-    return angle;
-} 
+inline double limit_rad(double angle) {
+    // 首先将角度归一化到[0, 2π)范围
+    double mod = fmod(angle, 2 * M_PI);
+    if (mod < 0) {
+        mod += 2 * M_PI;  // 确保结果为非负值
+    }
+    
+    // 转换到[-π, π]范围
+    if (mod > M_PI) {
+        mod -= 2 * M_PI;
+    }
+    
+    return mod;
+}
 
 /**
  * @brief 计算两个角度之间的最短角距离

@@ -116,10 +116,7 @@ Eigen::Vector4d BallisticCalculateNode::getCurrentGimbalState()
         tf2::Quaternion q(t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w);
         double roll, pitch, yaw;
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-        
-        // 此处直接使用位置差分获取速度，仅为示例，后续需要从硬件或专用话题获取速度
-        // 此处暂时用0代替。
-        state << yaw, 0.0, pitch, 0.0; 
+        state << yaw, current_yaw_vel, pitch, current_pitch_vel; 
     } catch (tf2::TransformException & ex) {
         RCLCPP_WARN(this->get_logger(), "Failed to get gimbal state: %s", ex.what());
     }

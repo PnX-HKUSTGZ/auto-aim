@@ -61,7 +61,7 @@ public:
         
         int a_n = target_msg.armors_num;  // 装甲板数量
         std::vector<Armor> armors(a_n);   // 装甲板容器
-
+                
         // 计算未来 T 时间的目标中心位置（线性运动预测）
         double newyaw = target_msg.yaw + target_msg.v_yaw * T;        // 预测偏航角
         double newxc = target_msg.position.x + target_msg.velocity.x * T;  // 预测X坐标
@@ -85,7 +85,7 @@ public:
             // 计算装甲板在世界坐标系中的位置
             armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
             armors[i].y = newyc - armors[i].r * sin(armors[i].yaw);
-            
+
             // 计算装甲板到枪口的最短角度距离（代价函数）
             armors[i].cost = shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
         }
