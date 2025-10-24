@@ -80,7 +80,7 @@ public:
     std::string tracked_id;
     Armor tracked_armor;
     Armor tracked_armor_2;
-    ArmorsNum tracked_armors_num;
+    ArmorsNum tracked_armors_num = ArmorsNum::NORMAL_4;
 
     double info_position_diff;
     double info_yaw_diff;
