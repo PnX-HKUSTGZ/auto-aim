@@ -38,13 +38,15 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K = this->declare_parameter("air_resistence", 0.1);
     BULLET_V = this->declare_parameter("bullet_speed", 23.0);
     ifFireK_ = this->declare_parameter("ifFireK", 0.05);
-    min_v = this->declare_parameter("swich_stategy_1", 5.0) * M_PI / 30;
-    max_v = this->declare_parameter("swich_stategy_2", 30.0) * M_PI / 30;
+    min_v = this->declare_parameter("switch_stategy_1", 5.0) * M_PI / 30;
+    max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
     v_yaw_gimble = this->declare_parameter("max_v_yaw_gimble", 0.8);
     stop_fire_time = this->declare_parameter("stop_fire_time", 0.1);
     double fire_delay = this->declare_parameter("fire_delay", 0.0);
     xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
     rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
+    // 添加MPC使能开关参数，默认false（不采用MPC结果）
+    use_mpc_default = this->declare_parameter("user_mpc_default", false);
     Eigen::Vector3d odom2gunxyz(xyz_vec[0], xyz_vec[1], xyz_vec[2]);
     Eigen::Vector3d odom2gunrpy(rpy_vec[0], rpy_vec[1], rpy_vec[2]);
 
@@ -188,7 +190,7 @@ void BallisticCalculateNode::carTargetCallback(
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
     bool use_mpc_fire_decision = false;
 
-    if (mpc_result.is_valid) {
+    if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
         final_pitch = mpc_result.target_pitch + rpy_vec[1]; // 转换到云台坐标系
         final_yaw = mpc_result.target_yaw - rpy_vec[2];
@@ -200,7 +202,7 @@ void BallisticCalculateNode::carTargetCallback(
         
         use_mpc_fire_decision = true;
     } else {
-        RCLCPP_WARN(this->get_logger(), "MPC failed to solve, falling back to Ceres result.");
+        // RCLCPP_WARN(this->get_logger(), "MPC failed to solve, falling back to Ceres result.");
         final_pitch = final_result.first + rpy_vec[1];
         final_yaw = final_result.second - rpy_vec[2];
     }
@@ -271,7 +273,7 @@ void BallisticCalculateNode::runeTargetCallback(
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
 
-    if (mpc_result.is_valid) {
+    if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
         final_pitch = mpc_result.target_pitch;
         final_yaw = mpc_result.target_yaw;

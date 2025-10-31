@@ -121,6 +121,8 @@ private:
     float current_yaw_vel = 0.0;
     float current_pitch_vel = 0.0;
 
+    bool use_mpc_default;
+
     // 相机信息和图像投影
     sensor_msgs::msg::CameraInfo cam_info_;  // 相机内参信息
     cv::Point2f cam_center_;                 // 相机中心点

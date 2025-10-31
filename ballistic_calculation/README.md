@@ -197,10 +197,10 @@ iteration_coeffcient_second: 0.05
 ifFireK: 0.05
 
 # 一级策略切换阈值 (°/s)
-swich_stategy_1: 5.0
+switch_stategy_1: 5.0
 
 # 二级策略切换阈值 (°/s)
-swich_stategy_2: 30.0
+switch_stategy_2: 30.0
 
 # 云台最大角速度 (rad/s)
 max_v_yaw_gimble: 0.8
@@ -241,7 +241,7 @@ colcon build --packages-select ballistic_calculation
 
 ```bash
 # 启动弹道计算节点
-ros2 run ballistic_calculation ballistic_calculation
+ros2 run ballistic_calculation ballistic_calculation_node
 
 # 或通过launch文件启动
 ros2 launch ballistic_calculation ballistic_calculation.launch.py
