@@ -119,14 +119,26 @@ SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat & gray_img, co
     constexpr float MAX_BRIGHTNESS = 25.0f;  // 最大亮度值
     constexpr float scale = 0.07f;           // 缩放比例
 
-    // 创建扩展的旋转矩形并限制在图像范围内
-    cv::RotatedRect scaled_rect(
-        light.center, 
-        cv::Size2f(light.width * (1 + scale * 2), light.length * (1 + scale * 2)),
-        light.angle);
-    cv::Rect light_box = scaled_rect.boundingRect() & cv::Rect(0, 0, gray_img.cols, gray_img.rows);
+    cv::Point2f original_vertices[4];
+    light.points(original_vertices);
 
+    cv::Point2f scaled_vertices[4];
+    cv::Point2f center = light.center;
+    for (int i = 0; i < 4; i++) {
+        cv::Point2f vec = original_vertices[i] - center;
+        vec *= (1 + scale * 2);
+        scaled_vertices[i] = center + vec;
+    }
+
+    cv::RotatedRect scaled_rect(
+        scaled_vertices[0],
+        scaled_vertices[1],
+        scaled_vertices[2]
+    );
+
+    cv::Rect light_box = scaled_rect.boundingRect() & cv::Rect(0, 0, gray_img.cols, gray_img.rows);
     // 提取ROI并创建掩码
+    
     cv::Mat roi = gray_img(light_box).clone();
     cv::Mat mask = cv::Mat::zeros(roi.size(), CV_8UC1);
 
