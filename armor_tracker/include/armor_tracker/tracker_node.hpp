@@ -148,8 +148,8 @@ private:
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
     message_filters::Subscriber<auto_aim_interfaces::msg::Armors> armors_sub_;
-    // message_filters::Subscriber<auto_aim_interfaces::msg::Armors> wide_armors_sub_;
-    rclcpp::Subscription<auto_aim_interfaces::msg::Armors>::SharedPtr wide_armors_sub_;
+    std::shared_ptr<tf2_filter> wide_tf2_filter_;
+    message_filters::Subscriber<auto_aim_interfaces::msg::Armors> wide_armors_sub_;
     std::shared_ptr<tf2_filter> tf2_filter_;
 
     // Tracker info publisher
@@ -167,8 +167,14 @@ private:
 
     // 相机参数
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_wide;
     sensor_msgs::msg::CameraInfo cam_info_;
+    sensor_msgs::msg::CameraInfo cam_info_wide;
     cv::Point2f cam_center_;
+    cv::Point2f cam_center_wide;
+    const sensor_msgs::msg::CameraInfo * cam_info_used;
+    const cv::Point2f * cam_center_used;
+    bool if_wide;
 
     // 发布图像
     image_transport::Publisher tracker_img_pub_;

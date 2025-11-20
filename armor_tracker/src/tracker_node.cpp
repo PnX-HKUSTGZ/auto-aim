@@ -51,6 +51,13 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             cam_info_sub_.reset();
         });
+    cam_info_sub_wide = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+        "/wide_cam/camera_info", rclcpp::SensorDataQoS(),
+        [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_wide) {
+            cam_info_wide = *camera_info_wide;
+            cam_center_wide = cv::Point2f(camera_info_wide->k[2], camera_info_wide->k[5]);
+            cam_info_sub_wide.reset();
+        });
 
     // TF2 setup
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -67,10 +74,11 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         this->get_node_clock_interface(), std::chrono::duration<int>(1));
     tf2_filter_->registerCallback(&ArmorTrackerNode::armorsCallback, this);
     // wide_armors_sub_.registerCallback(&ArmorTrackerNode::wideArmorsCallback, this);
-    wide_armors_sub_ = this->create_subscription<auto_aim_interfaces::msg::Armors>(
-    "/wide_detector/armors",
-    rclcpp::SensorDataQoS(),
-    std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1));
+    wide_armors_sub_.subscribe(this, "/wide_detector/armors", rmw_qos_profile_sensor_data);
+    wide_tf2_filter_ = std::make_shared<tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>>(
+        wide_armors_sub_, *tf2_buffer_, target_frame_, 10, this->get_node_logging_interface(),
+        this->get_node_clock_interface(), std::chrono::duration<int>(1));
+    wide_tf2_filter_->registerCallback(&ArmorTrackerNode::wideArmorsCallback, this);
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
@@ -303,6 +311,9 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     }
 
     auto armors_msg_used = armors_msg;
+    cam_info_used = &cam_info_;
+    cam_center_used = &cam_center_;
+    if_wide = false;
     // 如果主相机 armors 为空，且有广角数据，则用广角
     if (armors_msg_used->armors.empty() && last_wide_armors_ && !last_wide_armors_->armors.empty()) {
         // 检查时间差，确保广角相机数据不会太旧
@@ -311,6 +322,10 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
         if (time_diff < 0.1) { // 允许100ms的时差
             RCLCPP_DEBUG(this->get_logger(), "Using wide camera data, time diff: %f ms", time_diff * 1000);
             armors_msg_used = last_wide_armors_;
+            cam_info_used = &cam_info_wide;
+            cam_center_used = &cam_center_wide;
+            if_wide = true;
+            RCLCPP_DEBUG(this->get_logger(), "Using wide camera data as fallback.");
         } else {
             RCLCPP_WARN(this->get_logger(), "Wide camera data too old: %f ms", time_diff * 1000);
         }
@@ -416,7 +431,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
             }
 
             // 添加通用信息（如相机中心、延迟等）
-            cv::circle(combined_image, cam_center_, 5, cv::Scalar(0, 0, 255), 2);
+            cv::circle(combined_image, *cam_center_used, 5, cv::Scalar(0, 0, 255), 2);
             auto latency =
                 (this->now() - rclcpp::Time(armors_msg_used->image.header.stamp)).seconds() * 1000;
             std::stringstream text;
@@ -450,13 +465,13 @@ void ArmorTrackerNode::drawImgAll(
 
     // 获取相机内参矩阵
     cv::Mat camera_matrix =
-        (cv::Mat_<double>(3, 3) << cam_info_.k[0], cam_info_.k[1], cam_info_.k[2], cam_info_.k[3],
-         cam_info_.k[4], cam_info_.k[5], cam_info_.k[6], cam_info_.k[7], cam_info_.k[8]);
+        (cv::Mat_<double>(3, 3) << cam_info_used->k[0], cam_info_used->k[1], cam_info_used->k[2], cam_info_used->k[3],
+        cam_info_used->k[4], cam_info_used->k[5], cam_info_used->k[6], cam_info_used->k[7], cam_info_used->k[8]);
 
     // 获取相机畸变系数
     cv::Mat dist_coeffs =
-        (cv::Mat_<double>(1, 5) << cam_info_.d[0], cam_info_.d[1], cam_info_.d[2], cam_info_.d[3],
-         cam_info_.d[4]);
+        (cv::Mat_<double>(1, 5) << cam_info_used->d[0], cam_info_used->d[1], cam_info_used->d[2], cam_info_used->d[3],
+        cam_info_used->d[4]);
 
     // 选择颜色：主要目标使用绿色，其他目标使用不同颜色
     cv::Scalar color;
@@ -548,6 +563,10 @@ void ArmorTrackerNode::drawImgAll(
         try {
             geometry_msgs::msg::TransformStamped transform_stamped =
                 tf2_buffer_->lookupTransform("camera_link", "odom", tf2::TimePointZero);
+            if(if_wide){
+                transform_stamped =
+                tf2_buffer_->lookupTransform("wide_cam_link", "odom", tf2::TimePointZero);
+            }
             tf2::Quaternion quat(
                 transform_stamped.transform.rotation.x, transform_stamped.transform.rotation.y,
                 transform_stamped.transform.rotation.z, transform_stamped.transform.rotation.w);
