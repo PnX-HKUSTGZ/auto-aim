@@ -5,6 +5,8 @@
 
 // ROS
 #include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/synchronizer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/message_filter.h>
@@ -38,7 +40,10 @@
 
 namespace rm_auto_aim
 {
-using tf2_filter = tf2_ros::MessageFilter<auto_aim_interfaces::msg::Armors>;
+// 定义消息类型别名
+using ArmorsMsg = auto_aim_interfaces::msg::Armors;
+// 定义同步策略
+using SyncPolicy = message_filters::sync_policies::ApproximateTime<ArmorsMsg, ArmorsMsg>;
 
 /**
  * @brief 装甲板追踪节点类
@@ -65,23 +70,30 @@ private:
     void initializeEKF();
 
     /**
-     * @brief 装甲板数据回调函数
+     * @brief 同步消息回调函数
      * 
-     * 接收装甲板检测结果，进行坐标变换、滤波、追踪状态更新，
-     * 并发布追踪目标信息和可视化数据。
+     * 接收近似同步的主相机和广角相机装甲板数据，
+     * 决策使用哪个数据源，并驱动追踪流程。
      * 
-     * @param armors_ptr 装甲板消息指针
+     * @param main_armors_msg 主相机的装甲板消息
+     * @param wide_armors_msg 广角相机的装甲板消息
      */
-    void armorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr);
+    void syncCallback(
+        const ArmorsMsg::ConstSharedPtr & main_armors_msg,
+        const ArmorsMsg::ConstSharedPtr & wide_armors_msg);
 
     /**
-     * @brief 广角装甲板数据回调函数
+     * @brief 核心处理函数
      * 
-     * 接收广角相机的装甲板检测结果，进行缓存以供主相机使用。
+     * 接收选定的装甲板数据和相机参数，执行坐标变换、追踪、发布等所有核心逻辑。
      * 
-     * @param msg 装甲板消息指针
+     * @param armors_msg 使用的装甲板消息
+     * @param cam_info 对应的相机内参
+     * @param cam_center 对应的相机中心点
      */
-    void wideArmorsCallback(const auto_aim_interfaces::msg::Armors::SharedPtr msg);
+    void processArmors(
+        const ArmorsMsg::SharedPtr & armors_msg, const sensor_msgs::msg::CameraInfo & cam_info,
+        const cv::Point2f & cam_center);
 
     /**
      * @brief 绘制可视化标记
@@ -118,7 +130,7 @@ private:
      */
     void drawImgAll(
         const auto_aim_interfaces::msg::Target & target_msg, cv::Mat & image,
-        bool is_primary_target);
+        bool is_primary_target, const sensor_msgs::msg::CameraInfo & cam_info);
 
     // Debug
     bool debug_;
@@ -131,8 +143,6 @@ private:
     rclcpp::Time last_time_ = rclcpp::Time(0);
     double dt_ = 0.01;
 
-    // 广角相机缓存
-    auto_aim_interfaces::msg::Armors::SharedPtr last_wide_armors_;
 
     // Armor tracker
     double s2qxy_, s2qz_, s2qyaw_, s2qr_;
@@ -147,10 +157,11 @@ private:
     std::string target_frame_;
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
-    message_filters::Subscriber<auto_aim_interfaces::msg::Armors> armors_sub_;
-    std::shared_ptr<tf2_filter> wide_tf2_filter_;
-    message_filters::Subscriber<auto_aim_interfaces::msg::Armors> wide_armors_sub_;
-    std::shared_ptr<tf2_filter> tf2_filter_;
+
+    // 新的同步订阅器
+    std::shared_ptr<message_filters::Subscriber<ArmorsMsg>> main_armors_sub_;
+    std::shared_ptr<message_filters::Subscriber<ArmorsMsg>> wide_armors_sub_;
+    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     // Tracker info publisher
     rclcpp::Publisher<auto_aim_interfaces::msg::TrackerInfo>::SharedPtr info_pub_;
@@ -172,8 +183,6 @@ private:
     sensor_msgs::msg::CameraInfo cam_info_wide;
     cv::Point2f cam_center_;
     cv::Point2f cam_center_wide;
-    const sensor_msgs::msg::CameraInfo * cam_info_used;
-    const cv::Point2f * cam_center_used;
     bool if_wide;
 
     // 发布图像
