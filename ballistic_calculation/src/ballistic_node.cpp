@@ -36,7 +36,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K1 = this->declare_parameter("iteration_coeffcient_first", 0.1);
     K2 = this->declare_parameter("iteration_coeffcient_second", 0.05);
     K = this->declare_parameter("air_resistence", 0.1);
-    BULLET_V = this->declare_parameter("bullet_speed", 23.0);
+    BULLET_V = this->declare_parameter("bullet_speed", 21.0);
     ifFireK_ = this->declare_parameter("ifFireK", 0.05);
     min_v = this->declare_parameter("switch_stategy_1", 5.0) * M_PI / 30;
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
@@ -203,8 +203,8 @@ void BallisticCalculateNode::carTargetCallback(
         use_mpc_fire_decision = true;
     } else {
         // RCLCPP_WARN(this->get_logger(), "MPC failed to solve, falling back to Ceres result.");
-        final_pitch = final_result.first + rpy_vec[1];
-        final_yaw = final_result.second - rpy_vec[2];
+        final_pitch = final_result.first;
+        final_yaw = final_result.second;
     }
 
     // 将 odom 坐标系中的点投影到图像上
