@@ -88,6 +88,8 @@ private:
     std::vector<Armor> aiDetectArmors(
         const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img);
 
+    bool validateImageMsg(const sensor_msgs::msg::Image::ConstSharedPtr & msg) const;
+
     // -------------------- 坐标变换和位姿处理 --------------------
     /**
      * @brief 更新从odom到相机的坐标变换
@@ -116,7 +118,7 @@ private:
      */
     void drawResults(
         const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img,
-        const std::vector<Armor> & armors);
+        const std::vector<Armor> & armors, const rclcpp::Time & start_time);
 
     /**
      * @brief 创建用于调试的发布器

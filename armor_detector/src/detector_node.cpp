@@ -20,6 +20,7 @@
 #include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <sensor_msgs/image_encodings.hpp>
 
 // STD
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <stdexcept>
 
 #include "armor_detector/detector_node.hpp"
 #include "armor_detector/types.hpp"
@@ -62,6 +64,11 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         camera_info_topic_, rclcpp::SensorDataQoS(),
         [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
+            if (camera_info->d.empty()) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                    "Received CameraInfo with empty distortion coefficients (D). Skipping PnPSolver init.");
+                return;
+            }
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             cam_info_ = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
             pnp_solver_ = std::make_unique<PnPSolver>(camera_info->k, camera_info->d);
@@ -79,7 +86,6 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
         image_topic_, rclcpp::SensorDataQoS(),
         std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
-
     // 初始化Armors Publisher
     armors_pub_ = this->create_publisher<auto_aim_interfaces::msg::Armors>(
         result_topic_, rclcpp::SensorDataQoS());
@@ -171,6 +177,15 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     if (!enable_) {
         return;
     }
+    if (img_msg->data.empty()) {
+        RCLCPP_WARN(this->get_logger(), "Image message carries empty data buffer.");
+        return;
+    }
+    if (!validateImageMsg(img_msg)) {
+        return;
+    }
+    
+    auto start_time = this->now();
     if (debug_) armors_msg_.image = *img_msg;
 
     // 检测装甲板
@@ -179,7 +194,9 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     if (use_ai_detector_) {
         armors = aiDetectArmors(img_msg, img);
     } else {
+        std::cerr << "Using traditional detector." << std::endl;
         armors = detectArmors(img_msg, img);
+        std::cerr << "Detected " << armors.size() << " armors." << std::endl;
     }
 
     // 提取from odom to gimbal的坐标系变换
@@ -286,11 +303,18 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
 
+    // ...existing code...
     if (debug_) {
-        // draw results
-        drawResults(img_msg, img, armors);
-        // Publishing marker
-        publishMarkers();
+        try {
+            drawResults(img_msg, img, armors, start_time);
+            publishMarkers();
+        } catch (const cv::Exception & e) {
+            std::cerr << "[ArmorDetectorNode] drawResults/publishMarkers cv::Exception: "
+                      << e.what() << std::endl;
+        } catch (const std::exception & e) {
+            std::cerr << "[ArmorDetectorNode] drawResults/publishMarkers std::exception: "
+                      << e.what() << std::endl;
+        }
     }
 }
 
@@ -298,27 +322,56 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
     const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
 {
     // Convert ROS img to cv::Mat
-    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
-
-    // get color
+    //img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+    // ...existing code...
+    try {
+        img = cv_bridge::toCvShare(img_msg, "bgr8")->image;
+    } catch (const cv_bridge::Exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "cv_bridge Error: %s", e.what());
+        return {};
+    } catch (const cv::Exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "OpenCV Error: %s", e.what());
+        return {};
+    }
+    if (!img.data) {
+        RCLCPP_WARN(this->get_logger(), "Converted image has null data pointer, dropping frame.");
+        return {};
+    }
     int detect_color = get_parameter("detect_color").as_int();
-
-    auto armors = detector_->detect(img, detect_color);
+    std::vector<Armor> armors;
+    try {
+        armors = detector_->detect(img, detect_color);
+    } catch (const cv::Exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "OpenCV Error during detector_->detect: %s", e.what());
+        return {};
+    } catch (const std::exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "Std exception during detector_->detect: %s", e.what());
+        return {};
+    }
 
     // Publish debug info
     if (debug_) {
-        //计算延迟
-        auto final_time = this->now();
-        auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
-        RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
+        try {
+            auto final_time = this->now();
+            auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+            RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
 
-        binary_img_pub_.publish(
-            cv_bridge::CvImage(img_msg->header, "mono8", detector_->getBinaryImage()).toImageMsg());
+            const auto binary = detector_->getBinaryImage();
+            if (!binary.empty() && binary.data != nullptr) {
+                binary_img_pub_.publish(cv_bridge::CvImage(img_msg->header, "mono8", binary).toImageMsg());
+            }
 
-        if (!armors.empty()) {
-            number_img_pub_.publish(
-                *cv_bridge::CvImage(img_msg->header, "mono8", detector_->getAllNumbersImage())
-                     .toImageMsg());
+            if (!armors.empty()) {
+                const auto numbers = detector_->getAllNumbersImage();
+                if (!numbers.empty() && numbers.data != nullptr) {
+                    number_img_pub_.publish(
+                        *cv_bridge::CvImage(img_msg->header, "mono8", numbers).toImageMsg());
+                }
+            }
+        } catch (const cv::Exception & e) {
+            std::cerr << "[ArmorDetectorNode] debug publish cv::Exception: " << e.what() << std::endl;
+        } catch (const std::exception & e) {
+            std::cerr << "[ArmorDetectorNode] debug publish std::exception: " << e.what() << std::endl;
         }
     }
     return armors;
@@ -342,6 +395,62 @@ std::vector<Armor> ArmorDetectorNode::aiDetectArmors(
         RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
     }
     return armors;
+}
+
+bool ArmorDetectorNode::validateImageMsg(const sensor_msgs::msg::Image::ConstSharedPtr & msg) const
+{
+    if (!msg) {
+        RCLCPP_WARN(this->get_logger(), "Received null image message pointer.");
+        std::cerr << "Received null image message pointer." << std::endl;
+        return false;
+    }
+    if (msg->width == 0 || msg->height == 0) {
+        RCLCPP_WARN(this->get_logger(), "Image has zero width (%u) or height (%u). Dropping frame.",
+                    msg->width, msg->height);
+        std::cerr << "Image has zero width (" << msg->width << ") or height (" << msg->height << "). Dropping frame." << std::endl;
+        return false;
+    }
+    if (msg->step == 0) {
+        RCLCPP_WARN(this->get_logger(), "Image step is zero. Dropping frame.");
+        std::cerr << "Image step is zero. Dropping frame." << std::endl;
+        return false;
+    }
+    if (msg->data.empty()) {
+        RCLCPP_WARN(this->get_logger(), "Image message carries empty data buffer.");
+        std::cerr << "Image message carries empty data buffer." << std::endl;
+        return false;
+    }
+
+    size_t min_step = 0;
+    try {
+        const auto channels = sensor_msgs::image_encodings::numChannels(msg->encoding);
+        const auto bit_depth = sensor_msgs::image_encodings::bitDepth(msg->encoding);
+        min_step = static_cast<size_t>(channels) * static_cast<size_t>(bit_depth) / 8U * msg->width;
+    } catch (const std::runtime_error & e) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Unable to infer step for encoding '%s': %s. Continuing with raw step check.",
+                    msg->encoding.c_str(), e.what());
+        std::cerr << "Unable to infer step for encoding '" << msg->encoding << "': " << e.what() << ". Continuing with raw step check." << std::endl;
+    }
+
+    if (min_step > 0U && msg->step < min_step) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Image step (%u) smaller than expected minimum (%zu). Dropping frame.",
+                    msg->step, min_step);
+        return false;
+        std::cerr << "Image step (" << msg->step << ") smaller than expected minimum (" << min_step << "). Dropping frame." << std::endl;
+    }
+
+    const size_t expected_size = static_cast<size_t>(msg->step) * msg->height;
+    if (msg->data.size() < expected_size) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Image buffer (%zu) smaller than height*step (%zu). Dropping frame.",
+                    msg->data.size(), expected_size);
+        std::cerr << "Image buffer (" << msg->data.size() << ") smaller than height*step (" << expected_size << "). Dropping frame." << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 // ==================== 坐标变换和位姿处理 ====================
@@ -432,19 +541,35 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
 // ==================== 可视化和调试功能 ====================
 void ArmorDetectorNode::drawResults(
     const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img,
-    const std::vector<Armor> & armors)
+    const std::vector<Armor> & armors, const rclcpp::Time & start_time)
 {
     //计算延迟
     auto final_time = this->now();
-    auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
-    RCLCPP_DEBUG_STREAM(this->get_logger(), "Latency: " << latency << "ms");
+    double total_latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+    double process_latency = (final_time - start_time).seconds() * 1000;
+    double transmit_latency = (start_time - img_msg->header.stamp).seconds() * 1000;
+
+    RCLCPP_DEBUG_STREAM(
+        this->get_logger(), "Total: " << total_latency << "ms, Process: " << process_latency << "ms, Transmit: " << transmit_latency << "ms");
+
     if (!debug_) {
         return;
     }
-    if (!use_ai_detector_) {
-        detector_->drawResults(img);
-    } else {
-        ai_detector_->drawResults(img);
+    if (img.empty() || img.data == nullptr) {
+        std::cerr << "[ArmorDetectorNode] drawResults got invalid image, skip." << std::endl;
+        return;
+    }
+    // ...existing code...
+    try {
+        if (!use_ai_detector_) {
+            detector_->drawResults(img);
+        } else {
+            ai_detector_->drawResults(img);
+        }
+    } catch (const cv::Exception & e) {
+        std::cerr << "[ArmorDetectorNode] detector_->drawResults cv::Exception: "
+                  << e.what() << std::endl;
+        return;
     }
     // Show yaw, pitch, roll
     for (const auto & armor : armors) {
@@ -470,12 +595,35 @@ void ArmorDetectorNode::drawResults(
     // Draw camera center
     cv::circle(img, cam_center_, 5, cv::Scalar(255, 0, 0), 2);
     // Draw latency
+    //std::stringstream latency_ss;
+    // latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+    // auto latency_s = latency_ss.str();
+    // cv::putText(
+    //     img, latency_s, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+    // Draw latency
     std::stringstream latency_ss;
-    latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-    auto latency_s = latency_ss.str();
+    latency_ss << "Total: " << std::fixed << std::setprecision(2) << total_latency << "ms";
     cv::putText(
-        img, latency_s, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
-    result_img_pub_.publish(cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
+        img, latency_ss.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0,
+        cv::Scalar(0, 255, 0), 2);
+    
+    latency_ss.str(""); // 清空
+    latency_ss << "Process: " << std::fixed << std::setprecision(2) << process_latency << "ms";
+    cv::putText(
+        img, latency_ss.str(), cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 1.0,
+        cv::Scalar(0, 255, 0), 2);
+
+    latency_ss.str(""); // 清空
+    latency_ss << "Transmit: " << std::fixed << std::setprecision(2) << transmit_latency << "ms";
+    cv::putText(
+        img, latency_ss.str(), cv::Point(10, 90), cv::FONT_HERSHEY_SIMPLEX, 1.0,
+        cv::Scalar(0, 255, 0), 2);
+    try {
+        result_img_pub_.publish(cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
+    } catch (const cv::Exception & e) {
+        std::cerr << "[ArmorDetectorNode] result_img_pub publish cv::Exception: "
+                  << e.what() << std::endl;
+    }
 }
 
 void ArmorDetectorNode::createDebugPublishers()
@@ -510,6 +658,7 @@ void ArmorDetectorNode::setModeCallback(
     const std::shared_ptr<auto_aim_interfaces::srv::SetMode::Request> request,
     std::shared_ptr<auto_aim_interfaces::srv::SetMode::Response> response)
 {
+    std::cerr << "SetModeCallback triggered with mode: " << request->mode << std::endl;
     response->success = true;
 
     VisionMode mode = static_cast<VisionMode>(request->mode);
