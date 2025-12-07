@@ -325,7 +325,7 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
     //img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
     // ...existing code...
     try {
-        img = cv_bridge::toCvShare(img_msg, "bgr8")->image;
+        img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
     } catch (const cv_bridge::Exception & e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge Error: %s", e.what());
         return {};
@@ -485,11 +485,13 @@ bool ArmorDetectorNode::updateTransform(
             odom_to_camera_tf.transform.translation.x, odom_to_camera_tf.transform.translation.y,
             odom_to_camera_tf.transform.translation.z);
         return 1;
-    } catch (...) {
-        RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform: target_frame=%s, source_frame=%s",
-                 target_frame.c_str(), source_frame.c_str());
-        return 0;
-    }
+    } catch (const tf2::TransformException & ex) {
+    RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform: %s", ex.what());
+    return false; // 修改此处：从 return; 改为 return false;
+  } catch (...) {
+    RCLCPP_ERROR(this->get_logger(), "Something Wrong when lookUpTransform: Unknown error");
+    return false; // 修改此处：从 return; 改为 return false;
+  }
 }
 
 void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, const cv::Mat & tvec)
