@@ -30,6 +30,7 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
   measurement(Eigen::VectorXd::Zero(4)),
   target_state(Eigen::VectorXd::Zero(9)),
   last_update_time_(0.0),
+  last_main_update_time_(0.0),
     max_match_distance_(max_match_distance),
     max_match_yaw_diff_(max_match_yaw_diff),
     detect_count_(0)
@@ -66,6 +67,17 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 //根据经过EKF加权后的观测和预测来更新装甲板的追踪状态
 {
     rclcpp::Time msg_time = armors_msg->header.stamp; 
+
+    // 主/广角相机 决策逻辑
+    if (is_main_camera) {
+        last_main_update_time_ = msg_time;
+    } else {
+        // 如果是广角相机，且主相机在 100ms 内更新过，则忽略此帧广角数据
+        if ((msg_time - last_main_update_time_).seconds() < 0.1) {
+            return false;
+        }
+    }
+
     if (msg_time.nanoseconds() < last_update_time_.nanoseconds()){
         RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Give up old msg"); 
         return false; 

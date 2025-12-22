@@ -117,6 +117,7 @@ public:
     Eigen::VectorXd target_state;
 
     rclcpp::Time last_update_time_;  // 上次有匹配的更新时间，也作为EKF时间基准
+    rclcpp::Time last_main_update_time_; // 上次主相机更新时间
 
 private:
     /**
