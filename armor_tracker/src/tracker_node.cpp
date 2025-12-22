@@ -391,8 +391,21 @@ void ArmorTrackerNode::processArmors(
     // 更新dt
     tracker_manager_->updateEKFTemplate(dt_);
     // 使用 TrackerManager 更新所有追踪器
-    tracker_manager_->update(armors_msg, dt_, is_main_camera);
-
+    tracker_manager_->update(armors_msg, is_main_camera);
+    // 清理不活跃的追踪器
+    tracker_manager_->cleanInactiveTrackers();
+    // 选择最佳追踪目标
+    tracker_manager_->selectBestTarget();
+    // 获取当前追踪目标
+    auto current_target_id = tracker_manager_->getCurrentTargetID();
+    auto_aim_interfaces::msg::Target target_msg;
+    bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
+    if (!success) {
+        return;
+    }
+    target_msg.header.stamp = time;
+    target_msg.header.frame_id = target_frame_;
+    target_pub_->publish(target_msg);  //发布target信息
     if (debug_) {
         // 如果跟踪状态有效，发布 TrackerInfo 消息
         // 注意：这里获取 target 信息仅用于绘图，不用于发布

@@ -30,15 +30,16 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
   measurement(Eigen::VectorXd::Zero(4)),
   target_state(Eigen::VectorXd::Zero(9)),
   last_update_time_(0.0),
-  last_main_update_time_(0.0),
-  max_match_distance_(max_match_distance),
-  max_match_yaw_diff_(max_match_yaw_diff)
+    max_match_distance_(max_match_distance),
+    max_match_yaw_diff_(max_match_yaw_diff),
+    detect_count_(0)
 {
 }
 //初始化追踪器
 void Tracker::init(const Armors::SharedPtr & armors_msg)
 {
     if (armors_msg->armors.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("armor_tracker"), "Failed to init EKF with empty msg!");
         return;
     }
     if (armors_msg->armors.size() == 1) {
@@ -57,29 +58,22 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
     updateArmorsNum();
     tracked_id = tracked_armor.number;
     tracker_state = DETECTING;  //将追踪状态设为detecting
+    last_update_time_ = armors_msg->header.stamp;
     return;
 }
 
-void Tracker::update(const Armors::SharedPtr & armors_msg, double dt, bool is_main_camera)
+bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 //根据经过EKF加权后的观测和预测来更新装甲板的追踪状态
 {
-    rclcpp::Time current_time = armors_msg->header.stamp;
-
-    // 主/广角相机 决策逻辑
-    if (is_main_camera) {
-        last_main_update_time_ = current_time;
-    } else {
-        // 如果是广角相机，且主相机在 100ms 内更新过，则忽略此帧广角数据
-        // 避免广角相机的低精度数据干扰主相机的追踪
-        if ((current_time - last_main_update_time_).seconds() < 0.1) {
-            return;
-        }
+    rclcpp::Time msg_time = armors_msg->header.stamp; 
+    if (msg_time.nanoseconds() < last_update_time_.nanoseconds()){
+        RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Give up old msg"); 
+        return false; 
     }
+    // KF predict（先做快照，未匹配则回滚）
+    auto ekf_backup = ekf;
 
-    // 设置 EKF 的时间间隔
-    ekf.setTimeInterval(dt);
-
-    // KF predict
+    ekf.setTimeInterval((msg_time - last_update_time_).seconds()); 
     Eigen::VectorXd ekf_prediction = ekf.predict();
     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF predict");
 
@@ -88,7 +82,8 @@ void Tracker::update(const Armors::SharedPtr & armors_msg, double dt, bool is_ma
     target_state = ekf_prediction;
     if (armors_msg->armors.empty()) {
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "No armors found, using EKF prediction");
-        return;
+        ekf = ekf_backup;
+        return matched;
     }
     // init tracker info
     twoD_distance = DBL_MAX;
@@ -123,7 +118,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg, double dt, bool is_ma
         } else {
             RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by single armor!");
             init(armors_msg);
-            return;
+            return matched;
         }
     }
     if (armors_msg->armors.size() == 2) {
@@ -132,7 +127,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg, double dt, bool is_ma
         if (matched_armor1 == 0 || matched_armor2 == 0) {
             RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by two armors!");
             init(armors_msg);
-            return;
+            return matched;
         }
         if (matched_armor1 == 2 && matched_armor2 == 1) {
             std::swap(armors_msg->armors[0], armors_msg->armors[1]);
@@ -169,7 +164,7 @@ void Tracker::update(const Armors::SharedPtr & armors_msg, double dt, bool is_ma
             RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
         } else {
             RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
-            return;
+            return matched;
         }
     }
     if (tracked_armors_num == ArmorsNum::OUTPOST_3) {
@@ -201,34 +196,61 @@ void Tracker::update(const Armors::SharedPtr & armors_msg, double dt, bool is_ma
     target_state(YAW2) = yaw_average + M_PI / double(tracked_armors_num);
     ekf.setState(target_state);
 
-    // Tracking state machine
-    if (tracker_state == DETECTING) {
-        if (matched) {
-            detect_count_++;
-            if (detect_count_ > tracking_thres) {
-                detect_count_ = 0;
-                tracker_state = TRACKING;
+    if (!matched) {
+        ekf = ekf_backup;
+    }
+
+    return matched;
+}
+
+void Tracker::updateState(
+    bool matched, const rclcpp::Time & msg_time, double temp_lost_time, double lost_time_thres,
+    int tracking_thres)
+{
+    if (matched) {
+        last_update_time_ = msg_time; 
+    }
+
+    double time_since_update = (msg_time - last_update_time_).seconds();
+    if (time_since_update < 0) time_since_update = 0.0;
+
+    switch (tracker_state) {
+        case DETECTING:
+            if (matched) {
+                increaseDetectCount();
+                if (getDetectCount() > tracking_thres) {
+                    resetDetectCount();
+                    tracker_state = TRACKING;
+                }
+            } else {
+                resetDetectCount();
+                if (time_since_update > lost_time_thres) {
+                    tracker_state = LOST;
+                } else if (time_since_update > temp_lost_time) {
+                    tracker_state = TEMP_LOST;
+                }
             }
-        } else {
-            detect_count_ = 0;
-            tracker_state = LOST;
-        }
-    } else if (tracker_state == TRACKING) {
-        if (!matched) {
-            tracker_state = TEMP_LOST;
-            lost_count_++;
-        }
-    } else if (tracker_state == TEMP_LOST) {
-        if (!matched) {
-            lost_count_++;
-            if (lost_count_ > lost_thres) {
-                lost_count_ = 0;
+            break;
+        case TRACKING:
+            if (matched) {
+                resetDetectCount();
+            } else if (time_since_update > lost_time_thres) {
+                tracker_state = LOST;
+            } else if (time_since_update > temp_lost_time) {
+                tracker_state = TEMP_LOST;
+            }
+            break;
+        case TEMP_LOST:
+            if (matched) {
+                tracker_state = TRACKING;
+                resetDetectCount();
+            } else if (time_since_update > lost_time_thres) {
                 tracker_state = LOST;
             }
-        } else {
-            tracker_state = TRACKING;
-            lost_count_ = 0;
-        }
+            break;
+        case LOST:
+            resetDetectCount();
+            break;
     }
 }
 int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_prediction)
