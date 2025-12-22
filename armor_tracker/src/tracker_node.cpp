@@ -334,9 +334,9 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
     // 更新dt
     tracker_manager_->updateEKFTemplate(dt_);
     // 使用 TrackerManager 更新所有追踪器
-    tracker_manager_->update(armors_msg, dt_);
+    tracker_manager_->update(armors_msg);
     // 清理不活跃的追踪器
-    tracker_manager_->cleanInactiveTrackers(this->now());
+    tracker_manager_->cleanInactiveTrackers();
     // 选择最佳追踪目标
     tracker_manager_->selectBestTarget();
     // 获取当前追踪目标

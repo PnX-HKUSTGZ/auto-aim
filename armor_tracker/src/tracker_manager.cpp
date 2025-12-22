@@ -41,9 +41,8 @@ void TrackerManager::updateEKFTemplate(double dt)
 //从这一部分开始是状态更新相关函数
 
 void TrackerManager::update(
-    const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt)
+    const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg)
 {
-    if (dt <= 0) dt = 0.01;
     rclcpp::Time msg_time = armors_msg->header.stamp;
     if (trackers_.empty()) {
         RCLCPP_WARN(
@@ -53,8 +52,7 @@ void TrackerManager::update(
 
     //std::cerr << "Tracker size at update: " << trackers_.size() << std::endl;
 
-    // 根据时间差计算lost_thres
-    int lost_thres = static_cast<int>(lost_time_thres_ / dt);
+    const double temp_lost_time = lost_time_thres_ / 5.0;
     // 1. 按ID对装甲板分组
     std::map<std::string, std::vector<auto_aim_interfaces::msg::Armor>> armors_by_id;
 
@@ -68,21 +66,18 @@ void TrackerManager::update(
         bool has_armors = armors_by_id.find(id) != armors_by_id.end() && !armors_by_id[id].empty();
         if (has_tracker && has_armors) {
             // 如果追踪器存在且当前帧中有装甲板，更新追踪器
-            // 设置lost_thres
-            trackers_[id]->lost_thres = lost_thres;
-
             // 创建仅包含特定ID装甲板的消息
             auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             id_armors_msg->header = armors_msg->header;
             id_armors_msg->armors = armors_by_id[id];
-            trackers_[id]->update(id_armors_msg);
-
-            trackers_[id]->last_update_time_ = msg_time;
+            bool matched = trackers_[id]->update(id_armors_msg);
+            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_);
         } else if (has_tracker && !has_armors) {
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
-            trackers_[id]->update(empty_msg);
+            bool matched = trackers_[id]->update(empty_msg);
+            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_);
         } else if (!has_tracker && has_armors) {
             // 如果追踪器不存在但当前帧中有装甲板，初始化新的追踪器
             initNewTracker(id, armors_by_id[id], msg_time);
@@ -108,20 +103,16 @@ void TrackerManager::initNewTracker(
 
     // 初始化追踪器
     tracker->init(id_armors_msg);
-    tracker->tracker_state = Tracker::DETECTING;  // 设置初始状态为检测中
-    // 初始化评分指标
-    tracker->last_update_time_ = id_armors_msg->header.stamp;
 
     trackers_[id] = tracker;
 }
 
-void TrackerManager::cleanInactiveTrackers(rclcpp::Time now)
+void TrackerManager::cleanInactiveTrackers()
 {
     auto it = trackers_.begin();
     while (it != trackers_.end()) {
         // 移除不活跃的追踪器
-        if ((now - it->second->last_update_time_).seconds() > lost_time_thres_ ||
-            it->second->tracker_state == Tracker::LOST) {
+        if (it->second->tracker_state == Tracker::LOST) {
             it = trackers_.erase(it);
         } else {
             ++it;
