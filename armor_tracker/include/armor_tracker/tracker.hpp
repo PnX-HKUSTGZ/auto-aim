@@ -65,7 +65,7 @@ public:
      * @return true 当前帧找到匹配装甲板
      * @return false 当前帧未找到匹配装甲板
      */
-    bool update(const Armors::SharedPtr & armors_msg);
+    bool update(const Armors::SharedPtr & armors_msg, bool is_main_camera);
 
     /**
      * @brief 获取/维护检测计数
