@@ -4,9 +4,6 @@
 #define ARMOR_PROCESSOR__PROCESSOR_NODE_HPP_
 
 // ROS
-#include <message_filters/subscriber.h>
-#include <message_filters/sync_policies/approximate_time.h>
-#include <message_filters/synchronizer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/message_filter.h>
@@ -22,6 +19,7 @@
 
 // STD
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -42,8 +40,6 @@ namespace rm_auto_aim
 {
 // 定义消息类型别名
 using ArmorsMsg = auto_aim_interfaces::msg::Armors;
-// 定义同步策略
-using SyncPolicy = message_filters::sync_policies::ApproximateTime<ArmorsMsg, ArmorsMsg>;
 
 /**
  * @brief 装甲板追踪节点类
@@ -69,18 +65,8 @@ private:
      */
     void initializeEKF();
 
-    /**
-     * @brief 同步消息回调函数
-     * 
-     * 接收近似同步的主相机和广角相机装甲板数据，
-     * 决策使用哪个数据源，并驱动追踪流程。
-     * 
-     * @param main_armors_msg 主相机的装甲板消息
-     * @param wide_armors_msg 广角相机的装甲板消息
-     */
-    void syncCallback(
-        const ArmorsMsg::ConstSharedPtr & main_armors_msg,
-        const ArmorsMsg::ConstSharedPtr & wide_armors_msg);
+    void mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg);
+    void wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg);
 
     /**
      * @brief 核心处理函数
@@ -90,10 +76,20 @@ private:
      * @param armors_msg 使用的装甲板消息
      * @param cam_info 对应的相机内参
      * @param cam_center 对应的相机中心点
+     * @param frame_id 坐标系ID
+     * @param is_main_camera 是否为主相机
      */
     void processArmors(
         const ArmorsMsg::SharedPtr & armors_msg, const sensor_msgs::msg::CameraInfo & cam_info,
-        const cv::Point2f & cam_center);
+        const cv::Point2f & cam_center, const std::string & frame_id, bool is_main_camera);
+
+    /**
+     * @brief 定时发布回调
+     */
+    void publishCallback();
+    
+    // 发布定时器
+    rclcpp::TimerBase::SharedPtr publish_timer_;
 
     /**
      * @brief 绘制可视化标记
@@ -127,10 +123,13 @@ private:
      * @param target_msg 目标消息
      * @param image 输入输出图像
      * @param is_primary_target 是否为主要目标
+     * @param cam_info 相机内参
+     * @param img_frame_id 图像对应的坐标系ID
      */
     void drawImgAll(
         const auto_aim_interfaces::msg::Target & target_msg, cv::Mat & image,
-        bool is_primary_target, const sensor_msgs::msg::CameraInfo & cam_info);
+        bool is_primary_target, const sensor_msgs::msg::CameraInfo & cam_info,
+        const std::string & img_frame_id);
 
     // Debug
     bool debug_;
@@ -158,10 +157,15 @@ private:
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
 
-    // 新的同步订阅器
-    std::shared_ptr<message_filters::Subscriber<ArmorsMsg>> main_armors_sub_;
-    std::shared_ptr<message_filters::Subscriber<ArmorsMsg>> wide_armors_sub_;
-    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
+    // Subscriptions
+    rclcpp::Subscription<ArmorsMsg>::SharedPtr main_armors_sub_;
+    rclcpp::Subscription<ArmorsMsg>::SharedPtr wide_armors_sub_;
+
+    // Synchronization control
+    std::mutex mutex_;
+    rclcpp::Time last_main_update_time_;
+    rclcpp::Time last_time_main_;
+    rclcpp::Time last_time_wide_;
 
     // Tracker info publisher
     rclcpp::Publisher<auto_aim_interfaces::msg::TrackerInfo>::SharedPtr info_pub_;
@@ -183,7 +187,6 @@ private:
     sensor_msgs::msg::CameraInfo cam_info_wide;
     cv::Point2f cam_center_;
     cv::Point2f cam_center_wide;
-    bool if_wide;
 
     // 发布图像
     image_transport::Publisher tracker_img_pub_;

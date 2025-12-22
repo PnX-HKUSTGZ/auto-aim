@@ -41,9 +41,12 @@ void TrackerManager::updateEKFTemplate(double dt)
 //从这一部分开始是状态更新相关函数
 
 void TrackerManager::update(
-    const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt)
+    const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt, bool is_main_camera)
 {
     if (dt <= 0) dt = 0.01;
+    // 更新 EKF 模板的时间间隔 (给新创建的 tracker 用)
+    ekf_template_.setTimeInterval(dt);
+
     rclcpp::Time msg_time = armors_msg->header.stamp;
     if (trackers_.empty()) {
         RCLCPP_WARN(
@@ -53,8 +56,6 @@ void TrackerManager::update(
 
     //std::cerr << "Tracker size at update: " << trackers_.size() << std::endl;
 
-    // 根据时间差计算lost_thres
-    int lost_thres = static_cast<int>(lost_time_thres_ / dt);
     // 1. 按ID对装甲板分组
     std::map<std::string, std::vector<auto_aim_interfaces::msg::Armor>> armors_by_id;
 
@@ -68,21 +69,30 @@ void TrackerManager::update(
         bool has_armors = armors_by_id.find(id) != armors_by_id.end() && !armors_by_id[id].empty();
         if (has_tracker && has_armors) {
             // 如果追踪器存在且当前帧中有装甲板，更新追踪器
+            // 计算该 Tracker 自身的 dt
+            double tracker_dt = (msg_time - trackers_[id]->last_update_time_).seconds();
+            // 防止 dt 异常
+            if (tracker_dt <= 0 || tracker_dt > 1.0) tracker_dt = 0.01;
+
             // 设置lost_thres
-            trackers_[id]->lost_thres = lost_thres;
+            trackers_[id]->lost_thres = static_cast<int>(lost_time_thres_ / tracker_dt);
 
             // 创建仅包含特定ID装甲板的消息
             auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             id_armors_msg->header = armors_msg->header;
             id_armors_msg->armors = armors_by_id[id];
-            trackers_[id]->update(id_armors_msg);
+            
+            trackers_[id]->update(id_armors_msg, tracker_dt, is_main_camera);
 
             trackers_[id]->last_update_time_ = msg_time;
         } else if (has_tracker && !has_armors) {
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
+            double tracker_dt = (msg_time - trackers_[id]->last_update_time_).seconds();
+            if (tracker_dt <= 0) tracker_dt = 0.01;
+
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
-            trackers_[id]->update(empty_msg);
+            trackers_[id]->update(empty_msg, tracker_dt, is_main_camera);
         } else if (!has_tracker && has_armors) {
             // 如果追踪器不存在但当前帧中有装甲板，初始化新的追踪器
             initNewTracker(id, armors_by_id[id], msg_time);

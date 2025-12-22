@@ -62,8 +62,10 @@ public:
      * 装甲板匹配、状态机转换等。
      * 
      * @param armors_msg 包含最新装甲板观测数据的消息
+     * @param dt 时间间隔
+     * @param is_main_camera 是否为主相机
      */
-    void update(const Armors::SharedPtr & armors_msg);
+    void update(const Armors::SharedPtr & armors_msg, double dt, bool is_main_camera);
 
     ExtendedKalmanFilter ekf;
 
@@ -91,6 +93,8 @@ public:
     Eigen::VectorXd target_state;
 
     rclcpp::Time last_update_time_;  // 上次更新时间
+    rclcpp::Time last_main_update_time_; // 上次主相机更新时间
+    
 
 private:
     /**

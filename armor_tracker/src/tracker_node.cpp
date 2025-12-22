@@ -22,6 +22,11 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
     debug_ = this->declare_parameter("debug", false);
 
+    // 初始化高频发布定时器 (例如 100Hz = 10ms)
+    publish_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(10),
+        std::bind(&ArmorTrackerNode::publishCallback, this));
+
     // 初始化tracker管理器
     tracker_manager_ = std::make_unique<TrackerManager>(
         this->declare_parameter("tracker.max_match_distance", 0.15),
@@ -66,18 +71,19 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     tf2_buffer_->setCreateTimerInterface(timer_interface);
     tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
 
-    
-
-    // 使用 message_filters::Synchronizer 订阅和同步话题
+    // Subscriptions
     target_frame_ = this->declare_parameter("target_frame", "odom");
-    main_armors_sub_ = std::make_shared<message_filters::Subscriber<ArmorsMsg>>(
-        this, "/detector/armors", rmw_qos_profile_sensor_data);
-    wide_armors_sub_ = std::make_shared<message_filters::Subscriber<ArmorsMsg>>(
-        this, "/wide_detector/armors", rmw_qos_profile_sensor_data);
+    main_armors_sub_ = this->create_subscription<ArmorsMsg>(
+        "/detector/armors", rclcpp::SensorDataQoS(),
+        std::bind(&ArmorTrackerNode::mainArmorsCallback, this, std::placeholders::_1));
+    wide_armors_sub_ = this->create_subscription<ArmorsMsg>(
+        "/wide_detector/armors", rclcpp::SensorDataQoS(),
+        std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1));
 
-    sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), *main_armors_sub_, *wide_armors_sub_);
-    sync_->registerCallback(std::bind(&ArmorTrackerNode::syncCallback, this, std::placeholders::_1, std::placeholders::_2));
-
+    // Initialize last main update time
+    last_main_update_time_ = this->now();
+    last_time_main_ = this->now();
+    last_time_wide_ = this->now();
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
@@ -293,46 +299,34 @@ void ArmorTrackerNode::initializeEKF()
 
 
 
-void ArmorTrackerNode::syncCallback(
-    const ArmorsMsg::ConstSharedPtr & main_armors_msg,
-    const ArmorsMsg::ConstSharedPtr & wide_armors_msg)
+void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 {
-    // 决策使用哪个数据源
-    ArmorsMsg::SharedPtr armors_msg_used;
-    const sensor_msgs::msg::CameraInfo * cam_info_used;
-    const cv::Point2f * cam_center_used;
-    if_wide = false;
-    // 优先使用主相机数据，除非它为空而广角相机不为空
-    if (!main_armors_msg->armors.empty()) {
-        armors_msg_used = std::make_shared<ArmorsMsg>(*main_armors_msg);
-        cam_info_used = &cam_info_;
-        cam_center_used = &cam_center_;
-    } else if (wide_armors_msg && !wide_armors_msg->armors.empty()) {
-        armors_msg_used = std::make_shared<ArmorsMsg>(*wide_armors_msg);
-        cam_info_used = &cam_info_wide;
-        cam_center_used = &cam_center_wide;
-        if_wide = true;
-    } else {
-        // 如果两者都为空，则使用主相机的空消息来驱动追踪器进入丢失状态
-        armors_msg_used = std::make_shared<ArmorsMsg>(*main_armors_msg);
-        cam_info_used = &cam_info_;
-        cam_center_used = &cam_center_;
-    }
-
-    // 检查所选相机信息是否就绪
-    if (cam_info_used->k[0] == 0.0) {
-        RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 1000, "Selected camera info not ready yet.");
+    // 移除所有阻塞逻辑，直接透传
+    // 即使 armors 为空，也需要传入以驱动 EKF 预测
+    
+    // Check if camera info is ready
+    if (cam_info_.k[0] == 0.0) {
         return;
     }
 
-    // 调用核心处理函数
-    processArmors(armors_msg_used, *cam_info_used, *cam_center_used);
+    processArmors(armors_msg, cam_info_, cam_center_, "camera_link", true);
+}
+
+void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
+{
+    // 移除所有阻塞逻辑，直接透传
+    
+    // Check if camera info is ready
+    if (cam_info_wide.k[0] == 0.0) {
+        return;
+    }
+
+    processArmors(armors_msg, cam_info_wide, cam_center_wide, "wide_cam_link", false);
 }
 
 void ArmorTrackerNode::processArmors(
     const ArmorsMsg::SharedPtr & armors_msg, const sensor_msgs::msg::CameraInfo & cam_info,
-    const cv::Point2f & cam_center)
+    const cv::Point2f & cam_center, const std::string & frame_id, bool is_main_camera)
 {
     if (debug_) {
         // 计算帧率
@@ -373,54 +367,43 @@ void ArmorTrackerNode::processArmors(
 
     // 计算时间差
     rclcpp::Time time = armors_msg->header.stamp;
+    double dt = 0.0;
+    
+    // Use separate last_time variables to prevent dt jumps when switching cameras
+    rclcpp::Time & last_time_ref = is_main_camera ? last_time_main_ : last_time_wide_;
+    
     try {
-        dt_ = (time - last_time_).seconds();
+        dt = (time - last_time_ref).seconds();
     } catch (const std::exception & e) {
-        last_time_ = time;
-        RCLCPP_WARN(this->get_logger(), "last_time_ has not been initialized");
-        return;
+        last_time_ref = time;
+        dt = 0.01; // Default small dt for first frame
     }
-    last_time_ = time;
+    
+    // Safety check for dt
+    if (dt > 1.0 || dt < 0.0) {
+        dt = 0.1;
+    }
+    
+    last_time_ref = time;
+    dt_ = dt;
 
     // ... (后续所有逻辑与旧的 armorsCallback 完全相同) ...
     // 更新dt
     tracker_manager_->updateEKFTemplate(dt_);
     // 使用 TrackerManager 更新所有追踪器
-    tracker_manager_->update(armors_msg, dt_);
-    // 清理不活跃的追踪器
-    tracker_manager_->cleanInactiveTrackers(this->now());
-    // 选择最佳追踪目标
-    tracker_manager_->selectBestTarget();
-    // 获取当前追踪目标
-    auto current_target_id = tracker_manager_->getCurrentTargetID();
-    auto_aim_interfaces::msg::Target target_msg;
-    bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
-    if (!success) {
-        target_msg.tracking = false;  // 如果没有有效目标，设置tracking为false
-    }
-    target_msg.header.stamp = time;
-    target_msg.header.frame_id = target_frame_;
-    target_pub_->publish(target_msg);  //发布target信息
+    tracker_manager_->update(armors_msg, dt_, is_main_camera);
 
     if (debug_) {
-        // ... (发布 TrackerInfo 的逻辑保持不变) ...
         // 如果跟踪状态有效，发布 TrackerInfo 消息
-        if (target_msg.tracking) {
-            // 获取当前活跃的追踪器
-            auto current_tracker = tracker_manager_->getTracker(target_msg.id);
-            if (current_tracker) {
-                // 发布 TrackerInfo
-                auto_aim_interfaces::msg::TrackerInfo info_msg;
-                info_msg.position_diff = current_tracker->info_position_diff;
-                info_msg.yaw_diff = current_tracker->info_yaw_diff;
-                info_msg.position.x = current_tracker->measurement(0);
-                info_msg.position.y = current_tracker->measurement(1);
-                info_msg.position.z = current_tracker->measurement(2);
-                info_msg.yaw = current_tracker->measurement(3);
-                info_pub_->publish(info_msg);
-            }
-        }
-        if (!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_) {
+        // 注意：这里获取 target 信息仅用于绘图，不用于发布
+        auto current_target_id = tracker_manager_->getCurrentTargetID();
+        
+        // Optimization: Only draw if it's the main camera OR if the main camera has timed out
+        // This prevents the wide camera from wasting resources on drawing when it's suppressed
+        bool should_draw = is_main_camera || 
+                          (!is_main_camera && (this->now() - last_main_update_time_).seconds() >= 0.1);
+
+        if (should_draw && !armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_) {
             // ... (获取 active_ids 和 marker_array 的逻辑保持不变) ...
             // 获取所有活跃的跟踪器ID
             std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
@@ -430,9 +413,16 @@ void ArmorTrackerNode::processArmors(
 
             // 创建一个副本用于绘制
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
+            
+            auto_aim_interfaces::msg::Target target_msg;
+            bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
+            if (!success) {
+                target_msg.tracking = false;
+            }
+
             // 首先绘制当前活跃的主要目标
             if (target_msg.tracking) {
-                drawImgAll(target_msg, combined_image, true, cam_info);  // 传递相机参数
+                drawImgAll(target_msg, combined_image, true, cam_info, frame_id);  // 传递相机参数
                 drawMarkers(target_msg, marker_array);
             }
 
@@ -441,7 +431,7 @@ void ArmorTrackerNode::processArmors(
                 if (id != target_msg.id && !id.empty()) {
                     auto_aim_interfaces::msg::Target id_target_msg;
                     if (tracker_manager_->getIDTarget(id, id_target_msg)) {
-                        drawImgAll(id_target_msg, combined_image, false, cam_info);
+                        drawImgAll(id_target_msg, combined_image, false, cam_info, frame_id);
                         drawMarkers(id_target_msg, marker_array);
                     }
                 }
@@ -469,9 +459,51 @@ void ArmorTrackerNode::processArmors(
     }
 }
 
+void ArmorTrackerNode::publishCallback()
+{
+    std::lock_guard<std::mutex> lock(mutex_); // 必须加锁，防止与 processArmors 冲突
+
+    // 1. 清理不活跃的追踪器
+    tracker_manager_->cleanInactiveTrackers(this->now());
+
+    // 2. 选择最佳目标
+    tracker_manager_->selectBestTarget();
+
+    // 3. 获取并发布目标
+    auto current_target_id = tracker_manager_->getCurrentTargetID();
+    auto_aim_interfaces::msg::Target target_msg;
+    bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
+
+    if (!success) {
+        target_msg.tracking = false;
+    }
+    
+    // 注意：这里的时间戳最好使用最近一次观测的时间，或者当前时间
+    // 如果使用当前时间，意味着我们认为 EKF 的预测在当前时刻是有效的
+    target_msg.header.stamp = this->now(); 
+    target_msg.header.frame_id = target_frame_;
+    
+    target_pub_->publish(target_msg);
+
+    // 发布 TrackerInfo (调试用)
+    if (debug_ && target_msg.tracking) {
+        auto current_tracker = tracker_manager_->getTracker(target_msg.id);
+        if (current_tracker) {
+            auto_aim_interfaces::msg::TrackerInfo info_msg;
+            info_msg.position_diff = current_tracker->info_position_diff;
+            info_msg.yaw_diff = current_tracker->info_yaw_diff;
+            info_msg.position.x = current_tracker->measurement(0);
+            info_msg.position.y = current_tracker->measurement(1);
+            info_msg.position.z = current_tracker->measurement(2);
+            info_msg.yaw = current_tracker->measurement(3);
+            info_pub_->publish(info_msg);
+        }
+    }
+}
+
 void ArmorTrackerNode::drawImgAll(
     const auto_aim_interfaces::msg::Target & target_msg, cv::Mat & image, bool is_primary_target,
-    const sensor_msgs::msg::CameraInfo & cam_info)
+    const sensor_msgs::msg::CameraInfo & cam_info, const std::string & img_frame_id)
 {
     if (!target_msg.tracking) {
         return;
@@ -576,11 +608,8 @@ void ArmorTrackerNode::drawImgAll(
         cv::Mat ros_to_cv = (cv::Mat_<double>(3, 3) << 0, -1, 0, 0, 0, -1, 1, 0, 0);
         try {
             geometry_msgs::msg::TransformStamped transform_stamped =
-                tf2_buffer_->lookupTransform("camera_link", "odom", tf2::TimePointZero);
-            if(if_wide){
-                transform_stamped =
-                tf2_buffer_->lookupTransform("wide_cam_link", "odom", tf2::TimePointZero);
-            }
+                tf2_buffer_->lookupTransform(img_frame_id, "odom", tf2::TimePointZero);
+            
             tf2::Quaternion quat(
                 transform_stamped.transform.rotation.x, transform_stamped.transform.rotation.y,
                 transform_stamped.transform.rotation.z, transform_stamped.transform.rotation.w);
