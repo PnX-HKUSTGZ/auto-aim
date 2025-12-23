@@ -464,7 +464,7 @@ void ArmorTrackerNode::publishCallback()
     std::lock_guard<std::mutex> lock(mutex_); // 必须加锁，防止与 processArmors 冲突
 
     // 1. 清理不活跃的追踪器
-    tracker_manager_->cleanInactiveTrackers(this->now());
+    tracker_manager_->cleanInactiveTrackers();
 
     // 2. 选择最佳目标
     tracker_manager_->selectBestTarget();

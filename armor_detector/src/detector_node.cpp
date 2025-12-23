@@ -43,7 +43,6 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     image_topic_ = this->declare_parameter<std::string>("image_topic", "/image_raw");
     camera_info_topic_ = this->declare_parameter<std::string>("camera_info_topic", "/camera_info");
     result_topic_ = this->declare_parameter<std::string>("result_topic", "/detector/armors");
-    result_img_topic_ = this->declare_parameter<std::string>("result_img_topic", "/detector_main/result_img");
     RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
 
     // 是否使用 AI detector 参数
@@ -635,7 +634,7 @@ void ArmorDetectorNode::createDebugPublishers()
 
     binary_img_pub_ = image_transport::create_publisher(this, "/detector/binary_img");
     number_img_pub_ = image_transport::create_publisher(this, "/detector/number_img");
-    result_img_pub_ = image_transport::create_publisher(this, result_img_topic_ );
+    result_img_pub_ = image_transport::create_publisher(this, "/detector/result_img" );
 }
 
 void ArmorDetectorNode::destroyDebugPublishers()
