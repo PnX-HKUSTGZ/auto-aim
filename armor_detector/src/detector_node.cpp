@@ -193,9 +193,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     if (use_ai_detector_) {
         armors = aiDetectArmors(img_msg, img);
     } else {
-        std::cerr << "Using traditional detector." << std::endl;
         armors = detectArmors(img_msg, img);
-        std::cerr << "Detected " << armors.size() << " armors." << std::endl;
     }
 
     // 提取from odom to gimbal的坐标系变换

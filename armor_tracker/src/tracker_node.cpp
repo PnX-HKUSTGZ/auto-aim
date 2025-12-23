@@ -80,11 +80,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         "/wide_detector/armors", rclcpp::SensorDataQoS(),
         std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1));
 
-    // Initialize last main update time
-    last_main_update_time_ = this->now();
-    last_time_main_ = this->now();
-    last_time_wide_ = this->now();
-
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
     target_pub_ = this->create_publisher<auto_aim_interfaces::msg::Target>(
@@ -364,52 +359,19 @@ void ArmorTrackerNode::processArmors(
                        max_armor_distance_;
             }),
         armors_msg->armors.end());
-
-    // 计算时间差
-    rclcpp::Time time = armors_msg->header.stamp;
-    double dt = 0.0;
-    
-    // Use separate last_time variables to prevent dt jumps when switching cameras
-    rclcpp::Time & last_time_ref = is_main_camera ? last_time_main_ : last_time_wide_;
-    
-    try {
-        dt = (time - last_time_ref).seconds();
-    } catch (const std::exception & e) {
-        last_time_ref = time;
-        dt = 0.01; // Default small dt for first frame
-    }
-    
-    // Safety check for dt
-    if (dt > 1.0 || dt < 0.0) {
-        dt = 0.1;
-    }
-    
-    last_time_ref = time;
-    dt_ = dt;
-
-    // ... (后续所有逻辑与旧的 armorsCallback 完全相同) ...
-    // 更新dt
-    tracker_manager_->updateEKFTemplate(dt_);
     // 使用 TrackerManager 更新所有追踪器
     tracker_manager_->update(armors_msg, is_main_camera);
 
-    if (debug_) {
+    // 在主相机传来的图像上画图
+    if (debug_ && is_main_camera) {
         // 如果跟踪状态有效，发布 TrackerInfo 消息
         // 注意：这里获取 target 信息仅用于绘图，不用于发布
         auto current_target_id = tracker_manager_->getCurrentTargetID();
-        
-        // Optimization: Only draw if it's the main camera OR if the main camera has timed out
-        // This prevents the wide camera from wasting resources on drawing when it's suppressed
-        bool should_draw = is_main_camera || 
-                          (!is_main_camera && (this->now() - last_main_update_time_).seconds() >= 0.1);
 
-        if (should_draw && !armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_) {
+        if (!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_) {
             // ... (获取 active_ids 和 marker_array 的逻辑保持不变) ...
             // 获取所有活跃的跟踪器ID
             std::vector<std::string> active_ids = tracker_manager_->getActiveTrackerIDs();
-
-            // 创建一个MarkerArray用于可视化
-            visualization_msgs::msg::MarkerArray marker_array;
 
             // 创建一个副本用于绘制
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
@@ -423,7 +385,6 @@ void ArmorTrackerNode::processArmors(
             // 首先绘制当前活跃的主要目标
             if (target_msg.tracking) {
                 drawImgAll(target_msg, combined_image, true, cam_info, frame_id);  // 传递相机参数
-                drawMarkers(target_msg, marker_array);
             }
 
             // ... (绘制其他目标, 传递相机参数) ...
@@ -432,7 +393,6 @@ void ArmorTrackerNode::processArmors(
                     auto_aim_interfaces::msg::Target id_target_msg;
                     if (tracker_manager_->getIDTarget(id, id_target_msg)) {
                         drawImgAll(id_target_msg, combined_image, false, cam_info, frame_id);
-                        drawMarkers(id_target_msg, marker_array);
                     }
                 }
             }
@@ -452,7 +412,6 @@ void ArmorTrackerNode::processArmors(
             auto processed_image_msg =
                 cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
             tracker_img_pub_.publish(*processed_image_msg);
-            marker_pub_->publish(marker_array);
 
             last_img_time_ = armors_msg->image.header.stamp;
         }
@@ -498,6 +457,23 @@ void ArmorTrackerNode::publishCallback()
             info_msg.yaw = current_tracker->measurement(3);
             info_pub_->publish(info_msg);
         }
+    }
+
+    if (debug_) {
+        visualization_msgs::msg::MarkerArray marker_array;
+        drawMarkers(target_msg, marker_array);
+        const auto active_ids = tracker_manager_->getActiveTrackerIDs();
+        for (const auto & id : active_ids) {
+            if (id != target_msg.id && !id.empty()) {
+                auto_aim_interfaces::msg::Target id_target_msg;
+                if (tracker_manager_->getIDTarget(id, id_target_msg)) {
+                    id_target_msg.header.stamp = this->now();
+                    id_target_msg.header.frame_id = target_frame_;
+                    drawMarkers(id_target_msg, marker_array);
+                }
+            }
+        }
+        marker_pub_->publish(marker_array);
     }
 }
 

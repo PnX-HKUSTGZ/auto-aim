@@ -163,9 +163,6 @@ private:
 
     // Synchronization control
     std::mutex mutex_;
-    rclcpp::Time last_main_update_time_;
-    rclcpp::Time last_time_main_;
-    rclcpp::Time last_time_wide_;
 
     // Tracker info publisher
     rclcpp::Publisher<auto_aim_interfaces::msg::TrackerInfo>::SharedPtr info_pub_;

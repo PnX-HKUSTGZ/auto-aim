@@ -74,9 +74,6 @@ void TrackerManager::update(
             trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_);
         } else if (has_tracker && !has_armors) {
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
-            double tracker_dt = (msg_time - trackers_[id]->last_update_time_).seconds();
-            if (tracker_dt <= 0) tracker_dt = 0.01;
-
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
             bool matched = trackers_[id]->update(empty_msg, is_main_camera);
