@@ -77,7 +77,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         "/detector/armors", rclcpp::SensorDataQoS(),
         std::bind(&ArmorTrackerNode::mainArmorsCallback, this, std::placeholders::_1));
     wide_armors_sub_ = this->create_subscription<ArmorsMsg>(
-        "/wide_detector/armors", rclcpp::SensorDataQoS(),
+        "/detector_wide/armors", rclcpp::SensorDataQoS(),
         std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1));
 
     // Publishers
@@ -309,14 +309,14 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 
 void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 {
-    // 移除所有阻塞逻辑，直接透传
-    
+    std::cerr << "Wide armors callback triggered." << std::endl;
     // Check if camera info is ready
     if (cam_info_wide.k[0] == 0.0) {
         return;
     }
-
-    processArmors(armors_msg, cam_info_wide, cam_center_wide, "wide_cam_link", false);
+    std::cerr << "Wide armors callback received " << armors_msg->armors.size() << " armors." << std::endl;
+    processArmors(armors_msg, cam_info_wide, cam_center_wide, "wide_camera_optical_frame", false);
+    std::cerr << "Wide armors processed " << std::endl;
 }
 
 void ArmorTrackerNode::processArmors(
@@ -336,6 +336,9 @@ void ArmorTrackerNode::processArmors(
         }
         frame_count++;
     }
+    if (!is_main_camera) {
+        std::cerr << "[Wide] Received " << armors_msg->armors.size() << " armors from detector." << std::endl;
+    }
 
     // 手动执行坐标变换 (替代 tf2_filter)
     for (auto & armor : armors_msg->armors) {
@@ -343,7 +346,14 @@ void ArmorTrackerNode::processArmors(
         ps.header = armors_msg->header;
         ps.pose = armor.pose;
         try {
-            armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
+            // [修改] 使用 TimePointZero 获取最新变换，避免因时间同步微小误差导致的丢帧
+            // 原代码: armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
+            
+            geometry_msgs::msg::TransformStamped transform = 
+                tf2_buffer_->lookupTransform(target_frame_, ps.header.frame_id, tf2::TimePointZero);
+            
+            tf2::doTransform(ps.pose, ps.pose, transform);
+            armor.pose = ps.pose;
         } catch (const tf2::TransformException & ex) {
             RCLCPP_ERROR(get_logger(), "Error while transforming %s", ex.what());
             return;
@@ -359,9 +369,22 @@ void ArmorTrackerNode::processArmors(
                        max_armor_distance_;
             }),
         armors_msg->armors.end());
+    if (!is_main_camera) {
+        std::cerr << "[Wide] Filtered armors count: " << armors_msg->armors.size() << std::endl;
+    } else {
+        std::cerr << "[Main] Filtered armors count: " << armors_msg->armors.size() << std::endl;
+    }
     // 使用 TrackerManager 更新所有追踪器
     tracker_manager_->update(armors_msg, is_main_camera);
 
+    // 清理不活跃的追踪器
+    tracker_manager_->cleanInactiveTrackers();
+    if(!is_main_camera) {
+        std::cerr << "[Wide] TrackerManager updated with " << armors_msg->armors.size() << " armors." << std::endl;
+    } else {
+        std::cerr << "[Main] TrackerManager updated with " << armors_msg->armors.size() << " armors." << std::endl;
+    }
+    
     // 在主相机传来的图像上画图
     if (debug_ && is_main_camera) {
         // 如果跟踪状态有效，发布 TrackerInfo 消息
@@ -402,6 +425,7 @@ void ArmorTrackerNode::processArmors(
             // ... (绘制延迟文本的逻辑保持不变) ...
             auto latency =
                 (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000;
+            
             std::stringstream text;
             text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
             cv::putText(
@@ -422,13 +446,10 @@ void ArmorTrackerNode::publishCallback()
 {
     std::lock_guard<std::mutex> lock(mutex_); // 必须加锁，防止与 processArmors 冲突
 
-    // 1. 清理不活跃的追踪器
-    tracker_manager_->cleanInactiveTrackers();
-
-    // 2. 选择最佳目标
+    // 1. 选择最佳目标
     tracker_manager_->selectBestTarget();
 
-    // 3. 获取并发布目标
+    // 2. 获取并发布目标
     auto current_target_id = tracker_manager_->getCurrentTargetID();
     auto_aim_interfaces::msg::Target target_msg;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);

@@ -90,7 +90,7 @@ public:
      */
     void updateState(
         bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
-        double lost_time_thres, int tracking_thres);
+        double lost_time_thres, int tracking_thres, bool is_main_camera);
 
     ExtendedKalmanFilter ekf;
 

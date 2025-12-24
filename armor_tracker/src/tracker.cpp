@@ -69,11 +69,15 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
     rclcpp::Time msg_time = armors_msg->header.stamp; 
 
     // 主/广角相机 决策逻辑
-    if (is_main_camera) {
-        last_main_update_time_ = msg_time;
-    } else {
+    if (!is_main_camera) {
         // 如果是广角相机，且主相机在 100ms 内更新过，则忽略此帧广角数据
-        if ((msg_time - last_main_update_time_).seconds() < 0.1) {
+        std::cerr << "time since last main update: "
+                  << (msg_time.seconds() - last_main_update_time_.seconds()) * 1000 << " ms"
+                  << std::endl;
+        if ((msg_time.seconds() - last_main_update_time_.seconds()) < 0.1) {
+            RCLCPP_INFO(
+                rclcpp::get_logger("armor_tracker"),
+                "Ignoring wide camera data due to recent main camera update.");
             return false;
         }
     }
@@ -176,6 +180,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
         } else {
             RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
+            ekf = ekf_backup;
             return matched;
         }
     }
@@ -217,10 +222,13 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
 void Tracker::updateState(
     bool matched, const rclcpp::Time & msg_time, double temp_lost_time, double lost_time_thres,
-    int tracking_thres)
+    int tracking_thres, bool is_main_camera)
 {
     if (matched) {
         last_update_time_ = msg_time; 
+        if (is_main_camera) {
+            last_main_update_time_ = msg_time;
+        }
     }
 
     double time_since_update = (msg_time - last_update_time_).seconds();
@@ -289,6 +297,8 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_1);
             return 1;  // Matched armor1 found
         }
+        RCLCPP_WARN(rclcpp::get_logger("tracker"), "Tracker %s match failed for armor 1: yaw_diff %f (thres %f), pos_diff %f (thres %f)", 
+            tracked_id.c_str(), yaw_diff_1, max_match_yaw_diff_, position_diff_1, max_match_distance_);
     } else {
         if (yaw_diff_2 < max_match_yaw_diff_ && position_diff_2 < max_match_distance_) {
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
@@ -296,6 +306,8 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_2);
             return 2;  // Matched armor2 found
         }
+        RCLCPP_WARN(rclcpp::get_logger("tracker"), "Tracker %s match failed for armor 2: yaw_diff %f (thres %f), pos_diff %f (thres %f)", 
+            tracked_id.c_str(), yaw_diff_2, max_match_yaw_diff_, position_diff_2, max_match_distance_);
     }
     return 0;  // No matched armor found
 }

@@ -71,16 +71,39 @@ void TrackerManager::update(
             id_armors_msg->header = armors_msg->header;
             id_armors_msg->armors = armors_by_id[id];
             bool matched = trackers_[id]->update(id_armors_msg, is_main_camera);
-            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_);
+            if (!matched) {
+                RCLCPP_WARN(
+                    rclcpp::get_logger("armor_tracker"),
+                    "Tracker %s did not match any armors with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
+            }
+            else{
+                RCLCPP_INFO(
+                    rclcpp::get_logger("armor_tracker"),
+                    "Tracker %s successfully matched armors with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
+            }
+            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, is_main_camera);
         } else if (has_tracker && !has_armors) {
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
+            RCLCPP_WARN(
+                rclcpp::get_logger("armor_tracker"),
+                "No armors for tracker %s with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
             bool matched = trackers_[id]->update(empty_msg, is_main_camera);
-            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_);
+            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, is_main_camera);
         } else if (!has_tracker && has_armors) {
             // 如果追踪器不存在但当前帧中有装甲板，初始化新的追踪器
+            if(!is_main_camera){
+                RCLCPP_WARN(
+                    rclcpp::get_logger("armor_tracker"),
+                    "Initializing new tracker %s with wide camera data.", id.c_str());
+            }
             initNewTracker(id, armors_by_id[id], msg_time);
+            if(!is_main_camera) {
+                RCLCPP_WARN(
+                    rclcpp::get_logger("armor_tracker"),
+                    "New tracker %s initialized with wide camera data.", id.c_str());
+            }
         }
     }
 }
