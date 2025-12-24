@@ -18,6 +18,12 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 {
     RCLCPP_INFO(this->get_logger(), "Starting TrackerNode!");
 
+    // 回调组：主相机独占、广角独立、发布独立
+    main_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    wide_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    publish_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    service_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
     // Maximum allowable armor distance in the XOY plane
     max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
     debug_ = this->declare_parameter("debug", false);
@@ -25,7 +31,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     // 初始化高频发布定时器 (例如 100Hz = 10ms)
     publish_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(10),
-        std::bind(&ArmorTrackerNode::publishCallback, this));
+        std::bind(&ArmorTrackerNode::publishCallback, this), publish_cb_group_);
 
     // 初始化tracker管理器
     tracker_manager_ = std::make_unique<TrackerManager>(
@@ -43,11 +49,14 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     // 初始化EKF的各个矩阵
     initializeEKF();
 
-    // set_mode
+    // set_mode（单独回调组，防止被长耗时回调饿死）
+    const std::string set_mode_name = "/armor_tracker/set_mode";  // 使用绝对名称，便于发现
     set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
-        "armor_tracker/set_mode", std::bind(
-                                      &ArmorTrackerNode::setModeCallback, this,
-                                      std::placeholders::_1, std::placeholders::_2));
+        set_mode_name,
+        std::bind(&ArmorTrackerNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        service_cb_group_);
+    RCLCPP_INFO(this->get_logger(), "SetMode service advertised at %s", set_mode_name.c_str());
     // Camera info subscription
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         "/camera_info", rclcpp::SensorDataQoS(),
@@ -73,12 +82,19 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Subscriptions
     target_frame_ = this->declare_parameter("target_frame", "odom");
+    rclcpp::SubscriptionOptions main_options;
+    main_options.callback_group = main_cb_group_;
     main_armors_sub_ = this->create_subscription<ArmorsMsg>(
         "/detector/armors", rclcpp::SensorDataQoS(),
-        std::bind(&ArmorTrackerNode::mainArmorsCallback, this, std::placeholders::_1));
+        std::bind(&ArmorTrackerNode::mainArmorsCallback, this, std::placeholders::_1),
+        main_options);
+
+    rclcpp::SubscriptionOptions wide_options;
+    wide_options.callback_group = wide_cb_group_;
     wide_armors_sub_ = this->create_subscription<ArmorsMsg>(
         "/detector_wide/armors", rclcpp::SensorDataQoS(),
-        std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1));
+        std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1),
+        wide_options);
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
@@ -296,13 +312,18 @@ void ArmorTrackerNode::initializeEKF()
 
 void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 {
-    // 移除所有阻塞逻辑，直接透传
-    // 即使 armors 为空，也需要传入以驱动 EKF 预测
-    
     // Check if camera info is ready
     if (cam_info_.k[0] == 0.0) {
         return;
     }
+
+    struct FlagGuard {
+        explicit FlagGuard(std::atomic_bool & flag) : flag_(flag) { flag_.store(true, std::memory_order_release); }
+        ~FlagGuard() { flag_.store(false, std::memory_order_release); }
+        std::atomic_bool & flag_;
+    } guard(main_processing_);
+
+    main_seq_.fetch_add(1, std::memory_order_acq_rel);
 
     processArmors(armors_msg, cam_info_, cam_center_, "camera_link", true);
 }
@@ -310,6 +331,18 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 {
     std::cerr << "Wide armors callback triggered." << std::endl;
+    if (main_processing_.load(std::memory_order_acquire)) {
+        RCLCPP_DEBUG(this->get_logger(), "Skip wide frame: main processing busy");
+        return;
+    }
+    // 确保任意两次 wide 之间至少有一次 main 回调
+    uint64_t current_main_seq = main_seq_.load(std::memory_order_acquire);
+    uint64_t last_seen = wide_seen_main_seq_.load(std::memory_order_acquire);
+    if (current_main_seq == last_seen) {
+        RCLCPP_DEBUG(this->get_logger(), "Skip wide frame: no new main frame since last wide");
+        return;
+    }
+    wide_seen_main_seq_.store(current_main_seq, std::memory_order_release);
     // Check if camera info is ready
     if (cam_info_wide.k[0] == 0.0) {
         return;
@@ -374,21 +407,38 @@ void ArmorTrackerNode::processArmors(
     } else {
         std::cerr << "[Main] Filtered armors count: " << armors_msg->armors.size() << std::endl;
     }
-    // 使用 TrackerManager 更新所有追踪器
-    tracker_manager_->update(armors_msg, is_main_camera);
+    // 更新/清理/选目标，主相机独占锁，广角非阻塞尝试
+    {
+        std::unique_lock<std::shared_mutex> lock(tracker_mutex_, std::defer_lock);
+        if (is_main_camera) {
+            lock.lock();
+        } else {
+            if (!lock.try_lock()) {
+                RCLCPP_WARN_THROTTLE(
+                    get_logger(), *this->get_clock(), 2000,
+                    "Skip wide armors: tracker busy with main stream");
+                return;
+            }
+        }
 
-    // 清理不活跃的追踪器
-    tracker_manager_->cleanInactiveTrackers();
-    if(!is_main_camera) {
-        std::cerr << "[Wide] TrackerManager updated with " << armors_msg->armors.size() << " armors." << std::endl;
+        tracker_manager_->update(armors_msg, is_main_camera);
+        tracker_manager_->cleanInactiveTrackers();
+        tracker_manager_->selectBestTarget();
+    }
+
+    if (!is_main_camera) {
+        std::cerr << "[Wide] TrackerManager updated with " << armors_msg->armors.size()
+                  << " armors." << std::endl;
     } else {
-        std::cerr << "[Main] TrackerManager updated with " << armors_msg->armors.size() << " armors." << std::endl;
+        std::cerr << "[Main] TrackerManager updated with " << armors_msg->armors.size()
+                  << " armors." << std::endl;
     }
     
     // 在主相机传来的图像上画图
     if (debug_ && is_main_camera) {
         // 如果跟踪状态有效，发布 TrackerInfo 消息
         // 注意：这里获取 target 信息仅用于绘图，不用于发布
+        std::shared_lock<std::shared_mutex> read_lock(tracker_mutex_);
         auto current_target_id = tracker_manager_->getCurrentTargetID();
 
         if (!armors_msg->image.data.empty() && armors_msg->image.header.stamp != last_img_time_) {
@@ -444,12 +494,9 @@ void ArmorTrackerNode::processArmors(
 
 void ArmorTrackerNode::publishCallback()
 {
-    std::lock_guard<std::mutex> lock(mutex_); // 必须加锁，防止与 processArmors 冲突
+    std::shared_lock<std::shared_mutex> lock(tracker_mutex_);
 
-    // 1. 选择最佳目标
-    tracker_manager_->selectBestTarget();
-
-    // 2. 获取并发布目标
+    // 获取并发布目标
     auto current_target_id = tracker_manager_->getCurrentTargetID();
     auto_aim_interfaces::msg::Target target_msg;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);

@@ -18,8 +18,9 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 // STD
+#include <atomic>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -161,8 +162,17 @@ private:
     rclcpp::Subscription<ArmorsMsg>::SharedPtr main_armors_sub_;
     rclcpp::Subscription<ArmorsMsg>::SharedPtr wide_armors_sub_;
 
+    // Callback groups（主相机独占、广角独立、发布独立）
+    rclcpp::CallbackGroup::SharedPtr main_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr wide_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr publish_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr service_cb_group_;
+
     // Synchronization control
-    std::mutex mutex_;
+    std::shared_mutex tracker_mutex_;
+    std::atomic_bool main_processing_{false};
+    std::atomic<uint64_t> main_seq_{0};
+    std::atomic<uint64_t> wide_seen_main_seq_{0};
 
     // Tracker info publisher
     rclcpp::Publisher<auto_aim_interfaces::msg::TrackerInfo>::SharedPtr info_pub_;
