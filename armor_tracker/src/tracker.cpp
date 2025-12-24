@@ -70,21 +70,27 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
     // 主/广角相机 决策逻辑
     if (!is_main_camera) {
-        // 如果是广角相机，且主相机在 100ms 内更新过，则忽略此帧广角数据
-        std::cerr << "time since last main update: "
-                  << (msg_time.seconds() - last_main_update_time_.seconds()) * 1000 << " ms"
-                  << std::endl;
+        // // 如果是广角相机，且主相机在 100ms 内更新过，则忽略此帧广角数据
+        // std::cerr << "time since last main update: "
+        //           << (msg_time.seconds() - last_main_update_time_.seconds()) * 1000 << " ms"
+        //           << std::endl;
         if ((msg_time.seconds() - last_main_update_time_.seconds()) < 0.1) {
-            RCLCPP_INFO(
+            RCLCPP_DEBUG(
                 rclcpp::get_logger("armor_tracker"),
                 "Ignoring wide camera data due to recent main camera update.");
             return false;
         }
     }
 
-    if (msg_time.nanoseconds() < last_update_time_.nanoseconds()){
-        RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Give up old msg"); 
-        return false; 
+    if (msg_time.nanoseconds() < last_update_time_.nanoseconds()) {
+        static rclcpp::Clock main_warn_clock(RCL_SYSTEM_TIME);
+        static rclcpp::Clock wide_warn_clock(RCL_SYSTEM_TIME);
+        auto & warn_clock = is_main_camera ? main_warn_clock : wide_warn_clock;
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("armor_tracker"), warn_clock, 1000,
+            "msg received is too old, skip processing. source=%s",
+            is_main_camera ? "main" : "wide");
+        return false;
     }
     // KF predict（先做快照，未匹配则回滚）
     auto ekf_backup = ekf;

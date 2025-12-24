@@ -324,13 +324,26 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
     } guard(main_processing_);
 
     main_seq_.fetch_add(1, std::memory_order_acq_rel);
+    
+    if (debug_) {
+        // 计算帧率
+        auto start_time = std::chrono::high_resolution_clock::now();
+        auto duration =
+            std::chrono::duration_cast<std::chrono::milliseconds>(start_time.time_since_epoch());
+        current_sec = duration.count() / 1000;
+        if (last_sec != current_sec) {
+            last_sec = current_sec;
+            if (frame_count < 100) RCLCPP_INFO(get_logger(), "fps: %d", frame_count);
+            frame_count = 0;
+        }
+        frame_count++;
+    }
 
     processArmors(armors_msg, cam_info_, cam_center_, "camera_link", true);
 }
 
 void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 {
-    std::cerr << "Wide armors callback triggered." << std::endl;
     if (main_processing_.load(std::memory_order_acquire)) {
         RCLCPP_DEBUG(this->get_logger(), "Skip wide frame: main processing busy");
         return;
@@ -347,31 +360,13 @@ void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
     if (cam_info_wide.k[0] == 0.0) {
         return;
     }
-    std::cerr << "Wide armors callback received " << armors_msg->armors.size() << " armors." << std::endl;
     processArmors(armors_msg, cam_info_wide, cam_center_wide, "wide_camera_optical_frame", false);
-    std::cerr << "Wide armors processed " << std::endl;
 }
 
 void ArmorTrackerNode::processArmors(
     const ArmorsMsg::SharedPtr & armors_msg, const sensor_msgs::msg::CameraInfo & cam_info,
     const cv::Point2f & cam_center, const std::string & frame_id, bool is_main_camera)
 {
-    if (debug_) {
-        // 计算帧率
-        auto start_time = std::chrono::high_resolution_clock::now();
-        auto duration =
-            std::chrono::duration_cast<std::chrono::milliseconds>(start_time.time_since_epoch());
-        current_sec = duration.count() / 1000;
-        if (last_sec != current_sec) {
-            last_sec = current_sec;
-            if (frame_count < 100) RCLCPP_INFO(get_logger(), "fps: %d", frame_count);
-            frame_count = 0;
-        }
-        frame_count++;
-    }
-    if (!is_main_camera) {
-        std::cerr << "[Wide] Received " << armors_msg->armors.size() << " armors from detector." << std::endl;
-    }
 
     // 手动执行坐标变换 (替代 tf2_filter)
     for (auto & armor : armors_msg->armors) {
@@ -402,11 +397,6 @@ void ArmorTrackerNode::processArmors(
                        max_armor_distance_;
             }),
         armors_msg->armors.end());
-    if (!is_main_camera) {
-        std::cerr << "[Wide] Filtered armors count: " << armors_msg->armors.size() << std::endl;
-    } else {
-        std::cerr << "[Main] Filtered armors count: " << armors_msg->armors.size() << std::endl;
-    }
     // 更新/清理/选目标，主相机独占锁，广角非阻塞尝试
     {
         std::unique_lock<std::shared_mutex> lock(tracker_mutex_, std::defer_lock);
@@ -427,11 +417,9 @@ void ArmorTrackerNode::processArmors(
     }
 
     if (!is_main_camera) {
-        std::cerr << "[Wide] TrackerManager updated with " << armors_msg->armors.size()
-                  << " armors." << std::endl;
+        RCLCPP_DEBUG(get_logger(), "Wide TrackerManager updated with %zu armors.", armors_msg->armors.size());
     } else {
-        std::cerr << "[Main] TrackerManager updated with " << armors_msg->armors.size()
-                  << " armors." << std::endl;
+        RCLCPP_DEBUG(get_logger(), "Main TrackerManager updated with %zu armors.", armors_msg->armors.size());
     }
     
     // 在主相机传来的图像上画图

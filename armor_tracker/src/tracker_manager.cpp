@@ -72,12 +72,14 @@ void TrackerManager::update(
             id_armors_msg->armors = armors_by_id[id];
             bool matched = trackers_[id]->update(id_armors_msg, is_main_camera);
             if (!matched) {
-                RCLCPP_WARN(
-                    rclcpp::get_logger("armor_tracker"),
-                    "Tracker %s did not match any armors with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
+                static rclcpp::Clock warn_clock(RCL_SYSTEM_TIME);
+                RCLCPP_WARN_THROTTLE(
+                    rclcpp::get_logger("armor_tracker"), warn_clock, 1000,
+                    "Tracker %s did not match any armors with %s data.",
+                    id.c_str(), is_main_camera ? "main camera" : "wide camera");
             }
             else{
-                RCLCPP_INFO(
+                RCLCPP_DEBUG(
                     rclcpp::get_logger("armor_tracker"),
                     "Tracker %s successfully matched armors with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
             }
@@ -86,7 +88,7 @@ void TrackerManager::update(
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
-            RCLCPP_WARN(
+            RCLCPP_DEBUG(
                 rclcpp::get_logger("armor_tracker"),
                 "No armors for tracker %s with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
             bool matched = trackers_[id]->update(empty_msg, is_main_camera);
