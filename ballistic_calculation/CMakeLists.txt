@@ -30,6 +30,7 @@ find_package(ament_cmake_auto REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 ament_auto_find_build_dependencies()
 # Include directories

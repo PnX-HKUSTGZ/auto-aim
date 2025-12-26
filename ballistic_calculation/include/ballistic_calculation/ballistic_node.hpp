@@ -14,15 +14,20 @@
 // STD
 #include <cv_bridge/cv_bridge.h>
 
+// visualization
+#include <visualization_msgs/msg/marker.hpp>
+
 #include <memory>
 #include <opencv2/core.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <string>
+#include <std_msgs/msg/float32_multi_array.hpp>
 
 #include "ballistic_calculation/ballistic_calculator.hpp"
 #include "ballistic_calculation/aim_info.hpp"
 #include "ballistic_calculation/armor_selector.hpp"
 #include "ballistic_calculation/mpc_controller.hpp"
+#include <geometry_msgs/msg/point_stamped.hpp>
 
 namespace rm_auto_aim
 {
@@ -80,6 +85,7 @@ private:
     
     // ROS2通信组件
     rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;  // 火控指令发布者
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr aim_point_pub_;  // 瞄准点可视化发布者
 
     // 装甲车辆目标相关
     rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr car_target_sub_;  // 目标订阅者
@@ -142,6 +148,11 @@ private:
     Eigen::Vector4d getCurrentGimbalState();
 
     std::unique_ptr<rm_auto_aim::MPCController> mpc_controller_;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr gimbal_vel_sub_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr mpc_pre_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr mpc_post_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr mpc_pre_point_pub_; // 可选，纯点消息
+    rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr mpc_post_point_pub_; // 可选，纯点消息
 };
 
 }  // namespace rm_auto_aim
