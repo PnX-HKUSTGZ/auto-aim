@@ -171,7 +171,7 @@ public:
      */
     template <typename T>
     std::pair<double, double> iteration(
-        const double & thres, double & init_pitch, double & init_t, T & target_info)
+        const double & thres, double & init_pitch, double & init_t, T & target_info, double & t_out)
     {
         double pitch = init_pitch, t = init_t;  // 初始化pitch和t
         double differ;  // 角度差值
@@ -201,7 +201,7 @@ public:
                 break;  // 达到收敛条件，退出迭代
             }
         }
-        
+        t_out = t;
         // 计算最终目标位置和偏航角
         Eigen::Vector3d last_target = target_info.getGunTarget(t);
         double predyaw = atan2(last_target[1], last_target[0]);

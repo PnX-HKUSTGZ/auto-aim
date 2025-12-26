@@ -9,11 +9,13 @@
 #include "../tinympc/tiny_api.hpp"
 #include "ballistic_calculator.hpp"
 #include "math_util.hpp"
+#include "armor_selector.hpp"
+#include "aim_info.hpp"
 
 namespace rm_auto_aim
 {
-constexpr double DT = 0.01;
-constexpr int HALF_HORIZON = 50;
+constexpr double DT = 0.02;
+constexpr int HALF_HORIZON = 10;
 constexpr int HORIZON = HALF_HORIZON * 2;
 
 using Trajectory = Eigen::Matrix<double, 4, HORIZON>;  // yaw, yaw_vel, pitch, pitch_vel
@@ -36,16 +38,24 @@ class MPCController
 {
 public:
     MPCController(const std::string & config_path);
+    ~MPCController();
 
     MPCResult compute(
-        const Eigen::Vector3d & target_odom, const Eigen::Vector4d & current_gimbal_state,
-        double bullet_speed);
+        const auto_aim_interfaces::msg::Target & target_msg,
+        const Eigen::Vector4d & current_gimbal_state,
+        double bullet_speed,
+        double T
+    );
 
 private:
     double yaw_offset_{0.0};
     double pitch_offset_{0.0};
-    double fire_thresh_{0.0};
+    double fire_thresh_{0.0}; // 有待确定
     double low_speed_delay_time_{0.0}, high_speed_delay_time_{0.0}, decision_speed_{0.0};
+    double min_switch_speed_{0.0};
+    double max_switch_speed_{0.0};
+
+    ArmorSelector armor_selector_;
 
     TinySolver * yaw_solver_{nullptr};
     TinySolver * pitch_solver_{nullptr};
@@ -54,7 +64,10 @@ private:
     void setupPitchSolver(const std::string & config_path);
 
     Eigen::Matrix<double, 2, 1> aim(const Eigen::Vector3d & target_odom, double bullet_speed);
-    Trajectory getTrajectory(const Eigen::Vector3d & target_odom, double yaw0, double bullet_speed);
+    Trajectory getTrajectory(
+        const auto_aim_interfaces::msg::Target & target_msg, 
+        double yaw0, 
+        double bullet_speed, double T);
 };
 
 }  // namespace rm_auto_aim
