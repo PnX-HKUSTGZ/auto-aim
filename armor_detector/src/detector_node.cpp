@@ -185,7 +185,12 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     }
     
     auto start_time = this->now();
-    if (debug_) armors_msg_.image = *img_msg;
+    // 避免在 AI 模式下复制整帧图像以减少拷贝开销
+    if (debug_ && !use_ai_detector_) {
+        armors_msg_.image = *img_msg;
+    } else {
+        armors_msg_.image = sensor_msgs::msg::Image();
+    }
 
     // 检测装甲板
     cv::Mat img;
@@ -243,6 +248,13 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         }
     }
     for (auto & armor_num : armor_num_map) {
+        if (use_ai_detector_) {
+            if (armor_num.second.first != -1) {
+                valid_armors.insert(
+                    valid_armors.end(), armor_num.second.second.begin(), armor_num.second.second.end());
+            }
+            continue; 
+        }
         if (armor_num.second.first == 2) {
             //利用同一台车上的两块装甲板关系的先验提高解算正确程度
             bool success = ba_solver_->fixTwoArmors(
@@ -322,7 +334,16 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
     //img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
     // ...existing code...
     try {
-        img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+        // 仅当编码匹配时零拷贝；不匹配时转换到 RGB8
+        const auto & encoding = img_msg->encoding;
+        if (encoding == sensor_msgs::image_encodings::RGB8) {
+            img = cv_bridge::toCvShare(img_msg)->image;
+        } else {
+            auto cv_ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::RGB8);
+            std::cerr << "[ArmorDetectorNode] Converted image encoding from " << encoding
+                      << " to RGB8." << std::endl;
+            img = std::move(cv_ptr->image);
+        }
     } catch (const cv_bridge::Exception & e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge Error: %s", e.what());
         return {};
@@ -377,8 +398,24 @@ std::vector<Armor> ArmorDetectorNode::detectArmors(
 std::vector<Armor> ArmorDetectorNode::aiDetectArmors(
     const sensor_msgs::msg::Image::ConstSharedPtr & img_msg, cv::Mat & img)
 {
-    // Convert ROS img to cv::Mat
-    img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+    // Convert ROS img to cv::Mat，优先零拷贝
+    try {
+        const auto & encoding = img_msg->encoding;
+        if (encoding == sensor_msgs::image_encodings::RGB8) {
+            img = cv_bridge::toCvShare(img_msg)->image;
+        } else {
+            auto cv_ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::RGB8);
+            img = std::move(cv_ptr->image);
+            std::cerr << "[ArmorDetectorNode] Converted image encoding from " << encoding
+                      << " to RGB8." << std::endl;
+        }
+    } catch (const cv_bridge::Exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "cv_bridge Error: %s", e.what());
+        return {};
+    } catch (const cv::Exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "OpenCV Error: %s", e.what());
+        return {};
+    }
 
     // 使用 AI 检测器
     int detect_color = get_parameter("detect_color").as_int();
@@ -529,6 +566,9 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
         (Eigen::Vector3d(tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2)) -
          t_odom_to_camera);
     armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
+    if (use_ai_detector_){
+        return; 
+    }
     if (abs(rpy(0)) < 0.26) {
         ba_solver_->solveBa(armor, r_odom_to_camera, t_odom_to_camera);
         armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
