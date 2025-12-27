@@ -5,6 +5,7 @@
 #include <cmath>
 #include <algorithm>
 #include <stdexcept>
+#include <opencv2/opencv.hpp>
 
 #include "ballistic_calculation/math_util.hpp"
 #include "yaml-cpp/yaml.h"
@@ -57,43 +58,41 @@ MPCResult MPCController::compute(
     Eigen::VectorXd x0(2);
     x0 << traj(0, 0), traj(1, 0);
     if (x0.hasNaN() || x0.cwiseAbs().maxCoeff() > 1e6) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Invalid yaw initial state");
+        RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid yaw initial state");
         return result;
     }
     tiny_set_x0(yaw_solver_, x0);
 
     Eigen::MatrixXd yaw_ref = traj.block(0, 0, 2, HORIZON);
     if (yaw_ref.hasNaN()) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "NaN in yaw reference");
+        RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "NaN in yaw reference");
         return result;
     }
     yaw_solver_->work->Xref = yaw_ref;
     
-    int solve_ret = tiny_solve(yaw_solver_);
-    if (solve_ret != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret);
-        return result;
+    int solve_ret_yaw = tiny_solve(yaw_solver_);
+    if (solve_ret_yaw != 0) {
+        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
     }
     x0 << traj(2, 0),  traj(3, 0);
     
     if (x0.hasNaN() || x0.cwiseAbs().maxCoeff() > 1e6) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Invalid pitch initial state");
+        RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid pitch initial state");
         return result;
     }
     tiny_set_x0(pitch_solver_, x0);
 
     Eigen::MatrixXd pitch_ref = traj.block(2, 0, 2, HORIZON);
     if (pitch_ref.hasNaN()) {
-         RCLCPP_WARN(rclcpp::get_logger("MPCController"), "NaN in pitch reference");
+         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "NaN in pitch reference");
          return result;
     }
     pitch_solver_->work->Xref = pitch_ref;
 
     // Solve Pitch
-    solve_ret = tiny_solve(pitch_solver_);
-    if (solve_ret != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret);
-        return result;
+    int solve_ret_pitch = tiny_solve(pitch_solver_);
+    if (solve_ret_pitch != 0) {
+        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret_pitch);
     }
     result.is_valid = true;
 
@@ -134,18 +133,75 @@ MPCResult MPCController::compute(
     result.target_yaw = limit_rad(traj(0, HALF_HORIZON));
     result.target_pitch = limit_rad(traj(2, HALF_HORIZON));
 
-    // 静止死区处理
-    // if (target_vel_vec.norm() < 0.05 && std::abs(target_msg.v_yaw) < 0.1) {
-    //     const double ERROR_THRESH = 0.02;
-    //     if (std::abs(limit_rad(result.yaw - result.target_yaw)) < ERROR_THRESH) {
-    //         result.yaw_vel = 0.0; result.yaw_acc = 0.0;
-    //         result.yaw = current_gimbal_state(0);
-    //     }
-    //     if (std::abs(result.pitch - result.target_pitch) < ERROR_THRESH) {
-    //         result.pitch_vel = 0.0; result.pitch_acc = 0.0;
-    //         result.pitch = current_gimbal_state(2);
-    //     }
-    // }
+    // Plot yaw reference (from traj) and optimized yaw (from solver) in a single image
+    /*
+    try {
+        if (HORIZON > 1 && yaw_solver_ && yaw_solver_->work) {
+            const int img_w = 900;
+            const int img_h = 360;
+            const int margin = 40;
+            cv::Mat img(img_h, img_w, CV_8UC3, cv::Scalar(255, 255, 255));
+
+            std::vector<cv::Point> pts_ref;
+            std::vector<cv::Point> pts_opt;
+
+            double ang_min = -M_PI/4.0;
+            double ang_max = M_PI/4.0;
+
+            auto ang_to_y = [&](double ang)->int {
+                double v = (ang - ang_min) / (ang_max - ang_min);
+                v = std::clamp(v, 0.0, 1.0);
+                return static_cast<int>((1.0 - v) * (img_h - 2 * margin) + margin);
+            };
+
+            for (int i = 0; i < HORIZON; ++i) {
+                double xr = limit_rad(traj(0, i));
+                double xo = limit_rad(yaw_solver_->work->x(0, i));
+                int xpix = static_cast<int>(margin + (double)i * (img_w - 2 * margin) / (HORIZON - 1));
+                pts_ref.emplace_back(cv::Point(xpix, ang_to_y(xr)));
+                pts_opt.emplace_back(cv::Point(xpix, ang_to_y(xo)));
+            }
+
+            if (!pts_ref.empty()) cv::polylines(img, pts_ref, false, cv::Scalar(200, 50, 50), 2, cv::LINE_AA);
+            if (!pts_opt.empty()) cv::polylines(img, pts_opt, false, cv::Scalar(50, 50, 200), 2, cv::LINE_AA);
+
+            // Draw Y-axis ticks and labels (radian scale)
+            std::vector<std::pair<double, std::string>> y_ticks = {
+                {-M_PI/4.0, "-pi/4"}, {-M_PI/8.0, "-pi/8"}, {0.0, "0"}, {M_PI/8.0, "pi/8"}, {M_PI/4.0, "pi/4"}
+            };
+            for (const auto &tk : y_ticks) {
+                int yy = ang_to_y(tk.first);
+                cv::line(img, cv::Point(margin - 8, yy), cv::Point(margin, yy), cv::Scalar(80, 80, 80), 1);
+                cv::putText(img, tk.second, cv::Point(2, yy + 5), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
+            }
+
+            // Draw X-axis ticks and labels (time in seconds relative to current)
+            const int num_xticks = 5;
+            for (int j = 0; j < num_xticks; ++j) {
+                int idx = (j * (HORIZON - 1)) / (num_xticks - 1);
+                int xpix = static_cast<int>(margin + (double)idx * (img_w - 2 * margin) / (HORIZON - 1));
+                int ytick_top = img_h - margin;
+                cv::line(img, cv::Point(xpix, ytick_top), cv::Point(xpix, ytick_top + 6), cv::Scalar(80, 80, 80), 1);
+                double t_off = (idx - HALF_HORIZON) * DT; // seconds offset
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%.2fs", t_off);
+                cv::putText(img, buf, cv::Point(xpix - 20, img_h - 6), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
+            }
+
+            // mark current (HALF_HORIZON) column
+            int curx = static_cast<int>(margin + (double)HALF_HORIZON * (img_w - 2 * margin) / (HORIZON - 1));
+            cv::line(img, cv::Point(curx, margin), cv::Point(curx, img_h - margin), cv::Scalar(50, 180, 50), 1);
+
+            cv::putText(img, "yaw_ref", cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(200, 50, 50), 2);
+            cv::putText(img, "yaw_opt", cv::Point(100, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(50, 50, 200), 2);
+
+            cv::imshow("yaw_traj", img);
+            cv::waitKey(1);
+        }
+    } catch (const std::exception & e) {
+        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Plotting yaw trajectories failed: %s", e.what());
+    }
+    */
 
     return result;
 }
@@ -250,22 +306,13 @@ void MPCController::setupYawSolver(const std::string & config_path)
     Eigen::Matrix<double, 1, 1> R(R_yaw.data());
     tiny_setup(&yaw_solver_, A, B, f, Q.asDiagonal(), R.asDiagonal(), 1.0, 2, 1, HORIZON, 0);
 
-    // 添加合理的状态约束
-    Eigen::MatrixXd x_min(2, HORIZON);
-    Eigen::MatrixXd x_max(2, HORIZON);
-    // 角度约束：±π rad
-    x_min.row(0) = Eigen::VectorXd::Constant(HORIZON, -M_PI);
-    x_max.row(0) = Eigen::VectorXd::Constant(HORIZON, M_PI);
-    // 角速度约束：±3 rad/s（根据云台实际性能调整）
-    x_min.row(1) = Eigen::VectorXd::Constant(HORIZON, -3.0);
-    x_max.row(1) = Eigen::VectorXd::Constant(HORIZON, 3.0);
-    // 控制输入约束：±max_yaw_acc
+    Eigen::MatrixXd x_min = Eigen::MatrixXd::Constant(2, HORIZON, -1e17);
+    Eigen::MatrixXd x_max = Eigen::MatrixXd::Constant(2, HORIZON, 1e17);
     Eigen::MatrixXd u_min = Eigen::MatrixXd::Constant(1, HORIZON - 1, -max_yaw_acc);
     Eigen::MatrixXd u_max = Eigen::MatrixXd::Constant(1, HORIZON - 1, max_yaw_acc);
-    
     tiny_set_bound_constraints(yaw_solver_, x_min, x_max, u_min, u_max);
 
-    yaw_solver_->settings->max_iter = 20;
+    yaw_solver_->settings->max_iter = 10;
 }
 
 void MPCController::setupPitchSolver(const std::string & config_path)
@@ -282,22 +329,13 @@ void MPCController::setupPitchSolver(const std::string & config_path)
     Eigen::Matrix<double, 1, 1> R(R_pitch.data());
     tiny_setup(&pitch_solver_, A, B, f, Q.asDiagonal(), R.asDiagonal(), 1.0, 2, 1, HORIZON, 0);
 
-    // 添加合理的状态约束
-    Eigen::MatrixXd x_min(2, HORIZON);
-    Eigen::MatrixXd x_max(2, HORIZON);
-    // 角度约束：±π rad
-    x_min.row(0) = Eigen::VectorXd::Constant(HORIZON, -M_PI);
-    x_max.row(0) = Eigen::VectorXd::Constant(HORIZON, M_PI);
-    // 角速度约束：±1 rad/s（根据云台实际性能调整）
-    x_min.row(1) = Eigen::VectorXd::Constant(HORIZON, -1.0);
-    x_max.row(1) = Eigen::VectorXd::Constant(HORIZON, 1.0);
-    // 控制输入约束：±max_yaw_acc
+    Eigen::MatrixXd x_min = Eigen::MatrixXd::Constant(2, HORIZON, -1e17);
+    Eigen::MatrixXd x_max = Eigen::MatrixXd::Constant(2, HORIZON, 1e17);
     Eigen::MatrixXd u_min = Eigen::MatrixXd::Constant(1, HORIZON - 1, -max_pitch_acc);
     Eigen::MatrixXd u_max = Eigen::MatrixXd::Constant(1, HORIZON - 1, max_pitch_acc);
-
     tiny_set_bound_constraints(pitch_solver_, x_min, x_max, u_min, u_max);
 
-    pitch_solver_->settings->max_iter = 20;
+    pitch_solver_->settings->max_iter = 10;
 }
 
 }  // namespace rm_auto_aim
