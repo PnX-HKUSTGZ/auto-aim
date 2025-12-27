@@ -18,6 +18,7 @@ class ArmorSelector
 using target = auto_aim_interfaces::msg::Target;
 
 public:
+    const double COST_DIFF_THRESHOLD = M_PI/18;
     /**
      * @brief 更新目标信息
      * 
@@ -85,15 +86,22 @@ public:
         std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
             return std::abs(a.cost) < std::abs(b.cost);
         });
+        
         Armor chosen_armor = armors[0];  // 选择角度距离最小的装甲板
+        // 一级策略：低速或MPC控制或最优装甲板角度小于放弃角度时，直接选择最优装甲板        
+        if (abs(target_msg.v_yaw) < min_v) {
+            if(abs(armors[0].cost - armors[1].cost) < COST_DIFF_THRESHOLD){
+                chosen_armor = armors[0].cost < 0 ? armors[0] : armors[1];
+            }
+            return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        }
         
         // 计算放弃角度（用于二级策略判断）
         double yaw = findYaw(
             abs(target_msg.v_yaw), v_yaw_gimble, sqrt(pow(newxc, 2) + pow(newyc, 2)),
             chosen_armor.r, target_msg.armors_num);
             
-        // 一级策略：低速或最优装甲板角度小于放弃角度时，直接选择最优装甲板
-        if (std::isnan(yaw) || abs(target_msg.v_yaw) < min_v || abs(armors[0].cost) <= yaw) {
+        if (std::isnan(yaw) || abs(armors[0].cost) <= yaw) {
             return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
         }
         
