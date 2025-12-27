@@ -99,12 +99,6 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
                 this->current_pitch_vel = msg->data[1];
             }
         });
-
-    // Marker发布器（rviz可视化）
-    mpc_pre_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
-        "/mpc/pre_target_marker", rclcpp::QoS(10));
-    mpc_post_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
-        "/mpc/post_target_marker", rclcpp::QoS(10));
     rclcpp::QoS point_qos = rclcpp::QoS(10).transient_local();
     // PointStamped发布器（rqt_plot绘制曲线）
     mpc_pre_point_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>("/mpc/pre_target_point", point_qos);
@@ -238,119 +232,46 @@ void BallisticCalculateNode::carTargetCallback(
 
     // MPC优化部分
     // 1. 获取MPC所需输入
-    Eigen::Vector3d target_odom = armor_info_->getOdomTarget(temp_t); // 使用预测时间t的目标位置
-    Eigen::Vector4d current_gimbal_state = getCurrentGimbalState(); // 获取当前云台状态 [yaw, yaw_vel, pitch, pitch_vel]
+    // Eigen::Vector3d target_odom = armor_info_->getOdomTarget(temp_t); // 使用预测时间t的目标位置
     double current_bullet_speed = BULLET_V;
+    // 2. 调用MPC计算
+    MPCResult mpc_result = mpc_controller_->compute(*car_target_msg, current_bullet_speed, temp_t);
 
-    // MPC解算前可视化标记
+
+    // MPC解算前可视化：发布当前云台yaw与yaw_vel到PointStamped
     try {
-        // 1. 发布Marker（球体，便于rqt可视化）
-        visualization_msgs::msg::Marker pre_mpc_marker;
-        pre_mpc_marker.header.frame_id = "odom";
-        pre_mpc_marker.header.stamp = this->now();
-        pre_mpc_marker.ns = "mpc_pre_target"; // 命名空间区分
-        pre_mpc_marker.id = 1;
-        pre_mpc_marker.type = visualization_msgs::msg::Marker::SPHERE;
-        pre_mpc_marker.action = visualization_msgs::msg::Marker::ADD;
-        // 位置
-        pre_mpc_marker.pose.position.x = target_odom.x();
-        pre_mpc_marker.pose.position.y = target_odom.y();
-        pre_mpc_marker.pose.position.z = target_odom.z();
-        pre_mpc_marker.pose.orientation.w = 1.0;
-        // 大小（比原有标记稍大，便于区分）
-        pre_mpc_marker.scale.x = 0.08;
-        pre_mpc_marker.scale.y = 0.08;
-        pre_mpc_marker.scale.z = 0.08;
-        // 颜色：蓝色（MPC解算前）
-        pre_mpc_marker.color.r = 0.0f;
-        pre_mpc_marker.color.g = 0.0f;
-        pre_mpc_marker.color.b = 1.0f;
-        pre_mpc_marker.color.a = 0.8f; // 半透明，避免遮挡
-        pre_mpc_marker.lifetime = rclcpp::Duration::from_seconds(0.1);
-        if (mpc_pre_pub_) {
-            mpc_pre_pub_->publish(pre_mpc_marker);
-        }
-
-        // 2. 可选：发布纯PointStamped消息（rqt_plot更易绘制）
         geometry_msgs::msg::PointStamped pre_mpc_point;
         pre_mpc_point.header.frame_id = "odom";
         pre_mpc_point.header.stamp = this->now();
-        pre_mpc_point.point.x = target_odom.x();
-        pre_mpc_point.point.y = target_odom.y();
-        pre_mpc_point.point.z = target_odom.z();
+        // x: gimbal_yaw, y: gimbal_yaw_vel
+        pre_mpc_point.point.x = mpc_result.target_yaw;
+        pre_mpc_point.point.y = 0;
         if (mpc_pre_point_pub_) {
             mpc_pre_point_pub_->publish(pre_mpc_point);
         }
     } catch (...) {
-        RCLCPP_WARN(this->get_logger(), "Failed to publish pre-MPC target marker");
+        RCLCPP_WARN(this->get_logger(), "Failed to publish pre-MPC point");
     }
-    // 2. 调用MPC计算
-    Eigen::Vector2d target_vel(
-        car_target_msg->velocity.x,
-        car_target_msg->velocity.y   
-    );
-    MPCResult mpc_result = mpc_controller_->compute(*car_target_msg, current_gimbal_state, current_bullet_speed, temp_t);
 
-    // MPC解算后可视化标记
+    // MPC解算后可视化：发布MPC计划的yaw与yaw_vel到PointStamped
     try {
         if (use_mpc_default && mpc_result.is_valid) {
-            // 计算MPC优化后的目标位置（根据MPC输出的yaw/pitch反推）
-            // 假设你有方法通过yaw/pitch和距离计算3D位置，这里提供通用示例
-            // 如果MPCResult中直接包含优化后的目标位置，直接使用即可
-            Eigen::Vector3d mpc_optimized_target;
-            // 方式1：如果MPC返回优化后的目标位置（推荐）
-            // mpc_optimized_target = mpc_result.optimized_target_pos;
-            // 方式2：通过yaw/pitch反推（需已知距离）
-            double distance = target_odom.norm(); // 原目标距离
-            mpc_optimized_target.x() = distance * cos(mpc_result.target_pitch) * cos(mpc_result.target_yaw);
-            mpc_optimized_target.y() = distance * cos(mpc_result.target_pitch) * sin(mpc_result.target_yaw);
-            mpc_optimized_target.z() = distance * sin(mpc_result.target_pitch);
-
-            // 1. 发布Marker（球体，红色区分）
-            visualization_msgs::msg::Marker post_mpc_marker;
-            post_mpc_marker.header.frame_id = "odom";
-            post_mpc_marker.header.stamp = this->now();
-            post_mpc_marker.ns = "mpc_post_target"; // 命名空间区分
-            post_mpc_marker.id = 2;
-            post_mpc_marker.type = visualization_msgs::msg::Marker::SPHERE;
-            post_mpc_marker.action = visualization_msgs::msg::Marker::ADD;
-            // 位置
-            post_mpc_marker.pose.position.x = mpc_optimized_target.x();
-            post_mpc_marker.pose.position.y = mpc_optimized_target.y();
-            post_mpc_marker.pose.position.z = mpc_optimized_target.z();
-            post_mpc_marker.pose.orientation.w = 1.0;
-            // 大小
-            post_mpc_marker.scale.x = 0.08;
-            post_mpc_marker.scale.y = 0.08;
-            post_mpc_marker.scale.z = 0.08;
-            // 颜色：红色（MPC解算后）
-            post_mpc_marker.color.r = 1.0f;
-            post_mpc_marker.color.g = 0.0f;
-            post_mpc_marker.color.b = 0.0f;
-            post_mpc_marker.color.a = 0.8f;
-            post_mpc_marker.lifetime = rclcpp::Duration::from_seconds(0.1);
-            if (mpc_post_pub_) {
-                mpc_post_pub_->publish(post_mpc_marker);
-            }
-
-            // 2. 可选：发布纯PointStamped消息
             geometry_msgs::msg::PointStamped post_mpc_point;
             post_mpc_point.header.frame_id = "odom";
             post_mpc_point.header.stamp = this->now();
-            post_mpc_point.point.x = mpc_optimized_target.x();
-            post_mpc_point.point.y = mpc_optimized_target.y();
-            post_mpc_point.point.z = mpc_optimized_target.z();
+            // x: plan_yaw, y: plan_yaw_vel
+            post_mpc_point.point.x = mpc_result.yaw;
+            post_mpc_point.point.y = mpc_result.yaw_vel;
             if (mpc_post_point_pub_) {
                 mpc_post_point_pub_->publish(post_mpc_point);
             }
         }
     } catch (...) {
-        RCLCPP_WARN(this->get_logger(), "Failed to publish post-MPC target marker");
+        RCLCPP_WARN(this->get_logger(), "Failed to publish post-MPC point");
     }
     // 3. 结果融合：优先使用MPC结果，如果MPC求解失败，直接返回，不发送信息
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
-    bool use_mpc_fire_decision = false;
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
@@ -361,8 +282,6 @@ void BallisticCalculateNode::carTargetCallback(
         yaw_acc = mpc_result.yaw_acc;
         pitch_vel = mpc_result.pitch_vel;
         pitch_acc = mpc_result.pitch_acc;
-        
-        use_mpc_fire_decision = true;
     } else {
         // MPC 失败或未开启，直接返回
         // RCLCPP_WARN(this->get_logger(), "MPC invalid or disabled. Skipping publish.");
@@ -390,13 +309,7 @@ void BallisticCalculateNode::carTargetCallback(
     if (this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)) {
         ifFireK += abs(car_target_msg->v_yaw) * 0.004;
     }
-    // 开火决策：优先使用MPC的预测性决策
-    if (use_mpc_fire_decision && mpc_result.is_fire) {
-        fire_msg.iffire = true;
-    } else {
-        // 否则使用原有的瞬时位置比较决策
-        fire_msg.iffire = ifFire(fire_msg.pitch, fire_msg.yaw);
-    }
+    fire_msg.iffire = ifFire(fire_msg.pitch, fire_msg.yaw);
 
     if (fire_msg.iffire) last_fire_time = this->now();
     publisher_->publish(fire_msg);
@@ -426,7 +339,6 @@ void BallisticCalculateNode::runeTargetCallback(
 
     // MPC 优化部分
     Eigen::Vector3d target_odom = rune_info_->getOdomTarget(rune_t);
-    Eigen::Vector4d current_gimbal_state = getCurrentGimbalState();
     double current_bullet_speed = BULLET_V;
 
     Eigen::Vector2d target_vel(0.0, 0.0); // 暂时先设为0.0
@@ -437,7 +349,7 @@ void BallisticCalculateNode::runeTargetCallback(
     mpc_target.position.z = target_odom.z();
     mpc_target.velocity.x = target_vel.x();
     mpc_target.velocity.y = target_vel.y();
-    MPCResult mpc_result = mpc_controller_->compute(mpc_target, current_gimbal_state, current_bullet_speed, rune_t);
+    MPCResult mpc_result = mpc_controller_->compute(mpc_target, current_bullet_speed, rune_t);
 
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;

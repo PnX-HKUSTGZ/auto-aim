@@ -42,7 +42,6 @@ public:
 
     MPCResult compute(
         const auto_aim_interfaces::msg::Target & target_msg,
-        const Eigen::Vector4d & current_gimbal_state,
         double bullet_speed,
         double T
     );
@@ -66,8 +65,9 @@ private:
     Eigen::Matrix<double, 2, 1> aim(const Eigen::Vector3d & target_odom, double bullet_speed);
     Trajectory getTrajectory(
         const auto_aim_interfaces::msg::Target & target_msg, 
-        double yaw0, 
         double bullet_speed, double T);
+
+    Eigen::Vector3d getOdomTarget(const auto_aim_interfaces::msg::Target & target_msg, double time);
 };
 
 }  // namespace rm_auto_aim
