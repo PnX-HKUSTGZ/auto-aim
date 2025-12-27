@@ -145,6 +145,11 @@ private:
         // 初始猜测值
         double yaw = M_PI / 4;
 
+        // 输入合法性检查，避免除零或无效几何
+        if (armors_num <= 0 || v_yaw <= 1e-6 || v_yaw_gimble <= 0.0 || distance <= 1e-6 || radius <= 1e-6) {
+            return std::nan("");
+        }
+
         // 配置Ceres求解器选项
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
@@ -161,6 +166,11 @@ private:
             new ceres::AutoDiffCostFunction<YawResidual, 1, 1>(
                 new YawResidual(v_yaw, v_yaw_gimble, distance, radius, armors_num)),
             nullptr, &yaw);
+
+        // yaw 应在 (0, 2*pi/armors_num) 范围内，避免求解跑飞
+        const double yaw_upper = std::max(1e-3, 2 * M_PI / std::max(1, armors_num));
+        problem.SetParameterLowerBound(&yaw, 0, 0.0);
+        problem.SetParameterUpperBound(&yaw, 0, yaw_upper);
 
         // 执行优化求解
         ceres::Solver::Summary summary;

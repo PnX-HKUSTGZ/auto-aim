@@ -4,6 +4,7 @@
 #include <ceres/ceres.h>
 #include <ceres/jet.h>
 
+#include <cmath>
 #include <Eigen/Dense>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
 #include <geometry_msgs/msg/detail/point__struct.hpp>
@@ -55,6 +56,9 @@ private:
                 new Ballistic::CostFunctor<T>(*this, state_info, temp_pitch)),
             nullptr, &t);
 
+        // Constrain time to non-negative to avoid invalid log arguments
+        problem.SetParameterLowerBound(&t, 0, 0.0);
+
         // 配置求解器选项
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
@@ -103,43 +107,40 @@ private:
         bool operator()(const U * const t, U * residual) const
         {
             U v0 = U(ballistic_ref.bulletV);
-            
+
             // 提取时间值的标量部分来调用 getHorizontalDistance
-            double t_value; 
+            double t_value;
             if constexpr (std::is_same_v<U, double>) {
                 t_value = *t;
             } else {
                 t_value = t->a;  // Jet 类型的标量部分
-            } 
-            
-            U distance_aim = U(state_info.getHorizontalDistance(t_value));
+            }
 
-            // 计算log函数的参数
-            U log_arg = U(ballistic_ref.k) * ceres::cos(U(temp_pitch)) * v0 * (*t) + U(1.0);
+            double distance_scalar = state_info.getHorizontalDistance(t_value);
+            double log_arg_scalar = ballistic_ref.k * std::cos(temp_pitch) * ballistic_ref.bulletV * t_value + 1.0;
 
-            // 添加调试输出：仅在使用double类型时输出（避免自动微分时的冗余输出）
-            if constexpr (std::is_same_v<U, double>) {
-                // 当log参数可能导致NaN时输出关键信息
-                if (log_arg <= U(0) || std::isnan(static_cast<double>(log_arg)) || std::isinf(static_cast<double>(log_arg))) {
+            // 保护：任何非法输入直接给大残差，避免 NaN 进入 Ceres
+            if (!std::isfinite(distance_scalar) || !std::isfinite(log_arg_scalar) || log_arg_scalar <= 0.0) {
+                residual[0] = U(1e8);
+                if constexpr (std::is_same_v<U, double>) {
                     RCLCPP_ERROR(
                         rclcpp::get_logger("BallisticCostFunctor"),
-                        "Invalid log argument: %.6f (k=%.6f, cos(pitch)=%.6f, v0=%.6f, t=%.6f, distance_aim=%.6f)",
-                        static_cast<double>(log_arg),
-                        ballistic_ref.k,
-                        cos(temp_pitch),
-                        ballistic_ref.bulletV,
+                        "Invalid ballistic input (log_arg=%.6f, distance=%.6f, t=%.6f, k=%.6f, cos(pitch)=%.6f, v0=%.6f)",
+                        log_arg_scalar,
+                        distance_scalar,
                         t_value,
-                        static_cast<double>(distance_aim)
+                        ballistic_ref.k,
+                        std::cos(temp_pitch),
+                        ballistic_ref.bulletV
                     );
                 }
+                return true;
             }
 
-            // 计算弹道方程残差（添加保护避免NaN）
-            if (log_arg <= U(0)) {
-                residual[0] = U(1e10);  // 异常值时返回大残差
-            } else {
-                residual[0] = (U(1.0) / U(ballistic_ref.k)) * ceres::log(log_arg) - distance_aim;
-            }
+            U log_arg = U(log_arg_scalar);
+            U distance_aim = U(distance_scalar);
+
+            residual[0] = (U(1.0) / U(ballistic_ref.k)) * ceres::log(log_arg) - distance_aim;
 
             return true;
         }

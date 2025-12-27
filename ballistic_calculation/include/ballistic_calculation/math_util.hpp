@@ -8,6 +8,7 @@
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
 #include <map>
+#include <cmath>
 
 namespace rm_auto_aim
 {
@@ -90,9 +91,24 @@ public:
     template <typename T>
     bool operator()(const T * const yaw, T * residual) const
     {
+        // 非法输入直接返回大残差，避免 NaN/Inf
+        if (armors_num_ <= 0 || !std::isfinite(v_yaw_) || v_yaw_ <= 1e-6 || !std::isfinite(distance_) ||
+            distance_ <= 1e-6 || !std::isfinite(radius_) || radius_ <= 1e-6 ||
+            !std::isfinite(v_yaw_gimble_) || v_yaw_gimble_ <= 0.0) {
+            residual[0] = T(1e8);
+            return true;
+        }
+
         // 计算云台偏航角速度
         T numerator = ((T(2.0) * T(M_PI) / T(armors_num_)) - T(2.0) * yaw[0]) * T(v_yaw_gimble_);
         T denominator = T(2.0) * T(v_yaw_);
+
+        // 防止除零
+        if (ceres::abs(denominator) < T(1e-6)) {
+            residual[0] = T(1e8);
+            return true;
+        }
+
         T yaw_gimble = numerator / denominator;
 
         // 计算几何约束方程：sin(yaw + yaw_gimble) / distance - sin(yaw_gimble) / radius = 0
