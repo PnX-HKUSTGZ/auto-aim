@@ -245,12 +245,12 @@ MPCResult MPCController::compute(
         CachedState cached{};
         const double stamp = nowSeconds() + T;
         cached.stamp = stamp;
-        cached.yaw = limit_rad(yaw_solver_->work->x(0, 0));
-        cached.yaw_vel = yaw_solver_->work->x(1, 0);
-        cached.yaw_acc = yaw_solver_->work->u(0, 0);
-        cached.pitch = limit_rad(pitch_solver_->work->x(0, 0));
-        cached.pitch_vel = pitch_solver_->work->x(1, 0);
-        cached.pitch_acc = pitch_solver_->work->u(0, 0);
+        cached.yaw = limit_rad(yaw_solver_->work->x(0, HALF_HORIZON));
+        cached.yaw_vel = yaw_solver_->work->x(1, HALF_HORIZON);
+        cached.yaw_acc = yaw_solver_->work->u(0, HALF_HORIZON);
+        cached.pitch = limit_rad(pitch_solver_->work->x(0, HALF_HORIZON));
+        cached.pitch_vel = pitch_solver_->work->x(1, HALF_HORIZON);
+        cached.pitch_acc = pitch_solver_->work->u(0, HALF_HORIZON);
         pruneCache(stamp - HALF_HORIZON * DT - DT);
         storeOptimizedState(cached);
     } catch (const std::exception & e) {
@@ -316,20 +316,66 @@ Trajectory MPCController::getTrajectory(
         double t_pred = DT * (i + 1);
         double abs_time = base_stamp + t_pred;
 
-        // 使用历史的条件：
-        // 1) 至少存在一个缓存点，且该缓存点时间 >= base_stamp（0 时刻）
-        // 2) 当前要填的绝对时间 abs_time 处于 [hist_start, latest_cached->stamp]
+        // 使用历史插值的条件：窗口内存在数据且 abs_time 位于缓存范围 [hist_start, latest_cached->stamp]
         bool use_cache = latest_cached.has_value() &&
-                 abs_time <= latest_cached->stamp + 1e-6 &&
-                 abs_time >= hist_start - 1e-6;
-
+                         abs_time <= latest_cached->stamp + 1e-6 &&
+                         abs_time >= hist_start - 1e-6;
         if (use_cache) {
-            // queryLatest 在队列中向后查找 <= abs_time 的最近一帧
-            auto cached = queryLatest(abs_time);
-            if (cached) {
-                traj.col(idx) << limit_rad(cached->yaw), cached->yaw_vel,
-                                 limit_rad(cached->pitch), cached->pitch_vel;
-                last_yaw_pitch = {limit_rad(cached->yaw), limit_rad(cached->pitch)};
+            // 找到 abs_time 前后的最近两帧，做线性插值（时间加权）
+            CachedState prev;
+            CachedState next;
+            bool has_prev = false;
+            bool has_next = false;
+
+            // prev: <= abs_time 的最近一帧
+            for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
+                if (it->stamp <= abs_time + 1e-9) {
+                    prev = *it;
+                    has_prev = true;
+                    break;
+                }
+            }
+            // next: > abs_time 的最近一帧
+            for (const auto & st : history_) {
+                if (st.stamp > abs_time - 1e-9) {
+                    next = st;
+                    has_next = true;
+                    break;
+                }
+            }
+
+            if (has_prev && has_next) {
+                double t0 = prev.stamp;
+                double t1 = next.stamp;
+                if (std::abs(t1 - t0) < 1e-6) {
+                    t1 = t0 + 1e-6; // 避免除零
+                }
+                double w1 = (abs_time - t0) / (t1 - t0);
+                w1 = std::clamp(w1, 0.0, 1.0);
+                double w0 = 1.0 - w1;
+
+                auto lerp = [&](double a, double b) { return a * w0 + b * w1; };
+
+                double yaw_interp = limit_rad(lerp(prev.yaw, next.yaw));
+                double pitch_interp = limit_rad(lerp(prev.pitch, next.pitch));
+                double yaw_vel_interp = lerp(prev.yaw_vel, next.yaw_vel);
+                double pitch_vel_interp = lerp(prev.pitch_vel, next.pitch_vel);
+
+                traj.col(idx) << yaw_interp, yaw_vel_interp,
+                                 pitch_interp, pitch_vel_interp;
+                last_yaw_pitch = {yaw_interp, pitch_interp};
+                has_last = true;
+                continue;
+            } else if (has_prev) {
+                traj.col(idx) << limit_rad(prev.yaw), prev.yaw_vel,
+                                 limit_rad(prev.pitch), prev.pitch_vel;
+                last_yaw_pitch = {limit_rad(prev.yaw), limit_rad(prev.pitch)};
+                has_last = true;
+                continue;
+            } else if (has_next) {
+                traj.col(idx) << limit_rad(next.yaw), next.yaw_vel,
+                                 limit_rad(next.pitch), next.pitch_vel;
+                last_yaw_pitch = {limit_rad(next.yaw), limit_rad(next.pitch)};
                 has_last = true;
                 continue;
             }

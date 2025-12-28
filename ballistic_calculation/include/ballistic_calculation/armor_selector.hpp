@@ -205,5 +205,5 @@ protected:
     }
 }; 
 
-}
+}  // namespace rm_auto_aim
 #endif  // BALLISTIC_CALCULATION_ARMOR_SELECTOR_HPP_
