@@ -2,7 +2,7 @@
 #define BALLISTIC_CALCULATION_MPC_CONTROLLER_HPP_
 
 #include <Eigen/Dense>
-#include <memory>
+#include <deque>
 #include <optional>
 #include <string>
 
@@ -11,6 +11,7 @@
 #include "math_util.hpp"
 #include "armor_selector.hpp"
 #include "aim_info.hpp"
+#include "rclcpp/rclcpp.hpp"
 
 namespace rm_auto_aim
 {
@@ -47,6 +48,19 @@ public:
     );
 
 private:
+    struct CachedState
+    {
+        double stamp{0.0};          // 绝对时间戳（秒） = now + T
+        double yaw{0.0};
+        double pitch{0.0};
+        double yaw_vel{0.0};
+        double pitch_vel{0.0};
+        double yaw_acc{0.0};
+        double pitch_acc{0.0};
+    };
+
+    static constexpr size_t MAX_CACHE_SIZE = 600; // ~6s at 100Hz
+
     double yaw_offset_{0.0};
     double pitch_offset_{0.0};
     double fire_thresh_{0.0}; // 有待确定
@@ -55,6 +69,8 @@ private:
     double max_switch_speed_{0.0};
 
     ArmorSelector armor_selector_;
+
+    std::deque<CachedState> history_;
 
     TinySolver * yaw_solver_{nullptr};
     TinySolver * pitch_solver_{nullptr};
@@ -66,6 +82,11 @@ private:
     Trajectory getTrajectory(
         const auto_aim_interfaces::msg::Target & target_msg, 
         double bullet_speed, double T);
+
+    void storeOptimizedState(const CachedState & state);
+    void pruneCache(double min_stamp);
+    std::optional<CachedState> queryLatest(double stamp) const;
+    double nowSeconds() const;
 
     Eigen::Vector3d getOdomTarget(const auto_aim_interfaces::msg::Target & target_msg, double time);
 };

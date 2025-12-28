@@ -3,6 +3,7 @@
 
 #include <angles/angles.h>
 #include <ceres/ceres.h>
+#include "rclcpp/rclcpp.hpp"
 #include "math_util.hpp"
 
 namespace rm_auto_aim
@@ -24,9 +25,13 @@ public:
      * 
      * @param new_target_msg 新的目标消息
      */
-    void updateTarget(const target & new_target_msg)
-    {
+    void updateTarget(const target & new_target_msg) {
+        auto msg_delay = (this->now() - rclcpp::Time(new_target_msg.header.stamp)).seconds();
         target_msg = new_target_msg;
+        target_msg.yaw = new_target_msg.yaw + msg_delay * new_target_msg.v_yaw;
+        target_msg.position.x = new_target_msg.position.x + msg_delay * new_target_msg.velocity.x;
+        target_msg.position.y = new_target_msg.position.y + msg_delay * new_target_msg.velocity.y;
+        target_msg.position.z = new_target_msg.position.z + msg_delay * new_target_msg.velocity.z;
     }
     
     /**
@@ -190,6 +195,13 @@ private:
         } else {
             return std::nan("");  // 求解失败，返回NaN
         }
+    }
+
+protected:
+    rclcpp::Time now() const {
+        // 使用 ROS 时间源，保证与消息时间戳一致，避免 time source mismatch
+        static rclcpp::Clock clock(RCL_ROS_TIME);
+        return clock.now();
     }
 }; 
 

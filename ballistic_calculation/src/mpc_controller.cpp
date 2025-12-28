@@ -34,6 +34,45 @@ MPCController::~MPCController() {
     if (pitch_solver_) free(pitch_solver_);
 }
 
+double MPCController::nowSeconds() const
+{
+    // 与目标消息时间源保持一致，避免 time source mismatch
+    static rclcpp::Clock clock(RCL_ROS_TIME);
+    return clock.now().seconds();
+}
+
+void MPCController::pruneCache(double min_stamp)
+{
+    while (!history_.empty() && history_.front().stamp < min_stamp) {
+        history_.pop_front();
+    }
+}
+
+void MPCController::storeOptimizedState(const CachedState & state)
+{
+    if (!std::isfinite(state.stamp)) return;
+    // 保持时间递增的队列
+    if (!history_.empty() && state.stamp < history_.back().stamp - 1e-6) {
+        // 如果时间回拨，直接忽略，避免乱序
+        return;
+    }
+    history_.push_back(state);
+    if (history_.size() > MAX_CACHE_SIZE) {
+        history_.pop_front();
+    }
+}
+
+std::optional<MPCController::CachedState> MPCController::queryLatest(double stamp) const
+{
+    if (history_.empty()) return std::nullopt;
+    for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
+        if (it->stamp <= stamp + 1e-6) {
+            return *it;
+        }
+    }
+    return std::nullopt;
+}
+
 MPCResult MPCController::compute(
     const auto_aim_interfaces::msg::Target & target_msg,
     double bullet_speed, double T)
@@ -56,7 +95,7 @@ MPCResult MPCController::compute(
     }
 
     Eigen::VectorXd x0(2);
-    x0 << traj(0, 0), traj(1, 0);
+    x0 << traj(0, 0), 0.0;
     if (x0.hasNaN() || x0.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid yaw initial state");
         return result;
@@ -74,7 +113,7 @@ MPCResult MPCController::compute(
     if (solve_ret_yaw != 0) {
         RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
     }
-    x0 << traj(2, 0),  traj(3, 0);
+    x0 << traj(2, 0),  0.0;
     
     if (x0.hasNaN() || x0.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid pitch initial state");
@@ -134,7 +173,6 @@ MPCResult MPCController::compute(
     result.target_pitch = limit_rad(traj(2, HALF_HORIZON));
 
     // Plot yaw reference (from traj) and optimized yaw (from solver) in a single image
-    /*
     try {
         if (HORIZON > 1 && yaw_solver_ && yaw_solver_->work) {
             const int img_w = 900;
@@ -201,7 +239,23 @@ MPCResult MPCController::compute(
     } catch (const std::exception & e) {
         RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Plotting yaw trajectories failed: %s", e.what());
     }
-    */
+
+    // 缓存 0 时刻（now + T）优化结果
+    try {
+        CachedState cached{};
+        const double stamp = nowSeconds() + T;
+        cached.stamp = stamp;
+        cached.yaw = limit_rad(yaw_solver_->work->x(0, 0));
+        cached.yaw_vel = yaw_solver_->work->x(1, 0);
+        cached.yaw_acc = yaw_solver_->work->u(0, 0);
+        cached.pitch = limit_rad(pitch_solver_->work->x(0, 0));
+        cached.pitch_vel = pitch_solver_->work->x(1, 0);
+        cached.pitch_acc = pitch_solver_->work->u(0, 0);
+        pruneCache(stamp - HALF_HORIZON * DT - DT);
+        storeOptimizedState(cached);
+    } catch (const std::exception & e) {
+        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Cache store failed: %s", e.what());
+    }
 
     return result;
 }
@@ -244,16 +298,48 @@ Trajectory MPCController::getTrajectory(
     Eigen::Vector3d current_pos(target_msg.position.x, target_msg.position.y, target_msg.position.z);
     
     Eigen::Vector2d last_yaw_pitch;
-    // Use time in seconds: HALF_HORIZON steps before T (each step = DT)
-    Eigen::Vector3d init_armor_pos = getOdomTarget(target_msg, T - HALF_HORIZON * DT);
+    bool has_last = false;
 
-    last_yaw_pitch = aim(init_armor_pos, bullet_speed);
+    const double now_stamp = nowSeconds();
+    const double base_stamp = now_stamp + T;
+    const double hist_start = base_stamp - HALF_HORIZON * DT;
+
+    // 清理过旧缓存，基准：当前预测窗口起点往前 1 个 DT
+    pruneCache(hist_start - DT);
+    // latest_cached: 截止到 base_stamp(=now+T) 的最新缓存点，用于判定历史可用区间上界
+    auto latest_cached = queryLatest(base_stamp);
 
     for (int i = -HALF_HORIZON; i < HALF_HORIZON; i++) {
         int idx = i + HALF_HORIZON; // column index in traj (0..HORIZON-1)
         if (idx < 0 || idx >= HORIZON) continue;
 
         double t_pred = DT * (i + 1);
+        double abs_time = base_stamp + t_pred;
+
+        // 使用历史的条件：
+        // 1) 至少存在一个缓存点，且该缓存点时间 >= base_stamp（0 时刻）
+        // 2) 当前要填的绝对时间 abs_time 处于 [hist_start, latest_cached->stamp]
+        bool use_cache = latest_cached.has_value() &&
+                 abs_time <= latest_cached->stamp + 1e-6 &&
+                 abs_time >= hist_start - 1e-6;
+
+        if (use_cache) {
+            // queryLatest 在队列中向后查找 <= abs_time 的最近一帧
+            auto cached = queryLatest(abs_time);
+            if (cached) {
+                traj.col(idx) << limit_rad(cached->yaw), cached->yaw_vel,
+                                 limit_rad(cached->pitch), cached->pitch_vel;
+                last_yaw_pitch = {limit_rad(cached->yaw), limit_rad(cached->pitch)};
+                has_last = true;
+                continue;
+            }
+        }
+
+        if (!has_last) {
+            Eigen::Vector3d init_armor_pos = getOdomTarget(target_msg, T - HALF_HORIZON * DT);
+            last_yaw_pitch = aim(init_armor_pos, bullet_speed);
+            has_last = true;
+        }
 
         Eigen::Vector3d target_pos_pred = getOdomTarget(target_msg, T + t_pred);
         Eigen::Vector2d curr_yaw_pitch = aim(target_pos_pred, bullet_speed);
@@ -312,7 +398,7 @@ void MPCController::setupYawSolver(const std::string & config_path)
     Eigen::MatrixXd u_max = Eigen::MatrixXd::Constant(1, HORIZON - 1, max_yaw_acc);
     tiny_set_bound_constraints(yaw_solver_, x_min, x_max, u_min, u_max);
 
-    yaw_solver_->settings->max_iter = 10;
+    yaw_solver_->settings->max_iter = 100;
 }
 
 void MPCController::setupPitchSolver(const std::string & config_path)
@@ -335,7 +421,7 @@ void MPCController::setupPitchSolver(const std::string & config_path)
     Eigen::MatrixXd u_max = Eigen::MatrixXd::Constant(1, HORIZON - 1, max_pitch_acc);
     tiny_set_bound_constraints(pitch_solver_, x_min, x_max, u_min, u_max);
 
-    pitch_solver_->settings->max_iter = 10;
+    pitch_solver_->settings->max_iter = 100;
 }
 
 }  // namespace rm_auto_aim
