@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "armor_detector/ai_detector.hpp"
+#include <rclcpp/logging.hpp>
 
 #include <algorithm>
 #include <vector>
@@ -18,7 +19,13 @@ AIDetector::AIDetector(
     input_shape = {1, static_cast<size_t>(IMAGE_HEIGHT), static_cast<size_t>(IMAGE_WIDTH), 3};
 
     // 读取模型
-    model = core.read_model(model_path);
+    try {
+        model = core.read_model(model_path);
+    } catch (const std::exception & e) {
+        RCLCPP_ERROR(
+            rclcpp::get_logger("AIDetector"), "Failed to initialize model: %s", e.what());
+        throw;
+    }
 
     // 初始化预处理器
     ppp = std::make_unique<ov::preprocess::PrePostProcessor>(model);

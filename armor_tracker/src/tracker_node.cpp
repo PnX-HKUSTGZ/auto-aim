@@ -8,6 +8,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
+#include <rclcpp/logging.hpp>
 #include <sstream>
 #include <vector>
 
@@ -487,18 +488,18 @@ void ArmorTrackerNode::publishCallback()
     // 获取并发布目标
     auto current_target_id = tracker_manager_->getCurrentTargetID();
     auto_aim_interfaces::msg::Target target_msg;
+        target_msg.header.frame_id = target_frame_;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
 
     if (!success) {
         target_msg.tracking = false;
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
+    }
+    else{
+        target_pub_->publish(target_msg);
     }
     
-    // 注意：这里的时间戳最好使用最近一次观测的时间，或者当前时间
-    // 如果使用当前时间，意味着我们认为 EKF 的预测在当前时刻是有效的
-    target_msg.header.stamp = this->now(); 
-    target_msg.header.frame_id = target_frame_;
-    
-    target_pub_->publish(target_msg);
+
 
     // 发布 TrackerInfo (调试用)
     if (debug_ && target_msg.tracking) {

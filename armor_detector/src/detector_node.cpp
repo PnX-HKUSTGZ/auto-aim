@@ -155,7 +155,7 @@ std::unique_ptr<AIDetector> ArmorDetectorNode::initAIDetector()
 {
     // 声明AI检测器相关参数
     auto model_path = ament_index_cpp::get_package_share_directory("armor_detector") +
-                      this->declare_parameter("ai_model_path", "/model/0526.onnx");
+                      this->declare_parameter("ai_model_path", "/model/0526_fp16.xml");
     auto device = this->declare_parameter("ai_device", "CPU");
     auto conf_threshold = this->declare_parameter("ai_conf_threshold", 0.65);
     auto nms_threshold = this->declare_parameter("ai_nms_threshold", 0.45);

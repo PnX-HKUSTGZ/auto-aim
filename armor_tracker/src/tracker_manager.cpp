@@ -262,8 +262,6 @@ std::string TrackerManager::getCurrentTargetID() const { return current_tracked_
 bool TrackerManager::getIDTarget(
     std::string input_tracked_id_, auto_aim_interfaces::msg::Target & target_msg) const
 {
-    // 设置默认帧ID
-    target_msg.header.frame_id = "odom";
     target_msg.tracking = false;
 
     // 如果没有正在追踪的目标，返回空消息
