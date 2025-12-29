@@ -43,6 +43,7 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     image_topic_ = this->declare_parameter<std::string>("image_topic", "/image_raw");
     camera_info_topic_ = this->declare_parameter<std::string>("camera_info_topic", "/camera_info");
     result_topic_ = this->declare_parameter<std::string>("result_topic", "/detector/armors");
+    subscribe_latest_image_ = this->declare_parameter<bool>("subscribe_latest_image", false);
     RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
 
     // 是否使用 AI detector 参数
@@ -82,8 +83,11 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
         std::placeholders::_1, std::placeholders::_2));
 
     //收到图像信息后回调imageCallback函数
+    auto image_qos = subscribe_latest_image_
+                         ? rclcpp::SensorDataQoS().keep_last(1)
+                         : rclcpp::SensorDataQoS();
     img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-        image_topic_, rclcpp::SensorDataQoS(),
+        image_topic_, image_qos,
         std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
     // 初始化Armors Publisher
     armors_pub_ = this->create_publisher<auto_aim_interfaces::msg::Armors>(

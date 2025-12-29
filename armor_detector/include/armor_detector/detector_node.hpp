@@ -49,6 +49,7 @@ private:
     std::string image_topic_;
     std::string camera_info_topic_;
     std::string result_topic_;
+    bool subscribe_latest_image_ = false;
     // -------------------- 初始化功能 --------------------
     /**
      * @brief 初始化装甲板检测器

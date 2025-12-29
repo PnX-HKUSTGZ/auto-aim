@@ -198,6 +198,9 @@ double TrackerManager::calculateScore(
     // 综合评分
     double score =
         (w_distance_ * distance_score + w_twoD_distance_ * two_d_center_score) * state_score;
+    if (tracker->last_update_time_.seconds() - tracker->last_main_update_time_.seconds() < 0.3) {
+        score  += 1.0;
+    }
     if (id == "1" && mode_ == VisionMode::HERO) score += 2.0;
     if (id == "2" && mode_ == VisionMode::ENGINEER) score += 2.0;
     if (id == "3" && mode_ == VisionMode::INFANTRY_1) score += 2.0;
