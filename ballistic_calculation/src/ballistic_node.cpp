@@ -22,6 +22,7 @@
 #include "ballistic_calculation/mpc_controller.hpp"
 #include <visualization_msgs/msg/marker.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
+#include <std_msgs/msg/float32.hpp>
 
 namespace rm_auto_aim
 {
@@ -38,7 +39,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K1 = this->declare_parameter("iteration_coeffcient_first", 0.1);
     K2 = this->declare_parameter("iteration_coeffcient_second", 0.05);
     K = this->declare_parameter("air_resistence", 0.1);
-    BULLET_V = this->declare_parameter("bullet_speed", 21.0);
+    BULLET_V = this->declare_parameter("bullet_speed", 22.0);
     ifFireK_ = this->declare_parameter("ifFireK", 0.05);
     min_v = this->declare_parameter("switch_stategy_1", 5.0) * M_PI / 30;
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
@@ -78,6 +79,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     publisher_ = this->create_publisher<auto_aim_interfaces::msg::Firecontrol>("/firecontrol", 10);
     // marker publisher for visualization of aim point (yellow)
     aim_point_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/aim_point_marker", 10);
+    // iffire publisher for rqt plotting (1.0 for true, 0.0 for false)
+    iffire_pub_ = this->create_publisher<std_msgs::msg::Float32>("/firecontrol/iffire", 10);
     //设置时间callback
     last_fire_time = this->now();
 
@@ -124,7 +127,7 @@ bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
     double roll, pitch, yaw;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
     //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-    return std::abs(yaw - targetyaw) < ifFireK && std::abs(pitch + targetpitch) < ifFireK; // 注意检查符号适配
+    return std::abs(yaw - targetyaw) < ifFireK && std::abs(pitch + targetpitch) < 0.003; // 注意检查符号适配, ifFireK_yaw = 0.02 rad, ifFireK_pitch = 0.003 rad
 }
 
 // 获取当前云台状态
@@ -309,9 +312,20 @@ void BallisticCalculateNode::carTargetCallback(
     if (this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)) {
         ifFireK += abs(car_target_msg->v_yaw) * 0.004;
     }
-    fire_msg.iffire = ifFire(fire_msg.pitch, fire_msg.yaw);
+    if (abs(mpc_result.target_yaw - mpc_result.yaw) <= 0.005) {
+        fire_msg.iffire = true; // 【调试】非阶跃期，
+    }
+    // fire_msg.iffire = ifFire(mpc_result.target_pitch, mpc_result.target_yaw);
 
     if (fire_msg.iffire) last_fire_time = this->now();
+    // Publish a 1/0 float for rqt plotting of iffire
+    try {
+        std_msgs::msg::Float32 ifmsg;
+        ifmsg.data = fire_msg.iffire ? 1.0f : 0.0f;
+        if (iffire_pub_) iffire_pub_->publish(ifmsg);
+    } catch (...) {
+        RCLCPP_WARN(this->get_logger(), "Failed to publish iffire float message");
+    }
     publisher_->publish(fire_msg);
 }
 void BallisticCalculateNode::runeTargetCallback(
@@ -388,6 +402,14 @@ void BallisticCalculateNode::runeTargetCallback(
     fire_msg.projected_y = projected_point.y;
     fire_msg.id = "rune";
     fire_msg.iffire = 0; // 符文模式下暂不使用MPC开火决策
+    // Publish iffire as 0 for rune mode to allow plotting
+    try {
+        std_msgs::msg::Float32 ifmsg;
+        ifmsg.data = 0.0f;
+        if (iffire_pub_) iffire_pub_->publish(ifmsg);
+    } catch (...) {
+        RCLCPP_WARN(this->get_logger(), "Failed to publish iffire float message for rune");
+    }
     publisher_->publish(fire_msg);
 }
 cv::Point2f BallisticCalculateNode::projectPointToImage(const Eigen::Vector3d & point_3d)

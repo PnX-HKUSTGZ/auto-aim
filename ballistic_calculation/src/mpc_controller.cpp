@@ -172,73 +172,142 @@ MPCResult MPCController::compute(
     result.target_yaw = limit_rad(traj(0, HALF_HORIZON));
     result.target_pitch = limit_rad(traj(2, HALF_HORIZON));
 
-    // Plot yaw reference (from traj) and optimized yaw (from solver) in a single image
-    try {
-        if (HORIZON > 1 && yaw_solver_ && yaw_solver_->work) {
-            const int img_w = 900;
-            const int img_h = 360;
-            const int margin = 40;
-            cv::Mat img(img_h, img_w, CV_8UC3, cv::Scalar(255, 255, 255));
+    // Plot pitch reference (from traj) and optimized pitch (from solver) in a single image
 
-            std::vector<cv::Point> pts_ref;
-            std::vector<cv::Point> pts_opt;
+    // try {
+    //     if (HORIZON > 1 && pitch_solver_ && pitch_solver_->work) {
+    //         const int img_w = 900;
+    //         const int img_h = 360;
+    //         const int margin = 40;
+    //         cv::Mat img(img_h, img_w, CV_8UC3, cv::Scalar(255, 255, 255));
 
-            double ang_min = -M_PI/4.0;
-            double ang_max = M_PI/4.0;
+    //         std::vector<cv::Point> pts_ref;
+    //         std::vector<cv::Point> pts_opt;
 
-            auto ang_to_y = [&](double ang)->int {
-                double v = (ang - ang_min) / (ang_max - ang_min);
-                v = std::clamp(v, 0.0, 1.0);
-                return static_cast<int>((1.0 - v) * (img_h - 2 * margin) + margin);
-            };
+    //         double ang_min = -M_PI/4.0;
+    //         double ang_max = M_PI/4.0;
 
-            for (int i = 0; i < HORIZON; ++i) {
-                double xr = limit_rad(traj(0, i));
-                double xo = limit_rad(yaw_solver_->work->x(0, i));
-                int xpix = static_cast<int>(margin + (double)i * (img_w - 2 * margin) / (HORIZON - 1));
-                pts_ref.emplace_back(cv::Point(xpix, ang_to_y(xr)));
-                pts_opt.emplace_back(cv::Point(xpix, ang_to_y(xo)));
-            }
+    //         auto ang_to_y = [&](double ang)->int {
+    //             double v = (ang - ang_min) / (ang_max - ang_min);
+    //             v = std::clamp(v, 0.0, 1.0);
+    //             return static_cast<int>((1.0 - v) * (img_h - 2 * margin) + margin);
+    //         };
 
-            if (!pts_ref.empty()) cv::polylines(img, pts_ref, false, cv::Scalar(200, 50, 50), 2, cv::LINE_AA);
-            if (!pts_opt.empty()) cv::polylines(img, pts_opt, false, cv::Scalar(50, 50, 200), 2, cv::LINE_AA);
+    //         for (int i = 0; i < HORIZON; ++i) {
+    //             double pr = limit_rad(traj(2, i));
+    //             double po = limit_rad(pitch_solver_->work->x(2, i));
+    //             int xpix = static_cast<int>(margin + (double)i * (img_w - 2 * margin) / (HORIZON - 1));
+    //             pts_ref.emplace_back(cv::Point(xpix, ang_to_y(pr)));
+    //             pts_opt.emplace_back(cv::Point(xpix, ang_to_y(po)));
+    //         }
 
-            // Draw Y-axis ticks and labels (radian scale)
-            std::vector<std::pair<double, std::string>> y_ticks = {
-                {-M_PI/4.0, "-pi/4"}, {-M_PI/8.0, "-pi/8"}, {0.0, "0"}, {M_PI/8.0, "pi/8"}, {M_PI/4.0, "pi/4"}
-            };
-            for (const auto &tk : y_ticks) {
-                int yy = ang_to_y(tk.first);
-                cv::line(img, cv::Point(margin - 8, yy), cv::Point(margin, yy), cv::Scalar(80, 80, 80), 1);
-                cv::putText(img, tk.second, cv::Point(2, yy + 5), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
-            }
+    //         if (!pts_ref.empty()) cv::polylines(img, pts_ref, false, cv::Scalar(200, 50, 50), 2, cv::LINE_AA);
+    //         if (!pts_opt.empty()) cv::polylines(img, pts_opt, false, cv::Scalar(50, 50, 200), 2, cv::LINE_AA);
 
-            // Draw X-axis ticks and labels (time in seconds relative to current)
-            const int num_xticks = 5;
-            for (int j = 0; j < num_xticks; ++j) {
-                int idx = (j * (HORIZON - 1)) / (num_xticks - 1);
-                int xpix = static_cast<int>(margin + (double)idx * (img_w - 2 * margin) / (HORIZON - 1));
-                int ytick_top = img_h - margin;
-                cv::line(img, cv::Point(xpix, ytick_top), cv::Point(xpix, ytick_top + 6), cv::Scalar(80, 80, 80), 1);
-                double t_off = (idx - HALF_HORIZON) * DT; // seconds offset
-                char buf[64];
-                std::snprintf(buf, sizeof(buf), "%.2fs", t_off);
-                cv::putText(img, buf, cv::Point(xpix - 20, img_h - 6), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
-            }
+    //         // Draw Y-axis ticks and labels (radian scale)
+    //         std::vector<std::pair<double, std::string>> y_ticks = {
+    //             {-M_PI/4.0, "-pi/4"}, {-M_PI/8.0, "-pi/8"}, {0.0, "0"}, {M_PI/8.0, "pi/8"}, {M_PI/4.0, "pi/4"}
+    //         };
+    //         for (const auto &tk : y_ticks) {
+    //             int yy = ang_to_y(tk.first);
+    //             cv::line(img, cv::Point(margin - 8, yy), cv::Point(margin, yy), cv::Scalar(80, 80, 80), 1);
+    //             cv::putText(img, tk.second, cv::Point(2, yy + 5), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
+    //         }
 
-            // mark current (HALF_HORIZON) column
-            int curx = static_cast<int>(margin + (double)HALF_HORIZON * (img_w - 2 * margin) / (HORIZON - 1));
-            cv::line(img, cv::Point(curx, margin), cv::Point(curx, img_h - margin), cv::Scalar(50, 180, 50), 1);
+    //         // Draw X-axis ticks and labels (time in seconds relative to current)
+    //         const int num_xticks = 5;
+    //         for (int j = 0; j < num_xticks; ++j) {
+    //             int idx = (j * (HORIZON - 1)) / (num_xticks - 1);
+    //             int xpix = static_cast<int>(margin + (double)idx * (img_w - 2 * margin) / (HORIZON - 1));
+    //             int ytick_top = img_h - margin;
+    //             cv::line(img, cv::Point(xpix, ytick_top), cv::Point(xpix, ytick_top + 6), cv::Scalar(80, 80, 80), 1);
+    //             double t_off = (idx - HALF_HORIZON) * DT; // seconds offset
+    //             char buf[64];
+    //             std::snprintf(buf, sizeof(buf), "%.2fs", t_off);
+    //             cv::putText(img, buf, cv::Point(xpix - 20, img_h - 6), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
+    //         }
 
-            cv::putText(img, "yaw_ref", cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(200, 50, 50), 2);
-            cv::putText(img, "yaw_opt", cv::Point(100, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(50, 50, 200), 2);
+    //         // mark current (HALF_HORIZON) column
+    //         int curx = static_cast<int>(margin + (double)HALF_HORIZON * (img_w - 2 * margin) / (HORIZON - 1));
+    //         cv::line(img, cv::Point(curx, margin), cv::Point(curx, img_h - margin), cv::Scalar(50, 180, 50), 1);
 
-            cv::imshow("yaw_traj", img);
-            cv::waitKey(1);
-        }
-    } catch (const std::exception & e) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Plotting yaw trajectories failed: %s", e.what());
-    }
+    //         cv::putText(img, "pitch_ref", cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(200, 50, 50), 2);
+    //         cv::putText(img, "pitch_opt", cv::Point(120, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(50, 50, 200), 2);
+
+    //         cv::imshow("pitch_traj", img);
+    //         cv::waitKey(1);
+    //     }
+    // } catch (const std::exception & e) {
+    //     RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Plotting pitch trajectories failed: %s", e.what());
+    // }
+
+    // // Plot yaw reference (from traj) and optimized yaw (from solver) in a single image
+    // try {
+    //     if (HORIZON > 1 && yaw_solver_ && yaw_solver_->work) {
+    //         const int img_w = 900;
+    //         const int img_h = 360;
+    //         const int margin = 40;
+    //         cv::Mat img(img_h, img_w, CV_8UC3, cv::Scalar(255, 255, 255));
+
+    //         std::vector<cv::Point> pts_ref;
+    //         std::vector<cv::Point> pts_opt;
+
+    //         double ang_min = -M_PI/4.0;
+    //         double ang_max = M_PI/4.0;
+
+    //         auto ang_to_y = [&](double ang)->int {
+    //             double v = (ang - ang_min) / (ang_max - ang_min);
+    //             v = std::clamp(v, 0.0, 1.0);
+    //             return static_cast<int>((1.0 - v) * (img_h - 2 * margin) + margin);
+    //         };
+
+    //         for (int i = 0; i < HORIZON; ++i) {
+    //             double xr = limit_rad(traj(0, i));
+    //             double xo = limit_rad(yaw_solver_->work->x(0, i));
+    //             int xpix = static_cast<int>(margin + (double)i * (img_w - 2 * margin) / (HORIZON - 1));
+    //             pts_ref.emplace_back(cv::Point(xpix, ang_to_y(xr)));
+    //             pts_opt.emplace_back(cv::Point(xpix, ang_to_y(xo)));
+    //         }
+
+    //         if (!pts_ref.empty()) cv::polylines(img, pts_ref, false, cv::Scalar(200, 50, 50), 2, cv::LINE_AA);
+    //         if (!pts_opt.empty()) cv::polylines(img, pts_opt, false, cv::Scalar(50, 50, 200), 2, cv::LINE_AA);
+
+    //         // Draw Y-axis ticks and labels (radian scale)
+    //         std::vector<std::pair<double, std::string>> y_ticks = {
+    //             {-M_PI/4.0, "-pi/4"}, {-M_PI/8.0, "-pi/8"}, {0.0, "0"}, {M_PI/8.0, "pi/8"}, {M_PI/4.0, "pi/4"}
+    //         };
+    //         for (const auto &tk : y_ticks) {
+    //             int yy = ang_to_y(tk.first);
+    //             cv::line(img, cv::Point(margin - 8, yy), cv::Point(margin, yy), cv::Scalar(80, 80, 80), 1);
+    //             cv::putText(img, tk.second, cv::Point(2, yy + 5), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
+    //         }
+
+    //         // Draw X-axis ticks and labels (time in seconds relative to current)
+    //         const int num_xticks = 5;
+    //         for (int j = 0; j < num_xticks; ++j) {
+    //             int idx = (j * (HORIZON - 1)) / (num_xticks - 1);
+    //             int xpix = static_cast<int>(margin + (double)idx * (img_w - 2 * margin) / (HORIZON - 1));
+    //             int ytick_top = img_h - margin;
+    //             cv::line(img, cv::Point(xpix, ytick_top), cv::Point(xpix, ytick_top + 6), cv::Scalar(80, 80, 80), 1);
+    //             double t_off = (idx - HALF_HORIZON) * DT; // seconds offset
+    //             char buf[64];
+    //             std::snprintf(buf, sizeof(buf), "%.2fs", t_off);
+    //             cv::putText(img, buf, cv::Point(xpix - 20, img_h - 6), cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(80, 80, 80), 1);
+    //         }
+
+    //         // mark current (HALF_HORIZON) column
+    //         int curx = static_cast<int>(margin + (double)HALF_HORIZON * (img_w - 2 * margin) / (HORIZON - 1));
+    //         cv::line(img, cv::Point(curx, margin), cv::Point(curx, img_h - margin), cv::Scalar(50, 180, 50), 1);
+
+    //         cv::putText(img, "yaw_ref", cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(200, 50, 50), 2);
+    //         cv::putText(img, "yaw_opt", cv::Point(100, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(50, 50, 200), 2);
+
+    //         cv::imshow("yaw_traj", img);
+    //         cv::waitKey(1);
+    //     }
+    // } catch (const std::exception & e) {
+    //     RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Plotting yaw trajectories failed: %s", e.what());
+    // }
 
     // 缓存 0 时刻（now + T）优化结果
     try {

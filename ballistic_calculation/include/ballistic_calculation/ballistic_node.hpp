@@ -22,6 +22,7 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <string>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/float32.hpp>
 
 #include "ballistic_calculation/ballistic_calculator.hpp"
 #include "ballistic_calculation/aim_info.hpp"
@@ -151,6 +152,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr gimbal_vel_sub_;
     rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr mpc_pre_point_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr mpc_post_point_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr iffire_pub_;
 };
 }  // namespace rm_auto_aim
 
