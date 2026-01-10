@@ -71,8 +71,8 @@ void RuneDetector::detect(DetectorInput &input, DetectorOutput &output)
 
     Mat bin;
     binary(input_image, bin, color, color_thresh);
-    WindowAutoLayout::get()->addWindow("Binary Image");
-    imshow("Binary Image", bin);
+    // WindowAutoLayout::get()->addWindow("Binary Image");
+    // imshow("Binary Image", bin); //HKUST(GZ) QXL: 无用debug代码，注释掉
 
 
     vector<RuneFeatureCombo> matched_features{}; // 匹配好的特征
