@@ -41,52 +41,102 @@ namespace rm_auto_aim
 class RuneDetector
 {
 public:
-    // Construct a new OpenVINO Detector object
-    RuneDetector(int max_iterations, double distance_threshold, double prob_threshold);
-    std::vector<cv::Point2f> processHittingLights();           // 处理击打灯条
-    std::vector<std::vector<cv::Point2f>> processhitLights();  // 处理 已击中灯条
-    std::tuple<cv::Point2f, cv::Mat> detectRTag(
-        const cv::Mat & img, const cv::Point2f & prior);                         //检查R标
-    std::vector<RuneObject> detectRune(const cv::Mat & img, int min_lightness);  // 检测能量机关
-    EnemyColor detect_color;                                                     // 检测颜色
+    struct Params
+    {
+        int gray_threshold_red = 80;
+        int gray_threshold_blue = 80;
+        double min_contour_area = 20.0;
+        double max_contour_area = 20000.0;
+        double big_active_fan_area = 1000.0;
+        double active_fan_concentricity_ratio = 0.08;
+        double min_force_construct_angle_deg = 45.0;
+        double max_distance_ratio = 1.5;
+        double max_match_deviation_ratio = 0.2;
+        double center_force_construct_window_ratio = 0.2;
+        bool enable_center_force_construct_window = true;
+
+        // fan active
+        double fan_active_min_area = 100.0;
+        double fan_active_max_area = 4000.0;
+        double fan_active_min_area_ratio = 0.05;
+        double fan_active_max_area_ratio = 0.60;
+        double fan_active_min_area_peri_ratio = 0.0002;
+        double fan_active_max_area_peri_ratio = 0.030;
+        double fan_active_max_side_ratio = 2.0;
+        double fan_active_min_area_incomplete = 30.0;
+        double fan_active_max_area_peri_ratio_incomplete = 0.07;
+        double fan_active_max_direction_delta_incomplete = 45.0;
+
+        // fan inactive
+        double fan_inactive_min_area = 100.0;
+        double fan_inactive_max_area = 4000.0;
+        double fan_inactive_min_side_ratio = 2.0;
+        double fan_inactive_max_side_ratio = 6.0;
+        double fan_inactive_max_distance_ratio = 6.0;
+
+        // target active
+        double target_active_min_area = 60.0;
+        double target_active_max_area = 6000.0;
+        double target_active_min_side_ratio = 0.99;
+        double target_active_max_side_ratio = 1.55;
+        double target_active_min_area_ratio = 0.8;
+        double target_active_max_area_ratio = 1.20;
+
+        // target inactive
+        double target_inactive_min_area = 60.0;
+        double target_inactive_max_area = 6000.0;
+        double target_inactive_min_side_ratio = 0.99;
+        double target_inactive_max_side_ratio = 1.55;
+        double target_inactive_min_area_ratio = 0.8;
+        double target_inactive_max_area_ratio = 1.20;
+
+        // center
+        double center_min_area = 10.0;
+        double center_max_area = 1000.0;
+        double center_min_side_ratio = 0.3;
+        double center_max_side_ratio = 2.5;
+        double center_min_convex_area_ratio = 0.9;
+        double center_min_roundness = 0.2;
+        double center_max_roundness = 0.9;
+    };
+
+    RuneDetector() = default;
+    explicit RuneDetector(const Params & params);
+
+    // 检测能量机关（输出未激活靶心对应的 7 点，如无则空）
+    std::vector<RuneObject> detectRune(const cv::Mat & img, int min_lightness);
+
+    // 检测 R 标（若未找到中心则回退）
+    std::tuple<cv::Point2f, cv::Mat> detectRTag(const cv::Mat & img, const cv::Point2f & prior);
+
+    // 更新参数
+    void setParams(const Params & params) { params_ = params; }
+
+    EnemyColor detect_color;
 
 private:
-    double calculateAngleDifference(
-        const cv::RotatedRect & rect, const cv::RotatedRect & ellipse);  // 计算角度差
-    double calculateAxisLength(
-        const cv::RotatedRect & ellipse,
-        const cv::Point2f & direction);  // 计算椭圆沿特定方向的轴的长度
-    double calculateRatioDifferenceHitting(
-        const cv::RotatedRect & rect, const cv::RotatedRect & ellipse);  // 计算比例差
-    double calculateMatchScoreHitting(
-        const cv::RotatedRect & rect, const cv::RotatedRect & ellipse);  // 计算匹配程度
-    double calculateRatioDifferencehit(
-        const cv::RotatedRect & rect, const cv::RotatedRect & ellipse);  // 计算比例差
-    double calculateMatchScorehit(
-        const cv::RotatedRect & rect, const cv::RotatedRect & ellipse);  // 计算匹配程度
-    std::vector<cv::Point2f> ellipseIntersections(
-        const cv::RotatedRect & ellipse, const cv::Point2f & dir);  // 计算指定方向与椭圆的两个交点
-    cv::Rect calculateROI(const cv::RotatedRect & rect);  // 计算疑似打击目标的ROI
-    double pointToEllipseDistance(
-        const cv::Point2f & point, const cv::RotatedRect & ellipse);  // 计算点到椭圆的距离
-    cv::RotatedRect fitEllipseRANSAC(
-        const std::vector<cv::Point> & points);  // 修改后的RANSAC拟合椭圆函数
-    std::vector<cv::RotatedRect> detectEllipses(const cv::Mat & src);  // 使用随机霍夫变换检测椭圆
-    cv::RotatedRect detectBestEllipse(const cv::Mat & src);            // 检测最佳椭圆
-    std::vector<cv::Point2f> getSignalPoints(
-        const cv::RotatedRect & ellipse, const cv::RotatedRect & rect);  // 提取 6 个 signal points
-    bool isRightColor(const cv::RotatedRect & rect);                     // 判断颜色是否正确
+    struct Candidate
+    {
+        cv::RotatedRect rect;
+        double area = 0.0;
+    };
 
-    //image
-    cv::Mat frame;
-    cv::Mat flow_img, arm_img, hit_img, aim_img;
-    cv::Mat hitting_light_mask;
-    cv::Point2f center;
-    double lenth;
-    //parameters
-    int max_iterations;         // 最大迭代次数(RANSAC)
-    double distance_threshold;  // 距离阈值(RANSAC)
-    double prob_threshold;      // 可信度阈值(RANSAC)
+    // helpers
+    cv::Mat makeBinary(const cv::Mat & rgb, int min_lightness) const;
+    std::vector<std::vector<cv::Point>> findValidContours(const cv::Mat & bin) const;
+    std::vector<Candidate> classifyCenters(const std::vector<std::vector<cv::Point>> & contours) const;
+    std::vector<Candidate> classifyTargets(const std::vector<std::vector<cv::Point>> & contours, bool active) const;
+    std::vector<Candidate> classifyFans(const std::vector<std::vector<cv::Point>> & contours, bool active) const;
+    cv::Point2f chooseCenter(const std::vector<Candidate> & centers, const std::vector<Candidate> & targets, const std::vector<Candidate> & fans) const;
+    std::vector<std::tuple<Candidate, Candidate, Candidate>> buildCombos(const std::vector<Candidate> & targets_inactive, const std::vector<Candidate> & targets_active, const std::vector<Candidate> & fans_inactive, const std::vector<Candidate> & fans_active, const cv::Point2f & center) const;
+    static double rectLongSide(const cv::RotatedRect & r);
+    static double aspect(const cv::RotatedRect & r);
+    static double roundness(const std::vector<cv::Point> & c);
+    static cv::Point2f rectDir(const cv::RotatedRect & r);
+    static void rectLongEndpoints(const cv::RotatedRect & r, cv::Point2f & a, cv::Point2f & b);
+    static FeaturePoints toFeaturePoints(const Candidate & center, const Candidate & target, const Candidate & fan);
+
+    Params params_;
 };
 }  // namespace rm_auto_aim
 #endif  // DETECTOR_HPP_

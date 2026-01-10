@@ -24,6 +24,7 @@
   <depend>auto_aim_interfaces</depend>
   <depend>vision_opencv</depend>
   <depend>tf2</depend>
+  <depend>ceres-solver</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
