@@ -21,7 +21,7 @@ ament_auto_find_build_dependencies()
 # Tiger Core: reuse third_party from rune_detector_for_all
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../rune_detector_for_all/third_party/rm_vision_core ${CMAKE_CURRENT_BINARY_DIR}/rm_vision_core)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/rm_vision_core ${CMAKE_CURRENT_BINARY_DIR}/rm_vision_core)
 
 ###########
 ## Build ##
