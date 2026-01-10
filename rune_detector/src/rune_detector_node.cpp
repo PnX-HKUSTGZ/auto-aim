@@ -82,21 +82,14 @@ void RuneDetectorNode::rectLongEndpoints(const cv::RotatedRect & r, cv::Point2f 
 {
     cv::Point2f pts[4];
     r.points(pts);
-    double maxd = -1;
-    a = pts[0];
-    b = pts[1];
-    for (int i = 0; i < 4; ++i)
-    {
-        for (int j = i + 1; j < 4; ++j)
-        {
-            double d = cv::norm(pts[i] - pts[j]);
-            if (d > maxd)
-            {
-                maxd = d;
-                a = pts[i];
-                b = pts[j];
-            }
-        }
+    double d01 = cv::norm(pts[0] - pts[1]);
+    double d12 = cv::norm(pts[1] - pts[2]);
+    if (d01 > d12) {
+        a = (pts[0] + pts[3]) / 2;
+        b = (pts[1] + pts[2]) / 2;
+    } else {
+        a = (pts[0] + pts[1]) / 2;
+        b = (pts[2] + pts[3]) / 2;
     }
 }
 
@@ -174,7 +167,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
             if (!combo)
                 continue;
             auto type = combo->getRuneType();
-            if (type == ::RuneType::PENDING_STRUCK || type == ::RuneType::UNSTRUCK)
+            if (type == ::RuneType::PENDING_STRUCK)
             {
                 target_tracker = tr;
                 break;
@@ -201,7 +194,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
                     cv::Point2f a, b;
                     rectLongEndpoints(fan->getRotatedRect(), a, b);
                     const auto r_center = center->getImageCache().getCenter();
-                    if (cv::norm(a - r_center) > cv::norm(b - r_center))
+                    if (cv::norm(a - r_center) < cv::norm(b - r_center))
                     {
                         rune_msg.pts[1].x = a.x; rune_msg.pts[1].y = a.y;
                         rune_msg.pts[2].x = b.x; rune_msg.pts[2].y = b.y;
@@ -228,7 +221,25 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     {
         cv::Mat debug_img = src_img.clone();
         auto rune_group = RuneGroup::cast(rune_groups_.front());
-        rune_group->drawFeature(debug_img);
+        //rune_group->drawFeature(debug_img);
+
+        // visualize polygon through r_center (0) and inactive corners (4,5,6)
+        if (!rune_msg.is_lost)
+        {
+            std::vector<cv::Point> poly;
+            const int indices[4] = {0, 4, 5, 6};
+            for (int idx : indices)
+            {
+                poly.emplace_back(static_cast<int>(rune_msg.pts[idx].x), static_cast<int>(rune_msg.pts[idx].y));
+            }
+            cv::polylines(debug_img, poly, true, cv::Scalar(0, 255, 255), 2);
+            cv::line(
+                debug_img,
+                cv::Point(static_cast<int>(rune_msg.pts[1].x), static_cast<int>(rune_msg.pts[1].y)),
+                cv::Point(static_cast<int>(rune_msg.pts[2].x), static_cast<int>(rune_msg.pts[2].y)),
+                cv::Scalar(255, 0, 255), 2);
+        }
+
         result_img_pub_.publish(cv_bridge::CvImage(rune_msg.header, "bgr8", debug_img).toImageMsg());
     }
 }

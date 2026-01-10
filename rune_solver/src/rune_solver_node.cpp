@@ -136,8 +136,15 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions & options) : Node("rune
         aimming_line_marker_.color.r = 1.0;
         aimming_line_marker_.color.b = 1.0;
         aimming_line_marker_.color.g = 1.0;
+        // RViz 默认使用可靠 QoS，改用默认可靠 QoS 避免 RViz 收不到消息
         marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
-            "rune_solver/marker", rclcpp::SensorDataQoS());
+            "rune_solver/marker", rclcpp::QoS(10));
+
+        // 固定 ID，确保多 marker 同时存在
+        obs_pos_marker_.id = 0;
+        pred_pos_marker_.id = 1;
+        r_tag_pos_marker_.id = 2;
+        aimming_line_marker_.id = 3;
     }
     last_rune_target_.header.frame_id = "";
     // 定时器 250 Hz
@@ -203,8 +210,34 @@ void RuneSolverNode::timerCallback()
             r_tag_pos_marker_.pose.position.y = r_tag_pos.y();
             r_tag_pos_marker_.pose.position.z = r_tag_pos.z();
 
+            // 观测点
             marker_array.markers.push_back(obs_pos_marker_);
+            // R 标记中心
             marker_array.markers.push_back(r_tag_pos_marker_);
+
+            // 预测点（当前位置同 observed，可按需替换）
+            pred_pos_marker_.header.frame_id = "odom";
+            pred_pos_marker_.header.stamp = last_rune_target_.header.stamp;
+            pred_pos_marker_.action = visualization_msgs::msg::Marker::ADD;
+            pred_pos_marker_.lifetime = rclcpp::Duration::from_seconds(0.1);
+            pred_pos_marker_.pose.position.x = cur_pos.x();
+            pred_pos_marker_.pose.position.y = cur_pos.y();
+            pred_pos_marker_.pose.position.z = cur_pos.z();
+            marker_array.markers.push_back(pred_pos_marker_);
+
+            // 瞄准线（从 R 标记指向装甲）
+            aimming_line_marker_.header.frame_id = "odom";
+            aimming_line_marker_.header.stamp = last_rune_target_.header.stamp;
+            aimming_line_marker_.action = visualization_msgs::msg::Marker::ADD;
+            aimming_line_marker_.lifetime = rclcpp::Duration::from_seconds(0.1);
+            aimming_line_marker_.points.clear();
+            geometry_msgs::msg::Point p0, p1;
+            p0.x = r_tag_pos.x(); p0.y = r_tag_pos.y(); p0.z = r_tag_pos.z();
+            p1.x = cur_pos.x();   p1.y = cur_pos.y();   p1.z = cur_pos.z();
+            aimming_line_marker_.points.push_back(p0);
+            aimming_line_marker_.points.push_back(p1);
+            marker_array.markers.push_back(aimming_line_marker_);
+
             marker_pub_->publish(marker_array);
         }
     }

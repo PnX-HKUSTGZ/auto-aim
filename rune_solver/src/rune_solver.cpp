@@ -171,7 +171,7 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune & pre
         // 获取从 rune 到 odom 的变换矩阵
         try {
             if (pnp_solver->calculateReprojectionError(image_points, rvec, tvec, "rune") > 200) {
-                RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Reprojection error is too large");
+                RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "Reprojection error is %f, which is too large", pnp_solver->calculateReprojectionError(image_points, rvec, tvec, "rune"));
                 return Eigen::Matrix4d::Zero();
             }
             // 从 rvec 获取旋转矩阵
