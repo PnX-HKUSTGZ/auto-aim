@@ -13,20 +13,12 @@
 
 namespace rm_auto_aim
 {
-MPCController::MPCController(const std::string & config_path)
+MPCController::MPCController(rclcpp::Node *node)
 {
-    YAML::Node yaml = YAML::LoadFile(config_path);
-    yaw_offset_ = yaml["yaw_offset"].as<double>() / 57.3;
-    pitch_offset_ = yaml["pitch_offset"].as<double>() / 57.3;
-    fire_thresh_ = yaml["fire_thresh"].as<double>();
-    decision_speed_ = yaml["decision_speed"].as<double>();
-    high_speed_delay_time_ = yaml["high_speed_delay_time"].as<double>();
-    low_speed_delay_time_ = yaml["low_speed_delay_time"].as<double>();
-    min_switch_speed_ = yaml["min_switch_speed"].as<double>(); 
-    max_switch_speed_ = yaml["max_switch_speed"].as<double>();
-
-    setupYawSolver(config_path);
-    setupPitchSolver(config_path);
+    min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
+    max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
+    setupYawSolver(node);
+    setupPitchSolver(node);
 }
 
 MPCController::~MPCController() {
@@ -490,15 +482,14 @@ Eigen::Matrix<double, 2, 1> MPCController::aim(
     double horizon_dis = dist;
     double height = target_odom.z();
     auto [pitch, _] = ballistic.fixTiteratPitch(horizon_dis, height);
-    return {limit_rad(azim + yaw_offset_), limit_rad(pitch + pitch_offset_)}; // 补偿这块考虑是不是可以删了，电控那边已经补偿过了
+    return {limit_rad(azim), limit_rad(pitch)};
 }
 
-void MPCController::setupYawSolver(const std::string & config_path)
+void MPCController::setupYawSolver(rclcpp::Node *node)
 {
-    YAML::Node yaml = YAML::LoadFile(config_path);
-    double max_yaw_acc = yaml["max_yaw_acc"].as<double>(); // 有待确定
-    std::vector<double> Q_yaw = yaml["Q_yaw"].as<std::vector<double>>();
-    std::vector<double> R_yaw = yaml["R_yaw"].as<std::vector<double>>();
+    double max_yaw_acc = node->declare_parameter("max_yaw_acc", 10.0);
+    std::vector<double> Q_yaw = node->declare_parameter("Q_yaw", std::vector<double>{9e6, 0.0});
+    std::vector<double> R_yaw = node->declare_parameter("R_yaw", std::vector<double>{1.0});
 
     Eigen::MatrixXd A{{1, DT}, {0, 1}};
     Eigen::MatrixXd B{{0}, {DT}};
@@ -516,12 +507,11 @@ void MPCController::setupYawSolver(const std::string & config_path)
     yaw_solver_->settings->max_iter = 100;
 }
 
-void MPCController::setupPitchSolver(const std::string & config_path)
+void MPCController::setupPitchSolver(rclcpp::Node *node)
 {
-    YAML::Node yaml = YAML::LoadFile(config_path);
-    double max_pitch_acc = yaml["max_pitch_acc"].as<double>();
-    std::vector<double> Q_pitch = yaml["Q_pitch"].as<std::vector<double>>();
-    std::vector<double> R_pitch = yaml["R_pitch"].as<std::vector<double>>();
+    double max_pitch_acc = node->declare_parameter("max_pitch_acc", 100.0);
+    std::vector<double> Q_pitch = node->declare_parameter("Q_pitch", std::vector<double>{9e6, 0.0});
+    std::vector<double> R_pitch = node->declare_parameter("R_pitch", std::vector<double>{1.0});
 
     Eigen::MatrixXd A{{1, DT}, {0, 1}};
     Eigen::MatrixXd B{{0}, {DT}};

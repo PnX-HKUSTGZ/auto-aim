@@ -38,7 +38,7 @@ struct MPCResult
 class MPCController
 {
 public:
-    MPCController(const std::string & config_path);
+    MPCController(rclcpp::Node *node);
     ~MPCController();
 
     MPCResult compute(
@@ -61,12 +61,15 @@ private:
 
     static constexpr size_t MAX_CACHE_SIZE = 600; // ~6s at 100Hz
 
-    double yaw_offset_{0.0};
-    double pitch_offset_{0.0};
-    double fire_thresh_{0.0}; // 有待确定
-    double low_speed_delay_time_{0.0}, high_speed_delay_time_{0.0}, decision_speed_{0.0};
-    double min_switch_speed_{0.0};
-    double max_switch_speed_{0.0};
+
+    double min_switch_speed_;
+    double max_switch_speed_;
+    double max_yaw_acc_;       // 偏航最大加速度
+    double max_pitch_acc_;     // 俯仰最大加速度
+    std::vector<double> Q_yaw_;// 偏航Q矩阵
+    std::vector<double> R_yaw_;// 偏航R矩阵
+    std::vector<double> Q_pitch_;// 俯仰Q矩阵
+    std::vector<double> R_pitch_;// 俯仰R矩阵
 
     ArmorSelector armor_selector_;
 
@@ -75,8 +78,8 @@ private:
     TinySolver * yaw_solver_{nullptr};
     TinySolver * pitch_solver_{nullptr};
 
-    void setupYawSolver(const std::string & config_path);
-    void setupPitchSolver(const std::string & config_path);
+    void setupYawSolver(rclcpp::Node *node);
+    void setupPitchSolver(rclcpp::Node *node);
 
     Eigen::Matrix<double, 2, 1> aim(const Eigen::Vector3d & target_odom, double bullet_speed);
     Trajectory getTrajectory(
