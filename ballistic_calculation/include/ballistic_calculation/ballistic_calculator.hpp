@@ -57,7 +57,7 @@ private:
             nullptr, &t);
 
         // Constrain time to non-negative to avoid invalid log arguments
-        problem.SetParameterLowerBound(&t, 0, 0.0);
+        problem.SetParameterLowerBound(&t, 0, 0.001);
 
         // 配置求解器选项
         ceres::Solver::Options options;
@@ -67,6 +67,11 @@ private:
         // 执行优化
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
+
+        if (!summary.IsSolutionUsable() || t <= 0) {
+            RCLCPP_WARN(rclcpp::get_logger("Ballistic"), "Time optimization failed, use initial guess: %.3f", initial_guess);
+            return initial_guess;
+        }
 
         return t;  // 返回优化后的时间值
     }
@@ -106,7 +111,7 @@ private:
         template <typename U>
         bool operator()(const U * const t, U * residual) const
         {
-            U v0 = U(ballistic_ref.bulletV);
+            // U v0 = U(ballistic_ref.bulletV);
 
             // 提取时间值的标量部分来调用 getHorizontalDistance
             double t_value;
@@ -120,7 +125,7 @@ private:
             double log_arg_scalar = ballistic_ref.k * std::cos(temp_pitch) * ballistic_ref.bulletV * t_value + 1.0;
 
             // 保护：任何非法输入直接给大残差，避免 NaN 进入 Ceres
-            if (!std::isfinite(distance_scalar) || !std::isfinite(log_arg_scalar) || log_arg_scalar <= 0.0) {
+            if (!std::isfinite(distance_scalar) || !std::isfinite(log_arg_scalar) || log_arg_scalar <= 0.001) {
                 residual[0] = U(1e8);
                 if constexpr (std::is_same_v<U, double>) {
                     RCLCPP_ERROR(
@@ -151,10 +156,10 @@ public:
      * @brief 构造函数
      * 
      * @param k 空气阻力系数，默认值 0.1
-     * @param bulletV 子弹速度，默认值 30 m/s
+     * @param bulletV 子弹速度，默认值 22 m/s
      * @param fire_delay 开火延迟，默认值 0.0 s
      */
-    Ballistic(double k = 0.1, double bulletV = 30, double fire_delay = 0.0)
+    Ballistic(double k = 0.1, double bulletV = 22, double fire_delay = 0.0)
     : k(k), bulletV(bulletV), fire_delay(fire_delay){};
 
     /**
@@ -184,7 +189,8 @@ public:
             t = optimizeTime(t, target_info, pitch);
             
             // 第二步：获取预测目标位置
-            Eigen::Vector3d new_target = target_info.getGunTarget(t);
+            double total_predicition_time = fire_delay + t;
+            Eigen::Vector3d new_target = target_info.getGunTarget(total_predicition_time);
 
             // 计算水平距离和高度
             double preddist = sqrt(pow(new_target[0], 2) + pow(new_target[1], 2));
@@ -202,9 +208,9 @@ public:
                 break;  // 达到收敛条件，退出迭代
             }
         }
-        t_out = t;
+        t_out = fire_delay + t;
         // 计算最终目标位置和偏航角
-        Eigen::Vector3d last_target = target_info.getGunTarget(t);
+        Eigen::Vector3d last_target = target_info.getGunTarget(t_out);
         double predyaw = atan2(last_target[1], last_target[0]);
         
         return std::make_pair(pitch, predyaw);
@@ -256,7 +262,7 @@ public:
             delta_height = target_height - real_height;
             tmp_height += delta_height;
         }
-        return std::make_pair(tmp_pitch, fly_time + fire_delay);
+        return std::make_pair(tmp_pitch, fly_time);
     };
 
 };
