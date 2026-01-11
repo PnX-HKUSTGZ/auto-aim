@@ -150,8 +150,7 @@ private:
 
     std::unique_ptr<rm_auto_aim::MPCController> mpc_controller_;
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr gimbal_vel_sub_;
-    rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr mpc_pre_point_pub_;
-    rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr mpc_post_point_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr mpc_yaw_tracker_pub_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr iffire_pub_;
 };
 }  // namespace rm_auto_aim

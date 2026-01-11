@@ -60,9 +60,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     armor_selector_ = std::make_shared<ArmorSelector>();
 
     //初始化MPC控制器
-    std::string mpc_config_path = this->declare_parameter<std::string>("mpc_config_path", "config/mpc_params.yaml");
-    mpc_controller_ = std::make_unique<rm_auto_aim::MPCController>(mpc_config_path);
-    RCLCPP_INFO(this->get_logger(), "MPC Controller initialized with config: %s", mpc_config_path.c_str());
+    mpc_controller_ = std::make_unique<rm_auto_aim::MPCController>(this);
 
     //创建监听器，监听云台位姿
     tfBuffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -102,10 +100,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
                 this->current_pitch_vel = msg->data[1];
             }
         });
-    rclcpp::QoS point_qos = rclcpp::QoS(10).transient_local();
-    // PointStamped发布器（rqt_plot绘制曲线）
-    mpc_pre_point_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>("/mpc/pre_target_point", point_qos);
-    mpc_post_point_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>("/mpc/post_target_point", point_qos);
+    rclcpp::QoS qos = rclcpp::QoS(10).transient_local();
+    mpc_yaw_tracker_pub_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/mpc/yaw_tracker", qos);
     
 }
 
@@ -241,37 +237,17 @@ void BallisticCalculateNode::carTargetCallback(
     MPCResult mpc_result = mpc_controller_->compute(*car_target_msg, current_bullet_speed, temp_t);
 
 
-    // MPC解算前可视化：发布当前云台yaw与yaw_vel到PointStamped
+    // MPC解算前后可视化
     try {
-        geometry_msgs::msg::PointStamped pre_mpc_point;
-        pre_mpc_point.header.frame_id = "odom";
-        pre_mpc_point.header.stamp = this->now();
-        // x: gimbal_yaw, y: gimbal_yaw_vel
-        pre_mpc_point.point.x = mpc_result.target_yaw;
-        pre_mpc_point.point.y = 0;
-        if (mpc_pre_point_pub_) {
-            mpc_pre_point_pub_->publish(pre_mpc_point);
-        }
+        std_msgs::msg::Float32MultiArray yaw_tracker_msg;
+        yaw_tracker_msg.data.resize(2); // 仅存储两个标量
+        yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
+        yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
+        mpc_yaw_tracker_pub_->publish(yaw_tracker_msg);
     } catch (...) {
-        RCLCPP_WARN(this->get_logger(), "Failed to publish pre-MPC point");
+        RCLCPP_WARN(this->get_logger(), "Failed to publish MPC yaw tracker");
     }
 
-    // MPC解算后可视化：发布MPC计划的yaw与yaw_vel到PointStamped
-    try {
-        if (use_mpc_default && mpc_result.is_valid) {
-            geometry_msgs::msg::PointStamped post_mpc_point;
-            post_mpc_point.header.frame_id = "odom";
-            post_mpc_point.header.stamp = this->now();
-            // x: plan_yaw, y: plan_yaw_vel
-            post_mpc_point.point.x = mpc_result.yaw;
-            post_mpc_point.point.y = mpc_result.yaw_vel;
-            if (mpc_post_point_pub_) {
-                mpc_post_point_pub_->publish(post_mpc_point);
-            }
-        }
-    } catch (...) {
-        RCLCPP_WARN(this->get_logger(), "Failed to publish post-MPC point");
-    }
     // 3. 结果融合：优先使用MPC结果，如果MPC求解失败，直接返回，不发送信息
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
