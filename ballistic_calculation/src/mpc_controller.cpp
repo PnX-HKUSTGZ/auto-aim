@@ -1,6 +1,7 @@
 #include "ballistic_calculation/mpc_controller.hpp"
 #include <Eigen/src/Core/Matrix.h>
 
+#include <auto_aim_interfaces/msg/detail/firecontrol__struct.hpp>
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -17,6 +18,7 @@ MPCController::MPCController(rclcpp::Node *node)
 {
     min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
     max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
+    fire_delay = node->declare_parameter("fire_delay", 0.0);
     setupYawSolver(node);
     setupPitchSolver(node);
 }
@@ -71,6 +73,7 @@ MPCResult MPCController::compute(
 {
     MPCResult result;
     result.is_valid = false;
+    result.is_fire = false;
 
 
     if (bullet_speed < 10 || bullet_speed > 35 || DT <= 1e-6) {
@@ -86,13 +89,14 @@ MPCResult MPCController::compute(
         return result;
     }
 
-    Eigen::VectorXd x0(2);
-    x0 << traj(0, 0), 0.0;
-    if (x0.hasNaN() || x0.cwiseAbs().maxCoeff() > 1e6) {
+    // Solve Yaw
+    Eigen::VectorXd x0_yaw(2);
+    x0_yaw << traj(0, 0), 0.0;
+    if (x0_yaw.hasNaN() || x0_yaw.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid yaw initial state");
         return result;
     }
-    tiny_set_x0(yaw_solver_, x0);
+    tiny_set_x0(yaw_solver_, x0_yaw);
 
     Eigen::MatrixXd yaw_ref = traj.block(0, 0, 2, HORIZON);
     if (yaw_ref.hasNaN()) {
@@ -105,13 +109,16 @@ MPCResult MPCController::compute(
     if (solve_ret_yaw != 0) {
         RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
     }
-    x0 << traj(2, 0),  0.0;
+
+    // Solve Pitch
+    Eigen::VectorXd x0_pitch(2);
+    x0_pitch << traj(2, 0),  0.0;
     
-    if (x0.hasNaN() || x0.cwiseAbs().maxCoeff() > 1e6) {
+    if (x0_pitch.hasNaN() || x0_pitch.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid pitch initial state");
         return result;
     }
-    tiny_set_x0(pitch_solver_, x0);
+    tiny_set_x0(pitch_solver_, x0_pitch);
 
     Eigen::MatrixXd pitch_ref = traj.block(2, 0, 2, HORIZON);
     if (pitch_ref.hasNaN()) {
@@ -125,44 +132,82 @@ MPCResult MPCController::compute(
     if (solve_ret_pitch != 0) {
         RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret_pitch);
     }
+    
+    // Extract MPC results
+    const int fire_delay_idx = static_cast<int>(fire_delay / DT);
+    const int fire_idx = HALF_HORIZON + fire_delay_idx;
+    const int current_idx = HALF_HORIZON;    
+
+    // 当前控制指令（发给云台执行，无fire_delay）
+    double yaw_current = limit_rad(yaw_solver_->work->x.coeff(0, current_idx));
+    double yaw_vel_current = yaw_solver_->work->x.coeff(1, current_idx);
+    double yaw_acc_current = yaw_solver_->work->u.coeff(0, current_idx);
+    
+    double pitch_current = limit_rad(pitch_solver_->work->x.coeff(0, current_idx));
+    double pitch_vel_current = pitch_solver_->work->x.coeff(1, current_idx);
+    double pitch_acc_current = pitch_solver_->work->u.coeff(0, current_idx);
+
+    // 开火时刻目标值（带fire_delay，用于开火判定）
+    double yaw_at_fire = limit_rad(yaw_solver_->work->x.coeff(0, fire_idx));
+    // double yaw_vel_at_fire = yaw_solver_->work->x.coeff(1, fire_idx);
+    // double yaw_acc_at_fire = yaw_solver_->work->u.coeff(0, fire_idx);
+    
+    double pitch_at_fire = limit_rad(pitch_solver_->work->x.coeff(0, fire_idx));
+    // double pitch_vel_at_fire = pitch_solver_->work->x.coeff(1, fire_idx);
+    // double pitch_acc_at_fire = pitch_solver_->work->u.coeff(0, fire_idx);
+
+    // 目标轨迹值
+    double target_yaw_current = limit_rad(traj.coeff(0, current_idx));
+    double target_pitch_current = limit_rad(traj.coeff(2, current_idx));
+    double target_yaw_at_fire = limit_rad(traj.coeff(0, fire_idx));
+    double target_pitch_at_fire = limit_rad(traj.coeff(2, fire_idx));
+
     result.is_valid = true;
 
-    double yaw = limit_rad(yaw_solver_->work->x(0, HALF_HORIZON));
-    double yaw_vel = yaw_solver_->work->x(1, HALF_HORIZON);
-    double yaw_acc = yaw_solver_->work->u(0, HALF_HORIZON);
-    
-    double pitch = limit_rad(pitch_solver_->work->x(0, HALF_HORIZON));
-    double pitch_vel = pitch_solver_->work->x(1, HALF_HORIZON);
-    double pitch_acc = pitch_solver_->work->u(0, HALF_HORIZON);
-
+    // 控制限幅和死区处理
     const double MAX_VEL = 5.0;  
     const double MAX_ACC = 8.0; 
     const double DEAD_ZONE_VEL = 0.01;
     const double DEAD_ZONE_ACC = 0.05;
 
-    result.yaw = yaw;
-    double yaw_vel_clamped = std::clamp(yaw_vel, -MAX_VEL, MAX_VEL);
+    // 偏航角控制输出
+    result.yaw = yaw_current;
+    double yaw_vel_clamped = std::clamp(yaw_vel_current, -MAX_VEL, MAX_VEL);
     result.yaw_vel = std::abs(yaw_vel_clamped) < DEAD_ZONE_VEL ? 0.0 : yaw_vel_clamped;
-    double yaw_acc_clamped = std::clamp(yaw_acc, -MAX_ACC, MAX_ACC);
+    double yaw_acc_clamped = std::clamp(yaw_acc_current, -MAX_ACC, MAX_ACC);
     result.yaw_acc = std::abs(yaw_acc_clamped) < DEAD_ZONE_ACC ? 0.0 : yaw_acc_clamped;
 
-    result.pitch = pitch;
-    double pitch_vel_clamped = std::clamp(pitch_vel, -MAX_VEL, MAX_VEL);
+    // 俯仰角控制输出
+    result.pitch = pitch_current;
+    double pitch_vel_clamped = std::clamp(pitch_vel_current, -MAX_VEL, MAX_VEL);
     result.pitch_vel = std::abs(pitch_vel_clamped) < DEAD_ZONE_VEL ? 0.0 : pitch_vel_clamped;
-    double pitch_acc_clamped = std::clamp(pitch_acc, -MAX_ACC, MAX_ACC);
+    double pitch_acc_clamped = std::clamp(pitch_acc_current, -MAX_ACC, MAX_ACC);
     result.pitch_acc = std::abs(pitch_acc_clamped) < DEAD_ZONE_ACC ? 0.0 : pitch_acc_clamped;
 
+    // 检查NaN值
     if (std::isnan(result.yaw_vel) || std::isnan(result.pitch_vel)) {
         result.is_valid = false;
         return result;
     }
 
+    // 开火判定逻辑：检查带fire_delay的目标角度和当前控制角度的偏差
+    double yaw_error = std::abs(target_yaw_at_fire - yaw_at_fire);
+    double pitch_error = std::abs(target_pitch_at_fire - pitch_at_fire);
+    // 偏差阈值
+    const double YAW_FIRE_THRESHOLD = 0.005;  // 约0.286度
+    const double PITCH_FIRE_THRESHOLD = 0.003; // 约0.172度
+
+    if (yaw_error <= YAW_FIRE_THRESHOLD && pitch_error <= PITCH_FIRE_THRESHOLD) {
+        result.is_fire = true; // 处于非阶跃期
+    }
+
+    result.target_yaw = target_yaw_current;
+    result.target_pitch = target_pitch_current;
+
     // 优化前
     Eigen::Vector3d target_pos_vec(target_msg.position.x, target_msg.position.y, target_msg.position.z);
     Eigen::Vector2d target_vel_vec(target_msg.velocity.x, target_msg.velocity.y);
 
-    result.target_yaw = limit_rad(traj(0, HALF_HORIZON));
-    result.target_pitch = limit_rad(traj(2, HALF_HORIZON));
 
     // Plot pitch reference (from traj) and optimized pitch (from solver) in a single image
 
@@ -306,12 +351,12 @@ MPCResult MPCController::compute(
         CachedState cached{};
         const double stamp = nowSeconds() + T;
         cached.stamp = stamp;
-        cached.yaw = limit_rad(yaw_solver_->work->x(0, HALF_HORIZON));
-        cached.yaw_vel = yaw_solver_->work->x(1, HALF_HORIZON);
-        cached.yaw_acc = yaw_solver_->work->u(0, HALF_HORIZON);
-        cached.pitch = limit_rad(pitch_solver_->work->x(0, HALF_HORIZON));
-        cached.pitch_vel = pitch_solver_->work->x(1, HALF_HORIZON);
-        cached.pitch_acc = pitch_solver_->work->u(0, HALF_HORIZON);
+        cached.yaw = yaw_current;
+        cached.yaw_vel = yaw_vel_current;
+        cached.yaw_acc = yaw_acc_current;
+        cached.pitch = pitch_current;
+        cached.pitch_vel = pitch_vel_current;
+        cached.pitch_acc = pitch_acc_current;
         pruneCache(stamp - HALF_HORIZON * DT - DT);
         storeOptimizedState(cached);
     } catch (const std::exception & e) {
@@ -478,7 +523,7 @@ Eigen::Matrix<double, 2, 1> MPCController::aim(
     // std::cerr << "target_odom.y(): "<< target_odom.y() << "\n";
     // std::cerr << "target_odom.x(): "<< target_odom.x() << "\n";
     double azim = std::atan2(target_odom.y(), target_odom.x());
-    Ballistic ballistic(0.1, bullet_speed, 0.0);
+    Ballistic ballistic(0.1, bullet_speed);
     double horizon_dis = dist;
     double height = target_odom.z();
     auto [pitch, _] = ballistic.fixTiteratPitch(horizon_dis, height);

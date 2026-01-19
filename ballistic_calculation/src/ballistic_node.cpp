@@ -45,7 +45,6 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
     v_yaw_gimble = this->declare_parameter("max_v_yaw_gimble", 0.8);
     stop_fire_time = this->declare_parameter("stop_fire_time", 0.1);
-    double fire_delay = this->declare_parameter("fire_delay", 0.0);
     xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
     rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
     // 添加MPC开关参数，默认false（不采用MPC结果）
@@ -53,7 +52,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     Eigen::Vector3d odom2gunxyz(xyz_vec[0], xyz_vec[1], xyz_vec[2]);
     Eigen::Vector3d odom2gunrpy(rpy_vec[0], rpy_vec[1], rpy_vec[2]);
 
-    calculator = std::make_unique<rm_auto_aim::Ballistic>(K, BULLET_V, fire_delay);
+    calculator = std::make_unique<rm_auto_aim::Ballistic>(K, BULLET_V);
     car_info_ = std::make_shared<CarInfo>(odom2gunxyz, odom2gunrpy);
     armor_info_ = std::make_unique<ArmorInfo>(odom2gunxyz, odom2gunrpy);
     rune_info_ = std::make_unique<RuneInfo>(odom2gunxyz, odom2gunrpy);
@@ -285,17 +284,13 @@ void BallisticCalculateNode::carTargetCallback(
     fire_msg.id = car_target_msg->id;
     fire_msg.projected_x = projected_point.x;
     fire_msg.projected_y = projected_point.y;
-    if (this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)) {
-        ifFireK += abs(car_target_msg->v_yaw) * 0.004;
-    }
-    if (abs(mpc_result.target_yaw - mpc_result.yaw) <= 0.005) {
-        fire_msg.iffire = true; // 【调试】非阶跃期，
-    }
-    // fire_msg.iffire = ifFire(mpc_result.target_pitch, mpc_result.target_yaw);
-
-    if (fire_msg.iffire) last_fire_time = this->now();
+    // if (this->now() - last_fire_time < rclcpp::Duration::from_seconds(stop_fire_time)) {
+    //     ifFireK += abs(car_target_msg->v_yaw) * 0.004;
+    // }
+    // if (fire_msg.iffire) last_fire_time = this->now();
+    fire_msg.iffire = mpc_result.is_fire;
     // Publish a 1/0 float for rqt plotting of iffire
-    try {
+    try { 
         std_msgs::msg::Float32 ifmsg;
         ifmsg.data = fire_msg.iffire ? 1.0f : 0.0f;
         if (iffire_pub_) iffire_pub_->publish(ifmsg);

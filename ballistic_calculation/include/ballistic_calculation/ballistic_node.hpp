@@ -116,7 +116,6 @@ private:
     double max_v;          // 二级策略切换三级策略速度临界值
     double v_yaw_gimble;   // 云台最大yaw速度
     double stop_fire_time; // 停止开火时间
-    double fire_delay;     // 开火延迟
     std::vector<double> xyz_vec;  // 枪口的xyz坐标
     std::vector<double> rpy_vec;  // 枪口的rpy角度
 

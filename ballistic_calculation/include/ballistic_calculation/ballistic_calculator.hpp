@@ -33,7 +33,6 @@ private:
     // parameter
     double k;           // 空气阻力系数，需要parameter_declare来调整参数
     double bulletV;     // 子弹速度，需要parameter_declare来调整参数
-    double fire_delay;  // 开火延迟，需要parameter_declare来调整参数
 
     /**
      * @brief 使用 Ceres 优化器优化飞行时间
@@ -157,10 +156,9 @@ public:
      * 
      * @param k 空气阻力系数，默认值 0.1
      * @param bulletV 子弹速度，默认值 22 m/s
-     * @param fire_delay 开火延迟，默认值 0.0 s
      */
-    Ballistic(double k = 0.1, double bulletV = 22, double fire_delay = 0.0)
-    : k(k), bulletV(bulletV), fire_delay(fire_delay){};
+    Ballistic(double k = 0.1, double bulletV = 22)
+    : k(k), bulletV(bulletV){};
 
     /**
      * @brief 主迭代函数，计算最佳射击角度
@@ -189,8 +187,7 @@ public:
             t = optimizeTime(t, target_info, pitch);
             
             // 第二步：获取预测目标位置
-            double total_predicition_time = fire_delay + t;
-            Eigen::Vector3d new_target = target_info.getGunTarget(total_predicition_time);
+            Eigen::Vector3d new_target = target_info.getGunTarget(t);
 
             // 计算水平距离和高度
             double preddist = sqrt(pow(new_target[0], 2) + pow(new_target[1], 2));
@@ -208,9 +205,9 @@ public:
                 break;  // 达到收敛条件，退出迭代
             }
         }
-        t_out = fire_delay + t;
+        t_out = t;
         // 计算最终目标位置和偏航角
-        Eigen::Vector3d last_target = target_info.getGunTarget(t_out);
+        Eigen::Vector3d last_target = target_info.getGunTarget(t);
         double predyaw = atan2(last_target[1], last_target[0]);
         
         return std::make_pair(pitch, predyaw);

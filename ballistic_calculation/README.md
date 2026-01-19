@@ -175,9 +175,6 @@ air_resistence: 0.1
 
 # 子弹速度 (m/s)
 bullet_speed: 23.0
-
-# 开火延迟 (s)
-fire_delay: 0.0
 ```
 
 ### 迭代参数

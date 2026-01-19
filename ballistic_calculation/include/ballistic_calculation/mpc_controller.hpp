@@ -61,7 +61,7 @@ private:
 
     static constexpr size_t MAX_CACHE_SIZE = 600; // ~6s at 100Hz
 
-
+    double fire_delay;
     double min_switch_speed_;
     double max_switch_speed_;
     double max_yaw_acc_;       // 偏航最大加速度
