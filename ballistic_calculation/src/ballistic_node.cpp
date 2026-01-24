@@ -6,7 +6,6 @@
 #include <auto_aim_interfaces/msg/firecontrol.hpp>
 #include <auto_aim_interfaces/msg/target.hpp>
 #include <cfloat>
-#include <chrono>
 #include <cmath>
 #include <memory>
 #include <opencv2/calib3d.hpp>
@@ -39,8 +38,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     K1 = this->declare_parameter("iteration_coeffcient_first", 0.1);
     K2 = this->declare_parameter("iteration_coeffcient_second", 0.05);
     K = this->declare_parameter("air_resistence", 0.1);
-    BULLET_V = this->declare_parameter("bullet_speed", 22.0);
-    ifFireK_ = this->declare_parameter("ifFireK", 0.05);
+    BULLET_V = this->declare_parameter("bullet_speed", 23.0);
     min_v = this->declare_parameter("switch_stategy_1", 5.0) * M_PI / 30;
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
     v_yaw_gimble = this->declare_parameter("max_v_yaw_gimble", 0.8);
@@ -104,27 +102,6 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     
 }
 
-bool BallisticCalculateNode::ifFire(double targetpitch, double targetyaw)
-{
-    geometry_msgs::msg::TransformStamped t;
-    //获取当前云台位姿
-    try {
-        // 使用最新的可用变换，而不是当前时间
-        t = tfBuffer->lookupTransform("odom", "gimbal_link", tf2::TimePointZero);
-    } catch (tf2::TransformException & ex) {
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", ex.what());
-        return false;
-    }
-
-    tf2::Quaternion q(
-        t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z,
-        t.transform.rotation.w);
-    double roll, pitch, yaw;
-    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-    //计算云台位姿和预测位置的差值,当差值小于某一个阈值时，返回true
-    return std::abs(yaw - targetyaw) < ifFireK && std::abs(pitch + targetpitch) < 0.003; // 注意检查符号适配, ifFireK_yaw = 0.02 rad, ifFireK_pitch = 0.003 rad
-}
-
 // 获取当前云台状态
 Eigen::Vector4d BallisticCalculateNode::getCurrentGimbalState()
 {
@@ -145,6 +122,7 @@ Eigen::Vector4d BallisticCalculateNode::getCurrentGimbalState()
 void BallisticCalculateNode::carTargetCallback(
     auto_aim_interfaces::msg::Target::SharedPtr _target_msg)
 {
+    // auto func_start_time = this->now();
     if (!_target_msg) {
         RCLCPP_WARN(this->get_logger(), "Received null target message");
         return;
@@ -154,7 +132,6 @@ void BallisticCalculateNode::carTargetCallback(
     car_info_->updateTarget(*car_target_msg);
     armor_selector_->updateTarget(*car_target_msg);
 
-    ifFireK = ifFireK_ + abs(car_target_msg->v_yaw) * 0.002;
     //进入第一次大迭代
     Eigen::Vector3d target = car_info_->getGunTarget(0.0);
 
@@ -239,9 +216,10 @@ void BallisticCalculateNode::carTargetCallback(
     // MPC解算前后可视化
     try {
         std_msgs::msg::Float32MultiArray yaw_tracker_msg;
-        yaw_tracker_msg.data.resize(2); // 仅存储两个标量
+        yaw_tracker_msg.data.resize(3); // 仅存储3个标量
         yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
         yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
+        yaw_tracker_msg.data[2] = mpc_result.is_fire;    // 第三个元素：is_fire（是否处于阶跃期）
         mpc_yaw_tracker_pub_->publish(yaw_tracker_msg);
     } catch (...) {
         RCLCPP_WARN(this->get_logger(), "Failed to publish MPC yaw tracker");
@@ -289,15 +267,18 @@ void BallisticCalculateNode::carTargetCallback(
     // }
     // if (fire_msg.iffire) last_fire_time = this->now();
     fire_msg.iffire = mpc_result.is_fire;
-    // Publish a 1/0 float for rqt plotting of iffire
-    try { 
-        std_msgs::msg::Float32 ifmsg;
-        ifmsg.data = fire_msg.iffire ? 1.0f : 0.0f;
-        if (iffire_pub_) iffire_pub_->publish(ifmsg);
-    } catch (...) {
-        RCLCPP_WARN(this->get_logger(), "Failed to publish iffire float message");
-    }
+    // // Publish a 1/0 float for rqt plotting of iffire
+    // try { 
+    //     std_msgs::msg::Float32 ifmsg;
+    //     ifmsg.data = fire_msg.iffire ? 1.0f : 0.0f;
+    //     if (iffire_pub_) iffire_pub_->publish(ifmsg);
+    // } catch (...) {
+    //     RCLCPP_WARN(this->get_logger(), "Failed to publish iffire float message");
+    // }
     publisher_->publish(fire_msg);
+    // auto func_end_time = this->now();
+    // double func_duration = (func_end_time - func_start_time).seconds();
+    // std::cerr << "carTargetCallback duration: " << func_duration * 1000.0 << " ms\n";
 }
 void BallisticCalculateNode::runeTargetCallback(
     auto_aim_interfaces::msg::RuneTarget::SharedPtr _target_msg)

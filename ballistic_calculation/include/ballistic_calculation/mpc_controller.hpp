@@ -66,6 +66,7 @@ private:
     double max_switch_speed_;
     double max_yaw_acc_;       // 偏航最大加速度
     double max_pitch_acc_;     // 俯仰最大加速度
+    double iffire_;            // 开火阈值系数
     std::vector<double> Q_yaw_;// 偏航Q矩阵
     std::vector<double> R_yaw_;// 偏航R矩阵
     std::vector<double> Q_pitch_;// 俯仰Q矩阵

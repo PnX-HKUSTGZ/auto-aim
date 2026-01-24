@@ -19,6 +19,7 @@ MPCController::MPCController(rclcpp::Node *node)
     min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
     max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
     fire_delay = node->declare_parameter("fire_delay", 0.0);
+    iffire_ = node->declare_parameter("ifFireK", 0.05);
     setupYawSolver(node);
     setupPitchSolver(node);
 }
@@ -69,7 +70,7 @@ std::optional<MPCController::CachedState> MPCController::queryLatest(double stam
 
 MPCResult MPCController::compute(
     const auto_aim_interfaces::msg::Target & target_msg,
-    double bullet_speed, double T)
+    double bullet_speed, double fly_time)
 {
     MPCResult result;
     result.is_valid = false;
@@ -83,7 +84,7 @@ MPCResult MPCController::compute(
     Trajectory traj;
     
     try {
-        traj = getTrajectory(target_msg, bullet_speed, T);
+        traj = getTrajectory(target_msg, bullet_speed, fly_time);
     } catch (const std::exception & e) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Trajectory generation failed: %s", e.what());
         return result;
@@ -136,16 +137,16 @@ MPCResult MPCController::compute(
     // Extract MPC results
     const int fire_delay_idx = static_cast<int>(fire_delay / DT);
     const int fire_idx = HALF_HORIZON + fire_delay_idx;
-    const int current_idx = HALF_HORIZON;    
+    const int aim_idx = HALF_HORIZON;    
 
     // 当前控制指令（发给云台执行，无fire_delay）
-    double yaw_current = limit_rad(yaw_solver_->work->x.coeff(0, current_idx));
-    double yaw_vel_current = yaw_solver_->work->x.coeff(1, current_idx);
-    double yaw_acc_current = yaw_solver_->work->u.coeff(0, current_idx);
+    double yaw_current = limit_rad(yaw_solver_->work->x.coeff(0, aim_idx));
+    double yaw_vel_current = yaw_solver_->work->x.coeff(1, aim_idx);
+    double yaw_acc_current = yaw_solver_->work->u.coeff(0, aim_idx);
     
-    double pitch_current = limit_rad(pitch_solver_->work->x.coeff(0, current_idx));
-    double pitch_vel_current = pitch_solver_->work->x.coeff(1, current_idx);
-    double pitch_acc_current = pitch_solver_->work->u.coeff(0, current_idx);
+    double pitch_current = limit_rad(pitch_solver_->work->x.coeff(0, aim_idx));
+    double pitch_vel_current = pitch_solver_->work->x.coeff(1, aim_idx);
+    double pitch_acc_current = pitch_solver_->work->u.coeff(0, aim_idx);
 
     // 开火时刻目标值（带fire_delay，用于开火判定）
     double yaw_at_fire = limit_rad(yaw_solver_->work->x.coeff(0, fire_idx));
@@ -157,8 +158,8 @@ MPCResult MPCController::compute(
     // double pitch_acc_at_fire = pitch_solver_->work->u.coeff(0, fire_idx);
 
     // 目标轨迹值
-    double target_yaw_current = limit_rad(traj.coeff(0, current_idx));
-    double target_pitch_current = limit_rad(traj.coeff(2, current_idx));
+    double target_yaw_current = limit_rad(traj.coeff(0, aim_idx));
+    double target_pitch_current = limit_rad(traj.coeff(2, aim_idx));
     double target_yaw_at_fire = limit_rad(traj.coeff(0, fire_idx));
     double target_pitch_at_fire = limit_rad(traj.coeff(2, fire_idx));
 
@@ -193,11 +194,8 @@ MPCResult MPCController::compute(
     // 开火判定逻辑：检查带fire_delay的目标角度和当前控制角度的偏差
     double yaw_error = std::abs(target_yaw_at_fire - yaw_at_fire);
     double pitch_error = std::abs(target_pitch_at_fire - pitch_at_fire);
-    // 偏差阈值
-    const double YAW_FIRE_THRESHOLD = 0.005;  // 约0.286度
-    const double PITCH_FIRE_THRESHOLD = 0.003; // 约0.172度
 
-    if (yaw_error <= YAW_FIRE_THRESHOLD && pitch_error <= PITCH_FIRE_THRESHOLD) {
+    if (yaw_error <= iffire_ && pitch_error <= iffire_) {
         result.is_fire = true; // 处于非阶跃期
     }
 
@@ -278,7 +276,7 @@ MPCResult MPCController::compute(
     //     RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Plotting pitch trajectories failed: %s", e.what());
     // }
 
-    // // Plot yaw reference (from traj) and optimized yaw (from solver) in a single image
+    // Plot yaw reference (from traj) and optimized yaw (from solver) in a single image
     // try {
     //     if (HORIZON > 1 && yaw_solver_ && yaw_solver_->work) {
     //         const int img_w = 900;
@@ -289,8 +287,8 @@ MPCResult MPCController::compute(
     //         std::vector<cv::Point> pts_ref;
     //         std::vector<cv::Point> pts_opt;
 
-    //         double ang_min = -M_PI/4.0;
-    //         double ang_max = M_PI/4.0;
+    //         double ang_min = -M_PI/8.0;
+    //         double ang_max = M_PI/8.0;
 
     //         auto ang_to_y = [&](double ang)->int {
     //             double v = (ang - ang_min) / (ang_max - ang_min);
@@ -306,8 +304,8 @@ MPCResult MPCController::compute(
     //             pts_opt.emplace_back(cv::Point(xpix, ang_to_y(xo)));
     //         }
 
-    //         if (!pts_ref.empty()) cv::polylines(img, pts_ref, false, cv::Scalar(200, 50, 50), 2, cv::LINE_AA);
-    //         if (!pts_opt.empty()) cv::polylines(img, pts_opt, false, cv::Scalar(50, 50, 200), 2, cv::LINE_AA);
+    //         if (!pts_ref.empty()) cv::polylines(img, pts_ref, false, cv::Scalar(200, 50, 50), 1, cv::LINE_AA);
+    //         if (!pts_opt.empty()) cv::polylines(img, pts_opt, false, cv::Scalar(50, 50, 200), 1, cv::LINE_AA);
 
     //         // Draw Y-axis ticks and labels (radian scale)
     //         std::vector<std::pair<double, std::string>> y_ticks = {
@@ -349,7 +347,7 @@ MPCResult MPCController::compute(
     // 缓存 0 时刻（now + T）优化结果
     try {
         CachedState cached{};
-        const double stamp = nowSeconds() + T;
+        const double stamp = nowSeconds() + fly_time;
         cached.stamp = stamp;
         cached.yaw = yaw_current;
         cached.yaw_vel = yaw_vel_current;
@@ -396,7 +394,7 @@ Eigen::Vector3d MPCController::getOdomTarget(const auto_aim_interfaces::msg::Tar
 
 Trajectory MPCController::getTrajectory(
     const auto_aim_interfaces::msg::Target & target_msg, 
-    double bullet_speed, double T)
+    double bullet_speed, double fly_time)
 {
     Trajectory traj;
     traj.setZero();
@@ -407,12 +405,12 @@ Trajectory MPCController::getTrajectory(
     bool has_last = false;
 
     const double now_stamp = nowSeconds();
-    const double base_stamp = now_stamp + T;
+    const double base_stamp = now_stamp + fly_time;
     const double hist_start = base_stamp - HALF_HORIZON * DT;
 
     // 清理过旧缓存，基准：当前预测窗口起点往前 1 个 DT
     pruneCache(hist_start - DT);
-    // latest_cached: 截止到 base_stamp(=now+T) 的最新缓存点，用于判定历史可用区间上界
+    // latest_cached: 截止到 base_stamp(=now+fly_time) 的最新缓存点，用于判定历史可用区间上界
     auto latest_cached = queryLatest(base_stamp);
 
     for (int i = -HALF_HORIZON; i < HALF_HORIZON; i++) {
@@ -488,15 +486,15 @@ Trajectory MPCController::getTrajectory(
         }
 
         if (!has_last) {
-            Eigen::Vector3d init_armor_pos = getOdomTarget(target_msg, T - HALF_HORIZON * DT);
+            Eigen::Vector3d init_armor_pos = getOdomTarget(target_msg, fly_time - HALF_HORIZON * DT);
             last_yaw_pitch = aim(init_armor_pos, bullet_speed);
             has_last = true;
         }
 
-        Eigen::Vector3d target_pos_pred = getOdomTarget(target_msg, T + t_pred);
+        Eigen::Vector3d target_pos_pred = getOdomTarget(target_msg, fly_time + t_pred);
         Eigen::Vector2d curr_yaw_pitch = aim(target_pos_pred, bullet_speed);
 
-        Eigen::Vector3d next_armor_pos = getOdomTarget(target_msg, T + t_pred + DT);
+        Eigen::Vector3d next_armor_pos = getOdomTarget(target_msg, fly_time + t_pred + DT);
         Eigen::Vector2d next_yaw_pitch = aim(next_armor_pos, bullet_speed);
 
         // central difference using (next - last) / (2*DT) gives velocity at curr

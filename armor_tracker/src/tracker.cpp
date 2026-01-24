@@ -165,8 +165,8 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
     }
     // 防止半径扩散
     for (int r_idx : {R1, R2}) {
-        target_state(r_idx) = fmax(target_state(r_idx), 0.12);
-        target_state(r_idx) = fmin(target_state(r_idx), 0.4);
+        target_state(r_idx) = fmax(target_state(r_idx), 0.2);
+        target_state(r_idx) = fmin(target_state(r_idx), 0.3); // hero: 0.4
     }
     // 防止yaw角度扩散
     if (target_state(YAW1) < -M_PI) {

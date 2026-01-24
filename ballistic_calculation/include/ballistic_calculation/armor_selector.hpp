@@ -124,7 +124,7 @@ public:
     }
 
 private: 
-    target target_msg;  // 目标信息缓存
+    target target_msg;  // 目标信息缓存(被设计为thin->now()时刻)
 
     /**
      * @brief 装甲板结构体

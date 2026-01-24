@@ -47,18 +47,6 @@ public:
     explicit BallisticCalculateNode(const rclcpp::NodeOptions & options);
 
 private:
-    /**
-     * @brief 判断是否满足开火条件
-     * 
-     * 通过比较当前云台位姿和预测射击位置的差异，
-     * 判断是否满足开火条件
-     * 
-     * @param prepitch 预测俯仰角
-     * @param preyaw 预测偏航角
-     * @return true 满足开火条件
-     * @return false 不满足开火条件
-     */
-    bool ifFire(double prepitch, double preyaw);
 
     /**
      * @brief 装甲车辆目标回调函数
@@ -111,7 +99,6 @@ private:
     double BULLET_V;       // 子弹出膛速度
     static const double THRES1;  // 第一次迭代的收敛阈值
     static const double THRES2; // 第二次迭代的收敛阈值
-    double ifFireK_;       // 判断是否开火的角度阈值
     double min_v;          // 一级策略切换二级策略速度临界值
     double max_v;          // 二级策略切换三级策略速度临界值
     double v_yaw_gimble;   // 云台最大yaw速度
@@ -122,7 +109,6 @@ private:
     // 状态变量
     bool ifstart = false;           // 是否开始标志
     int rate = 1000;               // 节点运行频率
-    double ifFireK;                // 动态开火阈值
     rclcpp::Time last_fire_time;   // 上次开火时间
     float current_yaw_vel = 0.0;
     float current_pitch_vel = 0.0;
