@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "armor_detector/ai_detector.hpp"
+#include <rclcpp/logging.hpp>
 
 #include <algorithm>
 #include <vector>
@@ -18,7 +19,13 @@ AIDetector::AIDetector(
     input_shape = {1, static_cast<size_t>(IMAGE_HEIGHT), static_cast<size_t>(IMAGE_WIDTH), 3};
 
     // 读取模型
-    model = core.read_model(model_path);
+    try {
+        model = core.read_model(model_path);
+    } catch (const std::exception & e) {
+        RCLCPP_ERROR(
+            rclcpp::get_logger("AIDetector"), "Failed to initialize model: %s", e.what());
+        throw;
+    }
 
     // 初始化预处理器
     ppp = std::make_unique<ov::preprocess::PrePostProcessor>(model);
@@ -28,14 +35,16 @@ AIDetector::AIDetector(
         .tensor()
         .set_element_type(ov::element::u8)
         .set_layout("NHWC")
-        .set_color_format(ov::preprocess::ColorFormat::BGR);
+        .set_color_format(ov::preprocess::ColorFormat::BGR)
+        .set_spatial_dynamic_shape();  // 允许任意输入分辨率，交给预处理阶段 resize
 
     // 指定预处理管道
     ppp->input()
         .preprocess()
         .convert_element_type(ov::element::f32)
         .convert_color(ov::preprocess::ColorFormat::RGB)
-        .scale({255.0f, 255.0f, 255.0f});
+        .scale({255.0f, 255.0f, 255.0f})
+        .resize(ov::preprocess::ResizeAlgorithm::RESIZE_LINEAR);  // 将resize下放到设备侧
 
     // 指定模型输入布局
     ppp->input().model().set_layout("NCHW");
@@ -48,6 +57,9 @@ AIDetector::AIDetector(
 
     // 编译模型
     compiled_model = core.compile_model(model, device);
+
+    // 预先创建推理请求，避免每帧重复分配
+    infer_request_ = compiled_model.create_infer_request();
 }
 
 AIDetector::~AIDetector() = default;
@@ -59,8 +71,6 @@ std::vector<Armor> AIDetector::detect(const cv::Mat & input, int detect_color)
     tmp_objects_.clear();
     ious_.clear();
     armors_.clear();
-
-    cv::cvtColor(input, gray_img, cv::COLOR_RGB2GRAY);
     
     // 记录原始图像尺寸用于坐标缩放
     original_width_ = input.cols;
@@ -78,8 +88,18 @@ std::vector<Armor> AIDetector::detect(const cv::Mat & input, int detect_color)
         armors_.push_back(armor);
     }
 
+    // 计算灯条倾斜角度和符号
     for (auto & armor : armors_) {
-        lcc.correctCorners(armor, gray_img);
+        armor.left_light.tilt_angle = std::atan2(
+                                            armor.left_light.bottom.x - armor.left_light.top.x,
+                                            armor.left_light.bottom.y - armor.left_light.top.y) *
+                                        180 / CV_PI;
+        armor.right_light.tilt_angle = std::atan2(
+                                            armor.right_light.bottom.x - armor.right_light.top.x,
+                                            armor.right_light.bottom.y - armor.right_light.top.y) *
+                                        180 / CV_PI;
+        double theta_1 = armor.left_light.tilt_angle, theta_2 = armor.right_light.tilt_angle;
+        armor.sign = (theta_1 + theta_2) / 2 <= 0;
     }
 
     return armors_;
@@ -92,24 +112,20 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
     tmp_objects_.clear();
     ious_.clear();
 
-    // Resize图像到模型输入尺寸
-    cv::Mat resized_img;
-    cv::resize(img, resized_img, cv::Size(IMAGE_WIDTH, IMAGE_HEIGHT));
+    // 保证输入内存连续，避免多余拷贝
+    contiguous_input_ = img.isContinuous() ? img : img.clone();
 
-    // 创建输入张量
-    uchar * input_data = (uchar *)resized_img.data;
-    ov::Tensor input_tensor = ov::Tensor(
-        compiled_model.input().get_element_type(), compiled_model.input().get_shape(), input_data);
+    // 创建输入张量（NHWC，原图尺寸）；预处理已设为动态尺寸，会在设备侧自动 resize
+    ov::Shape in_shape = {1, static_cast<size_t>(contiguous_input_.rows),
+                          static_cast<size_t>(contiguous_input_.cols), 3};
+    input_tensor_ = ov::Tensor(ov::element::u8, in_shape, contiguous_input_.data);
+    infer_request_.set_input_tensor(input_tensor_);
 
-    // 创建推理请求
-    ov::InferRequest infer_request = compiled_model.create_infer_request();
-    infer_request.set_input_tensor(input_tensor);
-
-    // 执行推理
-    infer_request.infer();
+    // 执行推理（推理请求已复用，减少CPU调度开销）
+    infer_request_.infer();
 
     // 获取输出张量
-    auto output = infer_request.get_output_tensor(0);
+    auto output = infer_request_.get_output_tensor(0);
     ov::Shape output_shape = output.get_shape();
 
     // 创建输出矩阵 (25200 x 22)
