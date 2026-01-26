@@ -131,16 +131,7 @@ SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat & gray_img, co
         scaled_vertices[i] = center + vec;
     }
 
-    cv::Point2f original_vertices[4];
-    light.points(original_vertices);
-
-    cv::Point2f scaled_vertices[4];
-    cv::Point2f center = light.center;
-    for (int i = 0; i < 4; i++) {
-        cv::Point2f vec = original_vertices[i] - center;
-        vec *= (1 + scale * 2);
-        scaled_vertices[i] = center + vec;
-    }
+    
 
     cv::RotatedRect scaled_rect(
         scaled_vertices[0],
@@ -148,10 +139,7 @@ SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat & gray_img, co
         scaled_vertices[2]
     );
 
-        scaled_vertices[0],
-        scaled_vertices[1],
-        scaled_vertices[2]
-    );
+        
 
     cv::Rect light_box = scaled_rect.boundingRect() & cv::Rect(0, 0, gray_img.cols, gray_img.rows);
     // 提取ROI并创建掩码
