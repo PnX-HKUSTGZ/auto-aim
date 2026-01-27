@@ -24,99 +24,111 @@
 // project
 #include "rune_solver/types.hpp"
 
-namespace rm_auto_aim {
+namespace rm_auto_aim
+{
 
-class CurveFitter {
+class CurveFitter
+{
 public:
-  explicit CurveFitter(const MotionType &t) : type_(t), fitting_future_(nullptr) {
-    // Init parameters to be fitted
-    fitting_param_ = {1.045, 0, 0, 0, 0};
-    direction_ = Direction::UNKNOWN;
-  };
+    explicit CurveFitter(const MotionType & t) : type_(t), fitting_future_(nullptr)
+    {
+        // Init parameters to be fitted
+        fitting_param_ = {1.045, 0, 0, 0, 0};
+        direction_ = Direction::UNKNOWN;
+    };
 
-  // Update data to be fitted
-  void update(double time, double angle);
+    // Update data to be fitted
+    void update(double time, double angle);
 
-  // Reset fitter
-  void reset();
+    // Reset fitter
+    void reset();
 
-  // Check the state of fitter
-  bool statusVerified();
+    // Check the state of fitter
+    bool statusVerified();
 
-  // Set the type of fitter
-  void setType(const MotionType &t);
+    // Set the type of fitter
+    void setType(const MotionType & t);
 
-  void setAutoTypeDetermined(bool auto_type_determined);
+    void setAutoTypeDetermined(bool auto_type_determined);
 
-  MotionType getType() const;
+    MotionType getType() const;
 
-  // Get the string of the fitting result
-  std::string getDebugText();
+    // Get the string of the fitting result
+    std::string getDebugText();
 
-  // Get the fitting parameters
-  std::array<double, 5> getFittingParam() const; 
+    // Get the fitting parameters
+    std::array<double, 5> getFittingParam() const;
 
-  // Get the direction of the fitting curve
-  bool getDirection() const;
-
-private:
-  // Perform double curve fitting
-  // automated determination of the type of curve
-  void fitDoubleCurve();
-
-  // Perform curve fitting
-  void fitCurve();
-
-  // Status value
-  MotionType type_;
-  bool is_static_ = false;
-  bool auto_type_determined_ = false;
-  int direction_;
-
-  // Data to be fitted
-  static constexpr int QUEUE_UPPER_LIMIT = 500;
-  static constexpr int QUEUE_LOWER_LIMIT = 50;
-  struct Data {
-    double time;
-    double angle;
-  };
-  std::deque<Data> data_history_queue_;
-
-  // Parameters to be fitted
-  std::array<double, 5> fitting_param_;
-  std::unique_ptr<std::future<void>> fitting_future_;
+    // Get the direction of the fitting curve
+    bool getDirection() const;
 
 private:
-  // Fitting Curve
+    // Perform double curve fitting
+    // automated determination of the type of curve
+    void fitDoubleCurve();
+
+    // Perform curve fitting
+    void fitCurve();
+
+    // Status value
+    MotionType type_;
+    bool is_static_ = false;
+    bool auto_type_determined_ = false;
+    int direction_;
+
+    // Data to be fitted
+    static constexpr int QUEUE_UPPER_LIMIT = 500;
+    static constexpr int QUEUE_LOWER_LIMIT = 50;
+    struct Data
+    {
+        double time;
+        double angle;
+    };
+    std::deque<Data> data_history_queue_;
+
+    // Parameters to be fitted
+    std::array<double, 5> fitting_param_;
+    std::unique_ptr<std::future<void>> fitting_future_;
+
+private:
+    // Fitting Curve
 #define BIG_RUNE_CURVE(x, a, omega, b, c, d, sign) \
-  ((-((a) / (omega) * ceres::cos((omega) * ((x) + (d)))) + (b) * ((x) + (d)) + (c)) * (sign))
+    ((-((a) / (omega)*ceres::cos((omega) * ((x) + (d)))) + (b) * ((x) + (d)) + (c)) * (sign))
 
 #define SMALL_RUNE_CURVE(x, a, b, c, sign) (((a) * ((x) + (b)) + (c)) * (sign))
 
-  // Fitting Cost
-  struct BigRuneFittingCost {
-    BigRuneFittingCost(double x, double y, int m) : x_(x), y_(y), mov_(static_cast<double>(m)) {}
-    template <typename T>
-    bool operator()(const T *const p, T *residual) const {
-      residual[0] = y_ - BIG_RUNE_CURVE(x_, p[0], p[1], p[2], p[3], p[4], mov_);
-      return true;
-    }
+    // Fitting Cost
+    struct BigRuneFittingCost
+    {
+        BigRuneFittingCost(double x, double y, int m) : x_(x), y_(y), mov_(static_cast<double>(m))
+        {
+        }
+        template <typename T>
+        bool operator()(const T * const p, T * residual) const
+        {
+            residual[0] = y_ - BIG_RUNE_CURVE(x_, p[0], p[1], p[2], p[3], p[4], mov_);
+            return true;
+        }
 
-    const double x_, y_;
-    const double mov_;
-  };
+        const double x_, y_;
+        const double mov_;
+    };
 
-  struct SmallRuneFittingCost {
-    SmallRuneFittingCost(double x, double y, int m) : x_(x), y_(y), mov_(static_cast<double>(m)) {}
-    template <typename T>
-    bool operator()(const T *const p, T *residual) const {
-      residual[0] = y_ - SMALL_RUNE_CURVE(x_, p[0], p[1], p[2], mov_);
-      return true;
-    }
+    struct SmallRuneFittingCost
+    {
+        SmallRuneFittingCost(double x, double y, int m) : x_(x), y_(y), mov_(static_cast<double>(m))
+        {
+        }
+        template <typename T>
+        bool operator()(const T * const p, T * residual) const
+        {
+            residual[0] = y_ - SMALL_RUNE_CURVE(x_, p[0], p[1], p[2], mov_);
+            return true;
+        }
 
-    const double x_, y_;
-    const double mov_;
-  };
+        const double x_, y_;
+        const double mov_;
+    };
 };
 }  //namespace rm_auto_aim
 #endif  // RUNE_SOLVER_CURVE_FITTER_HPP_

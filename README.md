@@ -1,64 +1,230 @@
-# rm_auto_aim
+# RM Auto Aim
 
-## Overview
+## 概述
 
-RoboMaster 装甲板自瞄算法模块
+RoboMaster 自动瞄准系统是一个完整的机器人视觉解决方案，实现了从目标检测、跟踪到弹道计算的全流程自瞄功能。该系统支持装甲板目标和能量机关目标的识别与打击，适用于RoboMaster比赛的各种作战场景。
 
+<div align="center">
 <img src="docs/rm_vision.svg" alt="rm_vision" width="200" height="200">
+</div>
 
-该项目为 [rm_vision](https://github.com/chenjunnn/rm_vision) 的子模块
+## 系统架构
 
-若有帮助请Star这个项目，感谢~
+```
+                    相机图像流 (Image Stream)
+                          |
+                +---------+---------+
+                |                   |
+                v                   v
+        armor_detector       rune_detector
+     (装甲板检测器)           (能量机关检测器)
+                |                   |
+                v                   v
+        armor_tracker        rune_solver
+      (装甲板跟踪器)         (能量机关解算器)
+                |                   |
+                +--------+----------+
+                         |
+                         v
+               ballistic_calculation
+                 (弹道计算器)
+                         |
+                         v
+                  火控指令 (Fire Control)
+```
 
-### License
+### 数据流向
 
-The source code is released under a [MIT license](rm_auto_aim/LICENSE).
+| 模块 | 输入 | 输出 | 功能描述 |
+|------|------|------|----------|
+| **armor_detector** | 相机图像流 | 装甲板三维位置 | 检测识别装甲板并解算位姿 |
+| **rune_detector** | 相机图像流 | 符文二维特征点 | 检测符文目标关键点 |
+| **armor_tracker** | 装甲板位置 | 目标跟踪状态 | 多目标跟踪和状态估计 |
+| **rune_solver** | 符文特征点 | 符文预测轨迹 | 三维重建和运动预测 |
+| **ballistic_calculation** | 跟踪状态/预测轨迹 | 射击参数 | 弹道计算和火控决策 |
+
+## 主要功能
+
+### 🎯 目标检测与识别
+- **装甲板检测**: 支持传统图像处理和AI深度学习两种检测模式
+- **数字识别**: 精确识别装甲板上的数字，支持多种机器人类型
+- **符文检测**: 检测能量机关目标，识别激活状态和关键点
+
+### 🔄 目标跟踪与预测  
+- **多目标跟踪**: 基于扩展卡尔曼滤波器的鲁棒目标跟踪
+- **状态估计**: 实时估计目标位置、速度和姿态
+- **运动预测**: 支持线性运动和复杂曲线运动的预测
+
+### ⚡ 弹道计算与火控
+- **精确弹道**: 考虑空气阻力的弹道物理模型
+- **智能决策**: 三级火控策略的装甲板选择算法
+- **实时计算**: 毫秒级的射击参数计算和开火判断
+
+## 包结构
+
+### 核心检测模块
+
+#### [armor_detector](armor_detector/)
+装甲板检测与位姿解算节点
+- **传统检测器**: 基于图像处理的灯条检测和装甲板配对
+- **AI检测器**: 基于深度学习的端到端检测和识别
+- **位姿解算**: PnP算法和光束法平差优化的三维位姿计算
+- **数字分类**: MLP神经网络的数字识别系统
+
+**核心特性**:
+- 支持红蓝双色检测切换
+- 自适应二值化和形态学处理
+- 灯条角点矫正和PCA优化
+- 实时性能优化
+
+#### [rune_detector](rune_detector/)  
+符文检测与定位节点
+- **特征检测**: 灯条和椭圆的双重特征检测
+- **目标匹配**: 基于几何约束的匹配评分系统
+- **R标识检测**: 符文中心标记的精确定位
+- **RANSAC优化**: 提升椭圆拟合的鲁棒性
+
+**核心特性**:
+- 自适应阈值分割
+- 多轮廓层次分析
+- 关键点提取算法
+- ROI区域优化
+
+### 跟踪与预测模块
+
+#### [armor_tracker](armor_tracker/)
+装甲目标跟踪系统
+- **扩展卡尔曼滤波**: 高精度的目标状态估计
+- **多目标管理**: 支持多个目标的并行跟踪
+- **状态机控制**: 检测→跟踪→丢失的状态转换
+- **数据关联**: 基于欧式距离的目标匹配算法
+
+**核心特性**:
+- 自适应噪声模型
+- 目标生命周期管理
+- 坐标系变换支持
+- 实时可视化反馈
+
+#### [rune_solver](rune_solver/)
+符文解算与轨迹预测节点  
+- **三维重建**: PnP解算符文的世界坐标
+- **曲线拟合**: 多项式模型的运动轨迹拟合
+- **运动预测**: 大小符文的差异化预测策略
+- **并行计算**: 异步优化的高性能计算
+
+**核心特性**:
+- 双模型并行拟合
+- Ceres优化器集成
+- 自适应参数调整
+- 弹道补偿计算
+
+### 火控计算模块
+
+#### [ballistic_calculation](ballistic_calculation/)
+弹道计算与火控决策节点
+- **物理建模**: 考虑空气阻力的精确弹道方程
+- **迭代优化**: Ceres求解器的非线性优化
+- **策略选择**: 三级火控策略的智能装甲板选择
+- **开火判断**: 基于云台位姿的实时开火条件评估
+
+**核心特性**:
+- 双重迭代优化算法
+- 多目标类型支持
+- 坐标系变换管理
+- 实时性能保证
+
+### 接口定义模块
+
+#### [auto_aim_interfaces](auto_aim_interfaces/)
+系统消息接口定义
+- **目标消息**: Target, RuneTarget等核心数据结构
+- **火控消息**: Firecontrol射击参数接口
+- **调试消息**: Debug信息和可视化数据
+- **服务接口**: 模式切换和参数配置服务
+
+## 系统集成
+
+### 数据流程
+
+1. **图像采集**: 相机节点发布原始图像和内参信息
+2. **目标检测**: 检测器识别装甲板/符文并解算三维位置  
+3. **目标跟踪**: 跟踪器估计目标状态和运动参数
+4. **弹道计算**: 计算最优射击角度和开火时机
+5. **火控输出**: 发布云台控制指令和开火命令
+
+### 坐标系关系
+
+```
+odom (世界坐标系)
+└── gimbal_link (云台坐标系)
+    ├── camera_link (相机坐标系)
+    └── gun_link (枪口坐标系)
+```
+
+### 时序同步
+
+- **检测频率**: 100 FPS 以上实时检测
+- **跟踪更新**: 与检测同步更新状态
+- **弹道计算**: 毫秒级响应时间
+- **火控输出**: 200Hz 高频率输出
+
+## 性能特点
+
+### 🚀 实时性能
+- **检测延迟**: < 20ms
+- **跟踪延迟**: < 5ms  
+- **计算延迟**: < 3ms
+- **总延迟**: < 30ms
+
+### 💪 鲁棒性
+- **光照适应**: 支持强光/弱光环境
+- **遮挡处理**: 临时遮挡快速恢复
+- **多目标**: 支持同时跟踪多个目标
+
+## 编译与部署
+
+### 系统要求
+
+- **操作系统**: Ubuntu 22.04 LTS
+- **ROS版本**: ROS2 Humble
+- **编译器**: GCC 11.3+ 或 Clang 14+
+- **依赖库**: OpenCV 4.5+, Eigen3, Ceres Solver
+
+## 调试与优化
+
+### 可视化工具
+
+```bash
+# 启动RViz可视化
+rviz2
+
+# 查看检测结果
+rqt
+
+# 监控系统性能
+ros2 run rqt_graph rqt_graph
+```
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源协议发布。
+
+## 维护团队
+
+- **原作者**: Chen Jun <chen.junn@outlook.com>
+- **维护团队**: PnX-HKUSTGZ 
+- **技术支持**: <yxie667@connect.hkust-gz.edu.cn>
+
+## 致谢
+
+该项目基于 [rm_vision](https://github.com/chenjunnn/rm_vision) 开发，感谢开源社区的贡献。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-
-Author: Chen Jun
-
-运行环境：Ubuntu 22.04 / ROS2 Humble (未在其他环境下测试)
-
 ![Build Status](https://github.com/chenjunnn/rm_auto_aim/actions/workflows/ros_ci.yml/badge.svg)
 
-## Building from Source
+---
 
-### Building
-
-在 Ubuntu 22.04 环境下安装 [ROS2 Humble](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debians.html)
-
-创建 ROS 工作空间后 clone 项目，使用 rosdep 安装依赖后编译代码
-
-	cd ros_ws/src
-	git clone https://github.com/chenjunnn/rm_auto_aim.git
-	cd ..
-	rosdep install --from-paths src --ignore-src -r -y
-	colcon build --symlink-install --packages-up-to rm_vision_bringup
-
-### Testing
-
-Run the tests with
-
-	colcon test --packages-up-to auto_aim_bringup
-
-## Packages
-
-- [armor_detector](armor_detector)
-
-	订阅相机参数及图像流进行装甲板的识别并解算三维位置，输出识别到的装甲板在输入frame下的三维位置 (一般是以相机光心为原点的相机坐标系)
-
-- [armor_tracker](armor_tracker)
-
-	订阅识别节点发布的装甲板三维位置及机器人的坐标转换信息，将装甲板三维位置变换到指定惯性系（一般是以云台中心为原点，IMU 上电时的 Yaw 朝向为 X 轴的惯性系）下，然后将装甲板目标送入跟踪器中，输出跟踪机器人在指定惯性系下的状态
-
-- auto_aim_interfaces
-
-	定义了识别节点和处理节点的接口以及定义了用于 Debug 的信息
-
-- auto_aim_bringup
-
-	包含启动识别节点和处理节点的默认参数文件及 launch 文件
+如果这个项目对您有帮助，请给我们一个 ⭐ Star！
 
 - third_party
 	包含了BA优化所需的g2o，ceres，sophus库，编译项目前请先编译该三个库

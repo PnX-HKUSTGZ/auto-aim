@@ -4,16 +4,27 @@ namespace rm_auto_aim
 {
 
 ExtendedKalmanFilter::ExtendedKalmanFilter(
-    const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2, const VecVecFunc & h_two, 
-    const VecMatFunc & j_f, const VecMatFunc & j_h1, const VecMatFunc & j_h2, const VecMatFunc & j_h_two,
-    const VoidMatFunc & u_q, const VecMatFunc & u_r, const VecMatFunc u_r_two, const Eigen::MatrixXd & P0)
+    const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2, const VecVecFunc & h_two,
+    const VecMatFunc & j_f, const VecMatFunc & j_h1, const VecMatFunc & j_h2,
+    const VecMatFunc & j_h_two, const VoidMatFunc & u_q, const VecMatFunc & u_r,
+    const VecMatFunc u_r_two, const Eigen::MatrixXd & P0)
 : n(P0.rows()),  // 首先初始化系统维度
-  f(f), h1(h1), h2(h2), h_two(h_two),
-  jacobian_f(j_f), jacobian_h1(j_h1), jacobian_h2(j_h2), jacobian_h_two(j_h_two),
-  update_Q(u_q), update_R(u_r), update_R_two(u_r_two),
+  f(f),
+  h1(h1),
+  h2(h2),
+  h_two(h_two),
+  jacobian_f(j_f),
+  jacobian_h1(j_h1),
+  jacobian_h2(j_h2),
+  jacobian_h_two(j_h_two),
+  update_Q(u_q),
+  update_R(u_r),
+  update_R_two(u_r_two),
   I(Eigen::MatrixXd::Identity(n, n)),
-  x_pri(n), x_post(n),
-  P_post(P0), P_pri(P0.rows(), P0.cols())
+  x_pri(n),
+  x_post(n),
+  P_post(P0),
+  P_pri(P0.rows(), P0.cols())
 {
     // Pre-allocate matrices
     F.resize(n, n);
@@ -27,10 +38,45 @@ ExtendedKalmanFilter::ExtendedKalmanFilter(
     temp_matrix.resize(n, n);
 }
 
-void ExtendedKalmanFilter::setState(const Eigen::VectorXd & x0) 
-{ 
-    x_post = x0; 
+void ExtendedKalmanFilter::setTimeInterval(double dt)
+{
+    // 更新状态转移函数
+    f = [dt](const Eigen::VectorXd & x) {
+        Eigen::VectorXd x_new = x;
+        // 更新位置: 位置 + 速度 * 时间
+        x_new(0) += x(1) * dt;  // xc = xc + v_xc * dt
+        x_new(2) += x(3) * dt;  // yc = yc + v_yc * dt
+        x_new(4) += x(6) * dt;  // zc1 = zc1 + v_zc * dt
+        x_new(5) += x(6) * dt;  // zc2 = zc2 + v_zc * dt
+
+        // 更新偏航角: 偏航角 + 偏航角速度 * 时间
+        x_new(10) += x(7) * dt;  // yaw1 = yaw1 + v_yaw * dt
+        x_new(11) += x(7) * dt;  // yaw2 = yaw2 + v_yaw * dt
+
+        return x_new;
+    };
+
+    // 同时更新对应的雅可比矩阵函数
+    jacobian_f = [dt](const Eigen::VectorXd &) {
+        Eigen::MatrixXd f(12, 12);
+        // clang-format off
+        f <<1,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // xc = xc + v_xc * dt
+            0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // v_xc = v_xc
+            0,   0,   1,  dt,   0,   0,   0,   0,   0,   0,   0,   0, // yc = yc + v_yc * dt
+            0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0, // v_yc = v_yc
+            0,   0,   0,   0,   1,   0,  dt,   0,   0,   0,   0,   0, // zc1 = zc1 + v_zc * dt
+            0,   0,   0,   0,   0,   1,  dt,   0,   0,   0,   0,   0, // zc2 = zc2 + v_zc * dt
+            0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0, // v_zc = v_zc
+            0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0, // v_yaw = v_yaw
+            0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0, // r1 = r1
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0, // r2 = r2
+            0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   1,   0, // yaw1 = yaw1 + v_yaw * dt
+            0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   0,   1; // yaw2 = yaw2 + v_yaw * dt
+        // clang-format on
+        return f;
+    };
 }
+void ExtendedKalmanFilter::setState(const Eigen::VectorXd & x0) { x_post = x0; }
 
 Eigen::VectorXd ExtendedKalmanFilter::predict()
 {
@@ -40,7 +86,7 @@ Eigen::VectorXd ExtendedKalmanFilter::predict()
 
     // State prediction
     x_pri.noalias() = f(x_post);
-    
+
     // Covariance prediction using optimized matrix operations
     temp_matrix.noalias() = F * P_post;
     P_pri.noalias() = temp_matrix * F.transpose() + Q;
@@ -52,16 +98,16 @@ Eigen::VectorXd ExtendedKalmanFilter::predict()
     return x_pri;
 }
 
-Eigen::MatrixXd ExtendedKalmanFilter::compute_kalman_gain(
-    const Eigen::MatrixXd& H, const Eigen::MatrixXd& R)
+Eigen::MatrixXd ExtendedKalmanFilter::computeKalmanGain(
+    const Eigen::MatrixXd & H, const Eigen::MatrixXd & R)
 {
     temp_matrix.noalias() = H * P_pri * H.transpose() + R;
     return P_pri * H.transpose() * temp_matrix.inverse();
 }
 
-void ExtendedKalmanFilter::update_state_and_covariance(
-    const Eigen::VectorXd& z, const Eigen::MatrixXd& H, 
-    const VecVecFunc& h_func, const Eigen::MatrixXd& K)
+void ExtendedKalmanFilter::updateStateAndCovariance(
+    const Eigen::VectorXd & z, const Eigen::MatrixXd & H, const VecVecFunc & h_func,
+    const Eigen::MatrixXd & K)
 {
     x_post.noalias() = x_pri + K * (z - h_func(x_pri));
     P_post.noalias() = (I - K * H) * P_pri;
@@ -71,8 +117,8 @@ Eigen::VectorXd ExtendedKalmanFilter::update1(const Eigen::VectorXd & z)
 {
     H1.noalias() = jacobian_h1(x_pri);
     R.noalias() = update_R(z);
-    K.noalias() = compute_kalman_gain(H1, R);
-    update_state_and_covariance(z, H1, h1, K);
+    K.noalias() = computeKalmanGain(H1, R);
+    updateStateAndCovariance(z, H1, h1, K);
     return x_post;
 }
 
@@ -80,8 +126,8 @@ Eigen::VectorXd ExtendedKalmanFilter::update2(const Eigen::VectorXd & z)
 {
     H2.noalias() = jacobian_h2(x_pri);
     R.noalias() = update_R(z);
-    K.noalias() = compute_kalman_gain(H2, R);
-    update_state_and_covariance(z, H2, h2, K);
+    K.noalias() = computeKalmanGain(H2, R);
+    updateStateAndCovariance(z, H2, h2, K);
     return x_post;
 }
 
@@ -89,8 +135,8 @@ Eigen::VectorXd ExtendedKalmanFilter::updateTwo(const Eigen::VectorXd & z)
 {
     H_two.noalias() = jacobian_h_two(x_pri);
     R_two.noalias() = update_R_two(z);
-    K.noalias() = compute_kalman_gain(H_two, R_two);
-    update_state_and_covariance(z, H_two, h_two, K);
+    K.noalias() = computeKalmanGain(H_two, R_two);
+    updateStateAndCovariance(z, H_two, h_two, K);
     return x_post;
 }
 

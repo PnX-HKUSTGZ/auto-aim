@@ -17,6 +17,8 @@ set(CMAKE_PREFIX_PREFIX ${ABS_PREFIX_PREFIX})
 message(STATUS "ABS_PREFIX_PREFIX: ${ABS_PREFIX_PREFIX}")
 list(APPEND CMAKE_PREFIX_PATH ${ABS_PREFIX_PREFIX})
 
+find_package(OpenCV REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # Compiler options
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -27,15 +29,22 @@ endif()
 find_package(ament_cmake_auto REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(tf2 REQUIRED)
-
+find_package(Eigen3 REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 ament_auto_find_build_dependencies()
 # Include directories
 include_directories(
-  include
+  include 
+  ${OpenCV_INCLUDE_DIRS} 
   ${CERES_INCLUDE_DIRS}
   ${tf2_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/tinympc
+  ${YAML_CPP_INCLUDE_DIR}
 )
+
+add_subdirectory(tinympc)
 
 ament_auto_add_library(${PROJECT_NAME} SHARED
   DIRECTORY src
@@ -43,6 +52,9 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 
 target_link_libraries(${PROJECT_NAME}
   ${CERES_LIBRARIES}
+  ${OpenCV_LIBS}
+  tinympc
+  yaml-cpp
 )
 
 # Add executable

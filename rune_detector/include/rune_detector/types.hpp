@@ -19,134 +19,143 @@
 #include <opencv2/opencv.hpp>
 // project
 
-namespace rm_auto_aim {
+namespace rm_auto_aim
+{
 
 enum class EnemyColor {
-  RED = 0,
-  BLUE = 1,
-  WHITE = 2,
+    RED = 0,
+    BLUE = 1,
+    WHITE = 2,
 };
-inline std::string enemyColorToString(EnemyColor color) {
-  switch (color) {
-    case EnemyColor::RED:
-      return "RED";
-    case EnemyColor::BLUE:
-      return "BLUE";
-    case EnemyColor::WHITE:
-      return "WHITE";
-    default:
-      return "UNKNOWN";
-  }
+inline std::string enemyColorToString(EnemyColor color)
+{
+    switch (color) {
+        case EnemyColor::RED:
+            return "RED";
+        case EnemyColor::BLUE:
+            return "BLUE";
+        case EnemyColor::WHITE:
+            return "WHITE";
+        default:
+            return "UNKNOWN";
+    }
 }
 
 enum VisionMode {
-  OUTPOST = 0,
-  HERO = 1, 
-  ENGINEER = 2,
-  INFANTRY_1 = 3,
-  INFANTRY_2 = 4,
-  INFANTRY_3 = 5,
-  GUARD = 6,
-  BASE = 7,
-  RUNE = 8,
-  AUTO = 9
+    OUTPOST = 0,
+    HERO = 1,
+    ENGINEER = 2,
+    INFANTRY_1 = 3,
+    INFANTRY_2 = 4,
+    INFANTRY_3 = 5,
+    GUARD = 6,
+    BASE = 7,
+    RUNE = 8,
+    AUTO = 9
 };
-inline std::string visionModeToString(VisionMode mode) {
-  switch (mode) {
-    case VisionMode::OUTPOST:
-      return "OUTPOST";
-    case VisionMode::HERO:
-      return "HERO";
-    case VisionMode::ENGINEER:
-      return "ENGINEER";
-    case VisionMode::INFANTRY_1:
-      return "INFANTRY_1";
-    case VisionMode::INFANTRY_2:
-      return "INFANTRY_2";
-    case VisionMode::INFANTRY_3:  
-      return "INFANTRY_3";
-    case VisionMode::GUARD:
-      return "GUARD";
-    case VisionMode::BASE:
-      return "BASE";
-    case VisionMode::RUNE:  
-      return "RUNE";
-    case VisionMode::AUTO:
-      return "AUTO";
-    default:
-      return "UNKNOWN";
-  }
+inline std::string visionModeToString(VisionMode mode)
+{
+    switch (mode) {
+        case VisionMode::OUTPOST:
+            return "OUTPOST";
+        case VisionMode::HERO:
+            return "HERO";
+        case VisionMode::ENGINEER:
+            return "ENGINEER";
+        case VisionMode::INFANTRY_1:
+            return "INFANTRY_1";
+        case VisionMode::INFANTRY_2:
+            return "INFANTRY_2";
+        case VisionMode::INFANTRY_3:
+            return "INFANTRY_3";
+        case VisionMode::GUARD:
+            return "GUARD";
+        case VisionMode::BASE:
+            return "BASE";
+        case VisionMode::RUNE:
+            return "RUNE";
+        case VisionMode::AUTO:
+            return "AUTO";
+        default:
+            return "UNKNOWN";
+    }
 }
 
 enum class RuneType { INACTIVATED = 0, ACTIVATED };
 
-struct FeaturePoints {
-  FeaturePoints() {
-    r_center = cv::Point2f(-1, -1);
-    arm_bottom = cv::Point2f(-1, -1); 
-    arm_top = cv::Point2f(-1, -1);
-    hit_bottom = cv::Point2f(-1, -1);
-    hit_left = cv::Point2f(-1, -1);
-    hit_top = cv::Point2f(-1, -1);
-    hit_right = cv::Point2f(-1, -1);
-  }
+struct FeaturePoints
+{
+    FeaturePoints()
+    {
+        r_center = cv::Point2f(-1, -1);
+        arm_bottom = cv::Point2f(-1, -1);
+        arm_top = cv::Point2f(-1, -1);
+        hit_bottom = cv::Point2f(-1, -1);
+        hit_left = cv::Point2f(-1, -1);
+        hit_top = cv::Point2f(-1, -1);
+        hit_right = cv::Point2f(-1, -1);
+    }
 
-  void reset() {
-    r_center = cv::Point2f(-1, -1);
-    arm_bottom = cv::Point2f(-1, -1);
-    arm_top = cv::Point2f(-1, -1);
-    hit_bottom = cv::Point2f(-1, -1);
-    hit_left = cv::Point2f(-1, -1);
-    hit_top = cv::Point2f(-1, -1);
-    hit_right = cv::Point2f(-1, -1);
-  }
+    void reset()
+    {
+        r_center = cv::Point2f(-1, -1);
+        arm_bottom = cv::Point2f(-1, -1);
+        arm_top = cv::Point2f(-1, -1);
+        hit_bottom = cv::Point2f(-1, -1);
+        hit_left = cv::Point2f(-1, -1);
+        hit_top = cv::Point2f(-1, -1);
+        hit_right = cv::Point2f(-1, -1);
+    }
 
-  FeaturePoints operator+(const FeaturePoints &other) {
-    FeaturePoints res;
-    res.arm_bottom = arm_bottom + other.arm_bottom;
-    res.arm_top = arm_top + other.arm_top;
-    res.hit_bottom = hit_bottom + other.hit_bottom;
-    res.hit_left = hit_left + other.hit_left;
-    res.hit_top = hit_top + other.hit_top;
-    res.hit_right = hit_right + other.hit_right;
-    return res;
-  }
+    FeaturePoints operator+(const FeaturePoints & other)
+    {
+        FeaturePoints res;
+        res.arm_bottom = arm_bottom + other.arm_bottom;
+        res.arm_top = arm_top + other.arm_top;
+        res.hit_bottom = hit_bottom + other.hit_bottom;
+        res.hit_left = hit_left + other.hit_left;
+        res.hit_top = hit_top + other.hit_top;
+        res.hit_right = hit_right + other.hit_right;
+        return res;
+    }
 
-  FeaturePoints operator/(const float &other) {
-    FeaturePoints res;
-    res.arm_bottom = arm_bottom / other;
-    res.arm_top = arm_top / other;
-    res.hit_bottom = hit_bottom / other;
-    res.hit_left = hit_left / other;
-    res.hit_right = hit_right / other;
-    res.hit_top = hit_top / other;
-    return res;
-  }
+    FeaturePoints operator/(const float & other)
+    {
+        FeaturePoints res;
+        res.arm_bottom = arm_bottom / other;
+        res.arm_top = arm_top / other;
+        res.hit_bottom = hit_bottom / other;
+        res.hit_left = hit_left / other;
+        res.hit_right = hit_right / other;
+        res.hit_top = hit_top / other;
+        return res;
+    }
 
-  std::vector<cv::Point2f> toVector2f() const {
-    return {r_center, arm_bottom, arm_top, hit_bottom, hit_left, hit_top, hit_right};
-  }
-  std::vector<cv::Point> toVector2i() const {
-    return {r_center, hit_left, hit_top, hit_right};
-  }
+    std::vector<cv::Point2f> toVector2f() const
+    {
+        return {r_center, arm_bottom, arm_top, hit_bottom, hit_left, hit_top, hit_right};
+    }
+    std::vector<cv::Point> toVector2i() const { return {r_center, hit_left, hit_top, hit_right}; }
 
-  cv::Point2f getRCenter() {
-    r_center = arm_bottom + (arm_bottom - arm_top) / 2;
-    return r_center;
-  }
+    cv::Point2f getRCenter()
+    {
+        r_center = arm_bottom + (arm_bottom - arm_top) / 2;
+        return r_center;
+    }
 
-  cv::Point2f r_center;
-  cv::Point2f arm_bottom; 
-  cv::Point2f arm_top;
-  cv::Point2f hit_bottom;
-  cv::Point2f hit_left;
-  cv::Point2f hit_top;
-  cv::Point2f hit_right;
+    cv::Point2f r_center;
+    cv::Point2f arm_bottom;
+    cv::Point2f arm_top;
+    cv::Point2f hit_bottom;
+    cv::Point2f hit_left;
+    cv::Point2f hit_top;
+    cv::Point2f hit_right;
 };
 
-struct RuneObject {
-  RuneType type;
-  FeaturePoints pts;
+struct RuneObject
+{
+    RuneType type;
+    FeaturePoints pts;
 };
 
 }  // namespace rm_auto_aim

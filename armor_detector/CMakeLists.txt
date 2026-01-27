@@ -21,6 +21,10 @@ set(CMAKE_PREFIX_PREFIX ${ABS_PREFIX_PREFIX})
 message(STATUS "ABS_PREFIX_PREFIX: ${ABS_PREFIX_PREFIX}")
 list(APPEND CMAKE_PREFIX_PATH ${ABS_PREFIX_PREFIX})
 
+# 设置 OpenGL 策略以消除警告
+cmake_policy(SET CMP0072 NEW)
+set(OpenGL_GL_PREFERENCE GLVND)
+
 #######################
 ## Find dependencies ##
 #######################
@@ -31,15 +35,23 @@ find_package(fmt REQUIRED)
 find_package(Sophus REQUIRED)
 find_package(Ceres REQUIRED)
 
+# 查找本地安装的 OpenVINO
+set(OpenVINO_DIR "${ABS_PREFIX_PREFIX}/lib/cmake/openvino2024.3.0")
+find_package(OpenVINO QUIET)
+
+if(NOT OpenVINO_FOUND)
+    message(ERROR "OpenVINO not found via CMake")
+endif()
+
 #set(CMAKE_FIND_DEBUG_MODE TRUE)
 
 
 ament_auto_find_build_dependencies()
-if(NOT g2o_FOUND OR NOT OpenCV_FOUND OR NOT fmt_FOUND)
-  message(ERROR "g2o, OpenCV or fmt not found, skipping ${PROJECT_NAME}")
+if(NOT g2o_FOUND OR NOT OpenCV_FOUND OR NOT fmt_FOUND OR NOT OpenVINO_FOUND)
+  message(ERROR "g2o, OpenCV, fmt or OpenVINO not found, skipping ${PROJECT_NAME}")
   return()
-else ()
-  message(STATUS "g2o, OpenCV and fmt found, building ${PROJECT_NAME}")
+else()
+  message(STATUS "g2o, OpenCV, fmt and OpenVINO found, building ${PROJECT_NAME}")
 endif()
 
 ###########
@@ -51,20 +63,21 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${OpenCV_INCLUDE_DIRS}
-${Sophus_INCLUDE_DIRS} ${g2o_INCLUDE_DIRS}
-${ABS_PREFIX_PREFIX}/include
- )
+  ${Sophus_INCLUDE_DIRS} ${g2o_INCLUDE_DIRS}
+  ${ABS_PREFIX_PREFIX}/include
+)
 
 target_link_libraries(${PROJECT_NAME}
- ${OpenCV_LIBS}
- g2o::core
- g2o::stuff
- g2o::solver_csparse
- g2o::types_sba
- g2o::types_slam3d
- g2o::solver_dense
- fmt::fmt
- tbb
+  ${OpenCV_LIBS}
+  g2o::core
+  g2o::stuff
+  g2o::solver_csparse
+  g2o::types_sba
+  g2o::types_slam3d
+  g2o::solver_dense
+  fmt::fmt
+  tbb
+  openvino::runtime
 )
 
 

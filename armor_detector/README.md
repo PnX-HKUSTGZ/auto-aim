@@ -1,49 +1,115 @@
 # armor_detector
 
-- [DetectorNode](#basedetectornode)
-  - [Detector](#detector)
-    - [NumberClassifier](#numberclassifier)
-  - [PnPSolver](#pnpsolver)
+订阅相机参数及图像流进行装甲板的识别并解算三维位置，输出识别到的装甲板在输入图像帧下的三维坐标（相机坐标系或通过坐标变换得到的世界坐标系）。
 
-## 识别节点
+支持两种检测模式：
+- **传统检测器** (`Detector`) - 基于图像处理的装甲板检测
+- **AI检测器** (`AIDetector`) - 基于深度学习模型的装甲板检测
 
-订阅相机参数及图像流进行装甲板的识别并解算三维位置，输出识别到的装甲板在输入frame下的三维位置 (一般是以相机光心为原点的相机坐标系)
+## detector_node.cpp
 
-### DetectorNode
-装甲板识别节点
+装甲板识别与位姿解算节点
 
-包含[Detector](#detector)
-包含[PnPSolver](#pnpsolver)
+### 订阅话题
 
-订阅：
-- 相机参数 `/camera_info`
-- 彩色图像 `/image_raw`
+*  `camera_info` (`sensor_msgs/msg/CameraInfo`) - 相机内参信息，用于初始化PnP和BA解算器
+*  `image_raw` (`sensor_msgs/msg/Image`) - 图像信息，用于装甲板检测与识别
 
-发布：
-- 识别目标 `/detector/armors`
+### 发布话题 
 
-静态参数：
-- 筛选灯条的参数 `light`
-  - 长宽比范围 `min/max_ratio` 
-  - 最大倾斜角度 `max_angle`
-- 筛选灯条配对结果的参数 `armor`
-  - 两灯条的最小长度之比（短边/长边）`min_light_ratio `
-  - 装甲板两灯条中心的距离范围（大装甲板）`min/max_large_center_distance`
-  - 装甲板两灯条中心的距离范围（小装甲板）`min/max_small_center_distance`
-  - 装甲板的最大倾斜角度 `max_angle`
+*  `detector/armors` (`auto_aim_interfaces/msg/Armors`) - 输出所有有效装甲板的识别结果与三维位姿
+*  `detector/debug_lights` (`auto_aim_interfaces/msg/DebugLights`) - 调试模式下输出识别到的灯条信息
+*  `detector/debug_armors` (`auto_aim_interfaces/msg/DebugArmors`) - 调试模式下输出识别到的装甲板信息
+*  `detector/marker` (`visualization_msgs/msg/MarkerArray`) - 可视化装甲板的位姿与分类信息
+*  `detector/binary_img` (`sensor_msgs/msg/Image`) - 二值化图像调试信息
+*  `detector/number_img` (`sensor_msgs/msg/Image`) - 数字识别图像调试信息
+*  `detector/result_img` (`sensor_msgs/msg/Image`) - 绘制结果图像
 
-动态参数：
-- 是否发布 debug 信息 `debug`
-- 识别目标颜色 `detect_color`
-- 二值化的最小阈值 `binary_thres`
-- 数字分类器 `classifier`
-  - 置信度阈值 `threshold`
+### 服务
 
-## Detector
-装甲板识别器
+*  `armor_detector/set_mode` (`auto_aim_interfaces/srv/SetMode`) - 设置视觉系统的运行模式（打符、装甲板识别等）
+
+### 参数 
+
+* `debug` (`bool`, default: false) - 是否开启调试模式（开启后发布调试信息）
+* `use_ai_detector` (`bool`, default: false) - 是否使用AI检测器进行装甲板检测
+* `detect_color` (`int`, default: 0) - 检测颜色，0为红，1为蓝
+
+#### 传统检测器参数
+
+* `binary_thres` (`int`, default: 80) - 灯条检测的二值化阈值
+* `classifier_threshold` (`double`, default: 0.7) - 数字分类的置信度阈值
+* `ignore_classes` (`vector<string>`, default: ["negative"]) - 被忽略的分类类别
+
+#### AI检测器参数
+
+* `ai_model_path` (`string`, default: "/model/0526.onnx") - AI模型文件路径（相对于包的share目录）
+* `ai_device` (`string`, default: "CPU") - 推理设备 ("CPU", "GPU", etc.)
+* `ai_conf_threshold` (`double`, default: 0.65) - AI检测器的置信度阈值
+* `ai_nms_threshold` (`double`, default: 0.45) - 非极大值抑制阈值
+
+#### 灯条检测参数 (light) - 仅适用于传统检测器
+
+* `light.min_ratio` (`double`, default: 0.1) - 灯条最小长宽比
+* `light.max_ratio` (`double`, default: 0.4) - 灯条最大长宽比
+* `light.max_angle` (`double`, default: 40.0) - 灯条最大倾斜角度
+
+#### 装甲板检测参数 (armor) - 仅适用于传统检测器
+
+* `armor.min_light_ratio` (`double`, default: 0.7) - 最小灯条高度比
+* `armor.min_small_center_distance` (`double`, default: 0.8) - 小装甲板中心最小间距比
+* `armor.max_small_center_distance` (`double`, default: 3.2) - 小装甲板中心最大间距比
+* `armor.min_large_center_distance` (`double`, default: 3.2) - 大装甲板中心最小间距比
+* `armor.max_large_center_distance` (`double`, default: 5.5) - 大装甲板中心最大间距比
+* `armor.max_angle` (`double`, default: 35.0) - 装甲板对之间的最大倾斜角
+
+## base_detector.hpp
+
+装甲板检测器基类，定义了所有装甲板检测器的统一接口。
+
+### 主要功能
+
+- **detect()** - 纯虚函数，实现装甲板检测
+- **drawResults()** - 纯虚函数，绘制检测结果
+- **getDetectorType()** - 获取检测器类型名称
+
+## ai_detector.cpp
+
+基于OpenVINO深度学习框架的AI装甲板检测器
+
+### 主要特性
+
+- 使用ONNX模型进行端到端的装甲板检测和数字识别
+- 支持CPU和GPU推理
+- 集成非极大值抑制(NMS)算法
+- 自动进行坐标缩放和角点矫正
+
+### 核心功能
+
+#### AIDetector 构造函数
+初始化AI检测器，加载ONNX模型并配置OpenVINO推理环境
+
+#### detect
+执行AI模型推理，检测装甲板并识别数字
+
+#### infer
+- 图像预处理（缩放到模型输入尺寸）
+- 模型推理
+- 输出解析（置信度、颜色、数字类别、关键点坐标）
+- 非极大值抑制
+
+#### objectToArmor
+将AI检测的原始输出转换为标准的Armor结构
+
+### 支持的数字类别
+`["outpost", "1", "2", "3", "4", "5", "guard", "base", "base"]`
+
+## detector.cpp
+
+传统装甲板识别器（继承自BaseDetector）
 
 ### preprocessImage
-预处理
+对输入的RGB图像进行预处理，生成二值化后的图片
 
 | ![](docs/raw.png) | ![](docs/hsv_bin.png) | ![](docs/gray_bin.png) |
 | :---------------: | :-------------------: | :--------------------: |
@@ -52,11 +118,11 @@
 由于一般工业相机的动态范围不够大，导致若要能够清晰分辨装甲板的数字，得到的相机图像中灯条中心就会过曝，灯条中心的像素点的值往往都是 R=B。根据颜色信息来进行二值化效果不佳，因此此处选择了直接通过灰度图进行二值化，将灯条的颜色判断放到后续处理中。
 
 ### findLights
-寻找灯条
+从输入的RGB图像和二值化图像中寻找灯条
 
 通过 findContours 得到轮廓，再通过 minAreaRect 获得最小外接矩形，对其进行长宽比和倾斜角度的判断，可以高效的筛除形状不满足的亮斑。
 
-判断灯条颜色这里采用了对轮廓内的的R/B值求和，判断两和的的大小的方法，若 `sum_r > sum_b` 则认为是红色灯条，反之则认为是蓝色灯条。
+判断灯条颜色这里采用了对轮廓内的的R/B值求和，判断两和的的大小的方法，若 `mean_r > mean_b` 则认为是红色灯条，反之则认为是蓝色灯条。
 
 | ![](docs/red.png) | ![](docs/blue.png) |
 | :---------------: | :----------------: |
@@ -65,9 +131,10 @@
 ### matchLights
 配对灯条
 
-根据 `detect_color` 选择对应颜色的灯条进行两两配对，首先筛除掉两条灯条中间包含另一个灯条的情况，然后根据两灯条的长度之比、两灯条中心的距离、配对出装甲板的倾斜角度来筛选掉条件不满足的结果，得到形状符合装甲板特征的灯条配对。
+根据 `detect_color` 选择对应颜色的灯条进行两两配对。首先筛除掉两条灯条中间包含另一个灯条的情况，然后根据两灯条的长度之比、两灯条中心的距离、配对出装甲板的倾斜角度来筛选掉条件不满足的结果，得到形状符合装甲板特征的灯条配对。
 
-## NumberClassifier
+## number_classifier.cpp
+
 数字分类器
 
 ### extractNumbers
@@ -79,7 +146,7 @@
 
 将每条灯条上下的角点拉伸到装甲板的上下边缘作为待变换点，进行透视变换，再对变换后的图像取ROI。考虑到数字图案实质上就是黑色背景+白色图案，所以此处使用了大津法进行二值化。
 
-### Classify
+### classify
 分类
 
 由于上一步对于数字的提取效果已经非常好，数字图案的特征非常清晰明显，装甲板的远近、旋转都不会使图案产生过多畸变，且图案像素点少，所以我们使用多层感知机（MLP）进行分类。
@@ -94,11 +161,61 @@
 
 <!-- ![](docs/result.png) -->
 
-## PnPSolver
+## light_corner_corrector.cpp
+
+在原版rm_vision中，使用旋转矩形的上顶点作为灯条角点，这种方法很受二值化图像的影响，当给不同的二值化阈值或者环境光照不均匀时，识别到的角点位置会发生变化。这会导致角点实际坐标与types.hpp中定义的物体坐标不对应，影响到PnP的准确性。
+为了解决这个问题，我们使用PCA方法对灯条的角点进行矫正，先利用[主成分分析](https://docs.opencv.org/4.x/d1/dee/tutorial_introduction_to_pca.html)(Principal Component Analysis, PCA)方法获取灯条的对称轴，然后根据沿着对称轴方向寻找上下两个亮度变化最大的点作为灯条的角点。这种方法获得的角点在不同光照下表现出一致性，可以提高PnP的准确性。
+
+### correctCorners
+修正装甲板的灯条角点，通过寻找灯条的对称轴和角点来优化灯条的位置信息。
+### findSymmetryAxis
+寻找灯条的对称轴，使用主成分分析（PCA）的方法。
+
+## pnp_solver.cpp
+
 PnP解算器
 
+根据装甲板的角点信息求解其在相机坐标系下的位姿。
 [Perspective-n-Point (PnP) pose computation](https://docs.opencv.org/4.x/d5/d1f/calib3d_solvePnP.html)
 
 PnP解算器将 `cv::solvePnP()` 封装，接口中传入 `Armor` 类型的数据即可得到 `geometry_msgs::msg::Point` 类型的三维坐标。
 
 考虑到装甲板的四个点在一个平面上，在PnP解算方法上我们选择了 `cv::SOLVEPNP_IPPE` (Method is based on the paper of T. Collins and A. Bartoli. ["Infinitesimal Plane-Based Pose Estimation"](https://link.springer.com/article/10.1007/s11263-014-0725-5). This method requires coplanar object points.)
+
+## ba_solver.cpp
+
+<!-- 根据RoboMaster机器人制作规范，非平衡机器人在平地上，每块装甲板相对地面坐标系的姿态角应为Roll=0，Pitch=15°，Yaw=$\theta$，其中只有Yaw角度是未知的。可以根据这个特征求取装甲板的Yaw角度，参考上海交通大学2023年全国赛青工会上的展示。
+
+我们使用BA优化的方式来求取Yaw角度，BA（光束法平差，Bundle Adjustment）优化是一种特殊的最小二乘问题，其通过最小化重投影误差来求取相机位姿。
+
+假设装甲板Yaw角度为$\theta$，相机系下装甲板位姿为$(R^{camera}_{armor},t^{camera}_{armor})$，IMU系下相机姿态为$R^{imu}_{camera}$，相机内参为$K$，装甲板第$i$个角点在装甲板坐标系下为$P^{armor}_i$
+
+则易得$R^{camera}_{armor}$为$\theta$的一元函数值
+$$
+R^{camera}_{armor} = {R^{imu}_{camera}}^T ·R^{imu}_{armor}=R^{camera}_{imu}·R(Z,\theta)·R(Y,15°)·R(X,0)=f(\theta)
+$$
+装甲板角点在图像中的未归一化投影坐标为：
+$$
+P^{img}_i=K·(R^{camera}_{armor}·P^{armor}_i+t^{camera}_{armor})
+$$
+其中$t^{camera}_{armor}$可用PnP的结果
+
+设每个角点在图像中识别到的坐标为$P^{det}_i$，则有误差函数：
+$$
+e(\theta)=\sum^{n}_{i}||P^{det}_i-\frac{P^{img}_i}{P^{img}_i.z}||^2
+$$
+最小化该误差函数即可得到优化后的Yaw角度$\hat{\theta}$
+$$
+\hat{\theta}={argmin}_{\theta} \space e(\theta)
+$$
+
+
+可以使用各类数值优化方法，例如最速下降、高斯牛顿等方法求解，但更推荐使用一些现成的优化库，例如G2O、Ceres实现该问题的求解
+ -->
+
+### solveBa
+对单个装甲板进行优化求解，通过图优化的方法对装甲板的位姿进行优化。
+### solveTwoArmorsBa
+对两个装甲板进行联合优化求解，同样使用图优化的方法。
+### fixTwoArmors
+对两个装甲板的 yaw 角进行矫正，并进行联合优化求解。
