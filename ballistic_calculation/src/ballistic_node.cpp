@@ -390,7 +390,7 @@ cv::Point2f BallisticCalculateNode::projectPointToImage(const Eigen::Vector3d & 
     try {
         // 获取从 odom 到 camera_link 的变换
         geometry_msgs::msg::TransformStamped transform_stamped =
-            tfBuffer->lookupTransform("camera_link", "odom", tf2::TimePointZero);
+            tfBuffer->lookupTransform("camera_main_link", "odom", tf2::TimePointZero);
 
         // 提取旋转部分
         tf2::Quaternion quat(
