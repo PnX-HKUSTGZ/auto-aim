@@ -340,7 +340,7 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
         frame_count++;
     }
 
-    processArmors(armors_msg, cam_info_, cam_center_, "camera_link", true);
+    processArmors(armors_msg, cam_info_, cam_center_, "camera_main_link", true);
 }
 
 void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
@@ -361,7 +361,7 @@ void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
     if (cam_info_wide.k[0] == 0.0) {
         return;
     }
-    processArmors(armors_msg, cam_info_wide, cam_center_wide, "wide_camera_optical_frame", false);
+    processArmors(armors_msg, cam_info_wide, cam_center_wide, "camera_wide_link", false);
 }
 
 void ArmorTrackerNode::processArmors(
@@ -672,11 +672,15 @@ void ArmorTrackerNode::drawImgAll(
 
         cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
         // 在图像上绘制四边形，使用不同颜色区分不同目标
+        bool is_wide_result = (img_frame_id == "camera_wide_link");
         for (size_t j = 0; j < corners_image.size(); ++j) {
             cv::line(
                 image, corners_image[j], corners_image[(j + 1) % corners_image.size()], color,
                 is_primary_target ? 2 : 2  // 主要目标线条更粗
             );
+            if(!is_wide_result){
+                cv::circle(image, corners_image[j], 5, color, -1);
+            }
         }
     }
 }
