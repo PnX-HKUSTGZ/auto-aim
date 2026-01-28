@@ -108,7 +108,7 @@ Eigen::Vector4d BallisticCalculateNode::getCurrentGimbalState()
     Eigen::Vector4d state;
     state.setZero();
     try {
-        auto t = tfBuffer->lookupTransform("odom", "gimbal_link", tf2::TimePointZero);
+        auto t = tfBuffer->lookupTransform("odom_aim", "gimbal_link", tf2::TimePointZero);
         tf2::Quaternion q(t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w);
         double roll, pitch, yaw;
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
@@ -171,7 +171,7 @@ void BallisticCalculateNode::carTargetCallback(
         // 发布可视化标记，展示选择出的最优装甲板在temp_t时刻的位置
         try {
             visualization_msgs::msg::Marker marker;
-            marker.header.frame_id = "odom";
+            marker.header.frame_id = "odom_aim";
             marker.header.stamp = this->now();
             marker.ns = "aim_target";
             marker.id = 0;
@@ -243,7 +243,7 @@ void BallisticCalculateNode::carTargetCallback(
         // RCLCPP_WARN(this->get_logger(), "MPC invalid or disabled. Skipping publish.");
         return;
     }
-    // 将 odom 坐标系中的点投影到图像上（使用计算出的瞄准时间 temp_t）
+    // 将 odom_aim 坐标系中的点投影到图像上（使用计算出的瞄准时间 temp_t）
     cv::Point2f projected_point = projectPointToImage(armor_info_->getOdomTarget(temp_t));
 
     //发布消息
@@ -334,7 +334,7 @@ void BallisticCalculateNode::runeTargetCallback(
         return; // 直接返回，不发布
     }
     
-    // 将 odom 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
+    // 将 odom_aim 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
     cv::Point2f projected_point = projectPointToImage(rune_info_->getOdomTarget(rune_t));
 
     //发布消息
@@ -388,9 +388,9 @@ cv::Point2f BallisticCalculateNode::projectPointToImage(const Eigen::Vector3d & 
     cv::Mat ros_to_cv = (cv::Mat_<double>(3, 3) << 0, -1, 0, 0, 0, -1, 1, 0, 0);
 
     try {
-        // 获取从 odom 到 camera_link 的变换
+        // 获取从 odom_aim 到 camera_main_link 的变换
         geometry_msgs::msg::TransformStamped transform_stamped =
-            tfBuffer->lookupTransform("camera_main_link", "odom", tf2::TimePointZero);
+            tfBuffer->lookupTransform("camera_main_link", "odom_aim", tf2::TimePointZero);
 
         // 提取旋转部分
         tf2::Quaternion quat(

@@ -133,12 +133,12 @@ y(t) = (v₀*sin(θ) + g/k) * (1 - e^(-kt))/k - g*t/k
 ### TF变换
 
 #### 监听的TF变换
-- **`odom` → `gimbal_link`**: 
+- **`` → `gimbal_link`**: 
   - 用于获取当前云台位姿
   - 用于判断是否满足开火条件
   - 查找时机: `tf2::TimePointZero` (最新可用变换)
 
-- **`odom` → `camera_link`**: 
+- **`` → `camera_link`**: 
   - 用于3D点到图像平面的投影
   - 结合相机内参计算目标在图像中的位置
 
