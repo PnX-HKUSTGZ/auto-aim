@@ -66,13 +66,22 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
             cam_center_ = cv::Point2f(camera_info->k[2], camera_info->k[5]);
             cam_info_sub_.reset();
         });
-    cam_info_sub_wide = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-        "/wide_cam/camera_info", rclcpp::SensorDataQoS(),
-        [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_wide) {
-            cam_info_wide = *camera_info_wide;
-            cam_center_wide = cv::Point2f(camera_info_wide->k[2], camera_info_wide->k[5]);
-            cam_info_sub_wide.reset();
-        });
+    // Wide camera infos (cam0-cam3)
+    for (std::size_t i = 0; i < wide_cams_.size(); ++i) {
+        auto & cam = wide_cams_[i];
+        cam.name = "cam" + std::to_string(i);
+        cam.frame_id = "camera_" + cam.name + "_link";
+
+        const std::string cam_info_topic = "/" + cam.name + "/camera_info";
+        cam.cam_info_sub = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+            cam_info_topic, rclcpp::SensorDataQoS(),
+            [this, i](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_wide) {
+                auto & cam_ref = wide_cams_[i];
+                cam_ref.cam_info = *camera_info_wide;
+                cam_ref.cam_center = cv::Point2f(camera_info_wide->k[2], camera_info_wide->k[5]);
+                cam_ref.cam_info_sub.reset();
+            });
+    }
 
     // TF2 setup
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -90,12 +99,16 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         std::bind(&ArmorTrackerNode::mainArmorsCallback, this, std::placeholders::_1),
         main_options);
 
-    rclcpp::SubscriptionOptions wide_options;
-    wide_options.callback_group = wide_cb_group_;
-    wide_armors_sub_ = this->create_subscription<ArmorsMsg>(
-        "/detector_wide/armors", rclcpp::SensorDataQoS(),
-        std::bind(&ArmorTrackerNode::wideArmorsCallback, this, std::placeholders::_1),
-        wide_options);
+    // Wide camera subscriptions (cam0-cam3)
+    for (std::size_t i = 0; i < wide_cams_.size(); ++i) {
+        rclcpp::SubscriptionOptions wide_options;
+        wide_options.callback_group = wide_cb_group_;
+        const std::string topic = "/cam" + std::to_string(i) + "/detector/armors";
+        wide_cams_[i].armors_sub = this->create_subscription<ArmorsMsg>(
+            topic, rclcpp::SensorDataQoS(),
+            [this, i](const ArmorsMsg::SharedPtr msg) { this->wideArmorsCallback(msg, i); },
+            wide_options);
+    }
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
@@ -343,8 +356,14 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
     processArmors(armors_msg, cam_info_, cam_center_, "camera_main_link", true);
 }
 
-void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
+void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg, std::size_t cam_index)
 {
+    if (cam_index >= wide_cams_.size()) {
+        RCLCPP_WARN(this->get_logger(), "Wide camera index %zu out of range", cam_index);
+        return;
+    }
+    auto & cam_ctx = wide_cams_[cam_index];
+
     if (main_processing_.load(std::memory_order_acquire)) {
         RCLCPP_DEBUG(this->get_logger(), "Skip wide frame: main processing busy");
         return;
@@ -358,10 +377,14 @@ void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
     }
     wide_seen_main_seq_.store(current_main_seq, std::memory_order_release);
     // Check if camera info is ready
-    if (cam_info_wide.k[0] == 0.0) {
+    if (cam_ctx.cam_info.k[0] == 0.0) {
         return;
     }
-    processArmors(armors_msg, cam_info_wide, cam_center_wide, "camera_wide_link", false);
+    processArmors(armors_msg, cam_ctx.cam_info, cam_ctx.cam_center, cam_ctx.frame_id, false);
+
+    RCLCPP_DEBUG(
+        this->get_logger(), "Wide TrackerManager updated with %zu armors from %s.",
+        armors_msg->armors.size(), cam_ctx.name.c_str());
 }
 
 void ArmorTrackerNode::processArmors(
@@ -672,7 +695,9 @@ void ArmorTrackerNode::drawImgAll(
 
         cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
         // 在图像上绘制四边形，使用不同颜色区分不同目标
-        bool is_wide_result = (img_frame_id == "camera_wide_link");
+        bool is_wide_result =
+            (img_frame_id == "camera_wide_link") ||
+            (img_frame_id.find("camera_cam") != std::string::npos);
         for (size_t j = 0; j < corners_image.size(); ++j) {
             cv::line(
                 image, corners_image[j], corners_image[(j + 1) % corners_image.size()], color,

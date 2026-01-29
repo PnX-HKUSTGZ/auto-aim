@@ -17,6 +17,9 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <rosidl_runtime_cpp/message_initialization.hpp>
+#include <array>
+
 // STD
 #include <atomic>
 #include <memory>
@@ -67,7 +70,7 @@ private:
     void initializeEKF();
 
     void mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg);
-    void wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg);
+    void wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg, std::size_t cam_index);
 
     /**
      * @brief 核心处理函数
@@ -160,7 +163,20 @@ private:
 
     // Subscriptions
     rclcpp::Subscription<ArmorsMsg>::SharedPtr main_armors_sub_;
-    rclcpp::Subscription<ArmorsMsg>::SharedPtr wide_armors_sub_;
+    struct WideCamContext {
+        WideCamContext()
+        : cam_info(rosidl_runtime_cpp::MessageInitialization::ZERO)
+        {
+        }
+        std::string name;
+        std::string frame_id;
+        rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub;
+        rclcpp::Subscription<ArmorsMsg>::SharedPtr armors_sub;
+        sensor_msgs::msg::CameraInfo cam_info;
+        cv::Point2f cam_center{0.0F, 0.0F};
+    };
+
+    std::array<WideCamContext, 4> wide_cams_{};
 
     // Callback groups（主相机独占、广角独立、发布独立）
     rclcpp::CallbackGroup::SharedPtr main_cb_group_;
@@ -189,11 +205,8 @@ private:
 
     // 相机参数
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_wide;
     sensor_msgs::msg::CameraInfo cam_info_;
-    sensor_msgs::msg::CameraInfo cam_info_wide;
     cv::Point2f cam_center_;
-    cv::Point2f cam_center_wide;
 
     // 发布图像
     image_transport::Publisher tracker_img_pub_;
