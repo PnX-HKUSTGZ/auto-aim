@@ -375,14 +375,7 @@ void ArmorTrackerNode::processArmors(
         ps.header = armors_msg->header;
         ps.pose = armor.pose;
         try {
-            // [修改] 使用 TimePointZero 获取最新变换，避免因时间同步微小误差导致的丢帧
-            // 原代码: armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
-            
-            geometry_msgs::msg::TransformStamped transform = 
-                tf2_buffer_->lookupTransform(target_frame_, ps.header.frame_id, tf2::TimePointZero);
-            
-            tf2::doTransform(ps.pose, ps.pose, transform);
-            armor.pose = ps.pose;
+            armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
         } catch (const tf2::TransformException & ex) {
             RCLCPP_ERROR(get_logger(), "Error while transforming %s", ex.what());
             return;

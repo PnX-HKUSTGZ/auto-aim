@@ -71,7 +71,7 @@ void TrackerManager::update(
             id_armors_msg->header = armors_msg->header;
             id_armors_msg->armors = armors_by_id[id];
             bool matched = trackers_[id]->update(id_armors_msg, is_main_camera);
-            if (!matched) {
+            if (!matched && is_main_camera) {
                 static rclcpp::Clock warn_clock(RCL_SYSTEM_TIME);
                 RCLCPP_WARN_THROTTLE(
                     rclcpp::get_logger("armor_tracker"), warn_clock, 1000,
