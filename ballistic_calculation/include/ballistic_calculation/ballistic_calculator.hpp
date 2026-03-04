@@ -4,6 +4,7 @@
 #include <ceres/ceres.h>
 #include <ceres/jet.h>
 
+#include <cmath>
 #include <Eigen/Dense>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
 #include <geometry_msgs/msg/detail/point__struct.hpp>
@@ -32,46 +33,6 @@ private:
     // parameter
     double k;           // 空气阻力系数，需要parameter_declare来调整参数
     double bulletV;     // 子弹速度，需要parameter_declare来调整参数
-    double fire_delay;  // 开火延迟，需要parameter_declare来调整参数
-
-    /**
-     * @brief 固定迭代法计算俯仰角
-     * 
-     * @param horizon_dis 水平距离（引用传递）
-     * @param height 垂直高度（引用传递）
-     * @return std::pair<double, double> 返回计算得到的俯仰角和飞行时间
-     */
-    std::pair<double, double> fixTiteratPitch(double & horizon_dis, double & height)
-    {
-        double dist_horizon = horizon_dis;  // 和目标在水平方向上的距离
-        double target_height = height;      // 和目标在垂直方向上的距离
-
-        // 迭代参数初始化
-        double vx, vy, fly_time, tmp_height = target_height, delta_height = 0, tmp_pitch,
-                                 real_height;
-        
-        // 进行10次迭代优化
-        for (size_t i = 0; i < 10; i++) {
-            // 计算当前俯仰角
-            tmp_pitch = atan((tmp_height) / dist_horizon);
-            
-            // 分解初始速度
-            vx = bulletV * cos(tmp_pitch);
-            vy = bulletV * sin(tmp_pitch);
-
-            // 计算飞行时间（考虑空气阻力）
-            fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
-            
-            // 计算实际高度（考虑重力和空气阻力）
-            double term = vy + 9.8 / k;
-            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
-            
-            // 计算高度误差并修正
-            delta_height = target_height - real_height;
-            tmp_height += delta_height;
-        }
-        return std::make_pair(tmp_pitch, fly_time + fire_delay);
-    };
 
     /**
      * @brief 使用 Ceres 优化器优化飞行时间
@@ -94,6 +55,9 @@ private:
                 new Ballistic::CostFunctor<T>(*this, state_info, temp_pitch)),
             nullptr, &t);
 
+        // Constrain time to non-negative to avoid invalid log arguments
+        problem.SetParameterLowerBound(&t, 0, 0.001);
+
         // 配置求解器选项
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
@@ -102,6 +66,11 @@ private:
         // 执行优化
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
+
+        if (!summary.IsSolutionUsable() || t <= 0) {
+            RCLCPP_WARN(rclcpp::get_logger("Ballistic"), "Time optimization failed, use initial guess: %.3f", initial_guess);
+            return initial_guess;
+        }
 
         return t;  // 返回优化后的时间值
     }
@@ -141,23 +110,42 @@ private:
         template <typename U>
         bool operator()(const U * const t, U * residual) const
         {
-            U v0 = U(ballistic_ref.bulletV);
-            
+            // U v0 = U(ballistic_ref.bulletV);
+
             // 提取时间值的标量部分来调用 getHorizontalDistance
-            double t_value; 
+            double t_value;
             if constexpr (std::is_same_v<U, double>) {
                 t_value = *t;
             } else {
                 t_value = t->a;  // Jet 类型的标量部分
-            } 
-            
-            U distance_aim = U(state_info.getHorizontalDistance(t_value));
+            }
 
-            // 计算弹道方程残差
-            residual[0] =
-                (U(1.0) / U(ballistic_ref.k)) *
-                    ceres::log(U(ballistic_ref.k) * ceres::cos(U(temp_pitch)) * v0 * (*t) + U(1.0)) -
-                distance_aim;
+            double distance_scalar = state_info.getHorizontalDistance(t_value);
+            double log_arg_scalar = ballistic_ref.k * std::cos(temp_pitch) * ballistic_ref.bulletV * t_value + 1.0;
+
+            // 保护：任何非法输入直接给大残差，避免 NaN 进入 Ceres
+            if (!std::isfinite(distance_scalar) || !std::isfinite(log_arg_scalar) || log_arg_scalar <= 0.001) {
+                residual[0] = U(1e8);
+                if constexpr (std::is_same_v<U, double>) {
+                    RCLCPP_ERROR(
+                        rclcpp::get_logger("BallisticCostFunctor"),
+                        "Invalid ballistic input (log_arg=%.6f, distance=%.6f, t=%.6f, k=%.6f, cos(pitch)=%.6f, v0=%.6f)",
+                        log_arg_scalar,
+                        distance_scalar,
+                        t_value,
+                        ballistic_ref.k,
+                        std::cos(temp_pitch),
+                        ballistic_ref.bulletV
+                    );
+                }
+                return true;
+            }
+
+            U log_arg = U(log_arg_scalar);
+            U distance_aim = U(distance_scalar);
+
+            residual[0] = (U(1.0) / U(ballistic_ref.k)) * ceres::log(log_arg) - distance_aim;
+
             return true;
         }
     };
@@ -167,11 +155,10 @@ public:
      * @brief 构造函数
      * 
      * @param k 空气阻力系数，默认值 0.1
-     * @param bulletV 子弹速度，默认值 30 m/s
-     * @param fire_delay 开火延迟，默认值 0.0 s
+     * @param bulletV 子弹速度，默认值 22 m/s
      */
-    Ballistic(double k = 0.1, double bulletV = 30, double fire_delay = 0.0)
-    : k(k), bulletV(bulletV), fire_delay(fire_delay){};
+    Ballistic(double k = 0.1, double bulletV = 22)
+    : k(k), bulletV(bulletV){};
 
     /**
      * @brief 主迭代函数，计算最佳射击角度
@@ -188,7 +175,7 @@ public:
      */
     template <typename T>
     std::pair<double, double> iteration(
-        double & thres, double & init_pitch, double & init_t, T & target_info)
+        const double & thres, double & init_pitch, double & init_t, T & target_info, double & t_out)
     {
         double pitch = init_pitch, t = init_t;  // 初始化pitch和t
         double differ;  // 角度差值
@@ -218,7 +205,7 @@ public:
                 break;  // 达到收敛条件，退出迭代
             }
         }
-        
+        t_out = t;
         // 计算最终目标位置和偏航角
         Eigen::Vector3d last_target = target_info.getGunTarget(t);
         double predyaw = atan2(last_target[1], last_target[0]);
@@ -235,6 +222,46 @@ public:
     {
         return bulletV;
     }
+
+    /**
+     * @brief 固定迭代法计算俯仰角
+     * 
+     * @param horizon_dis 水平距离（引用传递）
+     * @param height 垂直高度（引用传递）
+     * @return std::pair<double, double> 返回计算得到的俯仰角和飞行时间
+     */
+    std::pair<double, double> fixTiteratPitch(double & horizon_dis, double & height)
+    {
+        double dist_horizon = horizon_dis;  // 和目标在水平方向上的距离
+        double target_height = height;      // 和目标在垂直方向上的距离
+
+        // 迭代参数初始化
+        double vx, vy, fly_time, tmp_height = target_height, delta_height = 0, tmp_pitch,
+                                 real_height;
+        
+        // 进行10次迭代优化
+        for (size_t i = 0; i < 10; i++) {
+            // 计算当前俯仰角
+            tmp_pitch = atan((tmp_height) / dist_horizon);
+            
+            // 分解初始速度
+            vx = bulletV * cos(tmp_pitch);
+            vy = bulletV * sin(tmp_pitch);
+
+            // 计算飞行时间（考虑空气阻力）
+            fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
+            
+            // 计算实际高度（考虑重力和空气阻力）
+            double term = vy + 9.8 / k;
+            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
+            
+            // 计算高度误差并修正
+            delta_height = target_height - real_height;
+            tmp_height += delta_height;
+        }
+        return std::make_pair(tmp_pitch, fly_time);
+    };
+
 };
 
 }  //namespace rm_auto_aim

@@ -8,6 +8,7 @@
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
 #include <map>
+#include <cmath>
 
 namespace rm_auto_aim
 {
@@ -16,6 +17,31 @@ namespace rm_auto_aim
  */
 enum class EulerOrder { XYZ, XZY, YXZ, YZX, ZXY, ZYX };
 
+inline double limit_rad(double rad)
+{
+    rad = fmod(rad, 2 * M_PI);
+    if (rad > M_PI) {
+        rad -= 2 * M_PI;
+    } else if (rad < -M_PI) {
+        rad += 2 * M_PI;
+    }
+    return rad;
+}
+
+/**
+ * @brief 计算两个角度之间的最短角距离
+ * 
+ * 将角度差规范化到 [-π, π] 范围
+ * 
+ * @param a 角度1（弧度）
+ * @param b 角度2（弧度）
+ * @return double 最短角距离（弧度）
+ */
+inline double shortest_angular_distance(double a, double b)
+{
+    return limit_rad(a-b);
+}
+
 /**
  * @brief 将欧拉角转换为旋转矩阵
  * 
@@ -23,31 +49,7 @@ enum class EulerOrder { XYZ, XZY, YXZ, YZX, ZXY, ZYX };
  * @param order 旋转顺序，默认为XYZ
  * @return Eigen::Matrix3d 3x3旋转矩阵
  */
-Eigen::Matrix3d eulerToMatrix(const Eigen::Vector3d & euler, EulerOrder order = EulerOrder::XYZ)
-{
-    // 构建各轴旋转
-    auto r = Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX());  // 绕X轴旋转（roll）
-    auto p = Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY());  // 绕Y轴旋转（pitch）
-    auto y = Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ());  // 绕Z轴旋转（yaw）
-    
-    // 根据旋转顺序组合旋转矩阵
-    switch (order) {
-        case EulerOrder::XYZ:
-            return (y * p * r).matrix();
-        case EulerOrder::XZY:
-            return (p * y * r).matrix();
-        case EulerOrder::YXZ:
-            return (y * r * p).matrix();
-        case EulerOrder::YZX:
-            return (r * y * p).matrix();
-        case EulerOrder::ZXY:
-            return (p * r * y).matrix();
-        case EulerOrder::ZYX:
-            return (r * p * y).matrix();
-        default:
-            return Eigen::Matrix3d::Identity();
-    }
-}
+Eigen::Matrix3d eulerToMatrix(const Eigen::Vector3d & euler, EulerOrder order = EulerOrder::XYZ);
 
 /**
  * @brief 偏航角优化残差类
@@ -89,9 +91,24 @@ public:
     template <typename T>
     bool operator()(const T * const yaw, T * residual) const
     {
+        // 非法输入直接返回大残差，避免 NaN/Inf
+        if (armors_num_ <= 0 || !std::isfinite(v_yaw_) || v_yaw_ <= 1e-6 || !std::isfinite(distance_) ||
+            distance_ <= 1e-6 || !std::isfinite(radius_) || radius_ <= 1e-6 ||
+            !std::isfinite(v_yaw_gimble_) || v_yaw_gimble_ <= 0.0) {
+            residual[0] = T(1e8);
+            return true;
+        }
+
         // 计算云台偏航角速度
         T numerator = ((T(2.0) * T(M_PI) / T(armors_num_)) - T(2.0) * yaw[0]) * T(v_yaw_gimble_);
         T denominator = T(2.0) * T(v_yaw_);
+
+        // 防止除零
+        if (ceres::abs(denominator) < T(1e-6)) {
+            residual[0] = T(1e8);
+            return true;
+        }
+
         T yaw_gimble = numerator / denominator;
 
         // 计算几何约束方程：sin(yaw + yaw_gimble) / distance - sin(yaw_gimble) / radius = 0

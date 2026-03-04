@@ -3,7 +3,8 @@
 
 #include <angles/angles.h>
 #include <ceres/ceres.h>
-#include "math_uitl.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "math_util.hpp"
 
 namespace rm_auto_aim
 {
@@ -18,14 +19,19 @@ class ArmorSelector
 using target = auto_aim_interfaces::msg::Target;
 
 public:
+    const double COST_DIFF_THRESHOLD = M_PI/18;
     /**
      * @brief 更新目标信息
      * 
      * @param new_target_msg 新的目标消息
      */
-    void updateTarget(const target & new_target_msg)
-    {
+    void updateTarget(const target & new_target_msg) {
+        auto msg_delay = (this->now() - rclcpp::Time(new_target_msg.header.stamp)).seconds();
         target_msg = new_target_msg;
+        target_msg.yaw = new_target_msg.yaw + msg_delay * new_target_msg.v_yaw;
+        target_msg.position.x = new_target_msg.position.x + msg_delay * new_target_msg.velocity.x;
+        target_msg.position.y = new_target_msg.position.y + msg_delay * new_target_msg.velocity.y;
+        target_msg.position.z = new_target_msg.position.z + msg_delay * new_target_msg.velocity.z;
     }
     
     /**
@@ -85,15 +91,22 @@ public:
         std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
             return std::abs(a.cost) < std::abs(b.cost);
         });
+        
         Armor chosen_armor = armors[0];  // 选择角度距离最小的装甲板
+        // 一级策略：低速或MPC控制或最优装甲板角度小于放弃角度时，直接选择最优装甲板        
+        if (abs(target_msg.v_yaw) < min_v) {
+            if(abs(armors[0].cost - armors[1].cost) < COST_DIFF_THRESHOLD){
+                chosen_armor = armors[0].cost < 0 ? armors[0] : armors[1];
+            }
+            return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+        }
         
         // 计算放弃角度（用于二级策略判断）
         double yaw = findYaw(
             abs(target_msg.v_yaw), v_yaw_gimble, sqrt(pow(newxc, 2) + pow(newyc, 2)),
             chosen_armor.r, target_msg.armors_num);
             
-        // 一级策略：低速或最优装甲板角度小于放弃角度时，直接选择最优装甲板
-        if (std::isnan(yaw) || abs(target_msg.v_yaw) < min_v || abs(armors[0].cost) <= yaw) {
+        if (std::isnan(yaw) || abs(armors[0].cost) <= yaw) {
             return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
         }
         
@@ -111,7 +124,7 @@ public:
     }
 
 private: 
-    target target_msg;  // 目标信息缓存
+    target target_msg;  // 目标信息缓存(被设计为thin->now()时刻)
 
     /**
      * @brief 装甲板结构体
@@ -145,6 +158,11 @@ private:
         // 初始猜测值
         double yaw = M_PI / 4;
 
+        // 输入合法性检查，避免除零或无效几何
+        if (armors_num <= 0 || v_yaw <= 1e-6 || v_yaw_gimble <= 0.0 || distance <= 1e-6 || radius <= 1e-6) {
+            return std::nan("");
+        }
+
         // 配置Ceres求解器选项
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
@@ -162,6 +180,11 @@ private:
                 new YawResidual(v_yaw, v_yaw_gimble, distance, radius, armors_num)),
             nullptr, &yaw);
 
+        // yaw 应在 (0, 2*pi/armors_num) 范围内，避免求解跑飞
+        const double yaw_upper = std::max(1e-3, 2 * M_PI / std::max(1, armors_num));
+        problem.SetParameterLowerBound(&yaw, 0, 0.0);
+        problem.SetParameterUpperBound(&yaw, 0, yaw_upper);
+
         // 执行优化求解
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
@@ -173,7 +196,14 @@ private:
             return std::nan("");  // 求解失败，返回NaN
         }
     }
+
+protected:
+    rclcpp::Time now() const {
+        // 使用 ROS 时间源，保证与消息时间戳一致，避免 time source mismatch
+        static rclcpp::Clock clock(RCL_ROS_TIME);
+        return clock.now();
+    }
 }; 
 
-}
+}  // namespace rm_auto_aim
 #endif  // BALLISTIC_CALCULATION_ARMOR_SELECTOR_HPP_

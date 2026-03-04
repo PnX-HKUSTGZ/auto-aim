@@ -2,12 +2,14 @@
 #define BALLISTIC_CALCULATION_AIM_INFO_HPP_
 
 #include <angles/angles.h>
+#include <bits/types/time_t.h>
 #include <ceres/ceres.h>
+#include "rclcpp/rclcpp.hpp"
 
 #include <Eigen/Dense>
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
-#include "math_uitl.hpp"
+#include "math_util.hpp"
 #include <map>
 namespace rm_auto_aim
 {
@@ -75,6 +77,12 @@ public:
         return sqrt(pow(target_position_gun.x(), 2) + pow(target_position_gun.y(), 2));
     }
 
+protected:
+    rclcpp::Time now() const {
+        static rclcpp::Clock clock(RCL_ROS_TIME);
+        return clock.now();
+    }
+
 private:
     Eigen::Vector3d odom2gunxyz;  // 枪口在odom坐标系中的位置
     Eigen::Vector3d odom2gunrpy;  // 枪口在odom坐标系中的姿态
@@ -99,7 +107,14 @@ public:
      * 
      * @param new_target_msg 新的目标消息
      */
-    void updateTarget(const target & new_target_msg) { target_msg = new_target_msg; }
+    void updateTarget(const target & new_target_msg) {
+        auto msg_delay = (this->now() - rclcpp::Time(new_target_msg.header.stamp)).seconds();
+        target_msg = new_target_msg;
+        target_msg.yaw = new_target_msg.yaw + msg_delay * new_target_msg.v_yaw;
+        target_msg.position.x = new_target_msg.position.x + msg_delay * new_target_msg.velocity.x;
+        target_msg.position.y = new_target_msg.position.y + msg_delay * new_target_msg.velocity.y;
+        target_msg.position.z = new_target_msg.position.z + msg_delay * new_target_msg.velocity.z;
+    }
     
     Eigen::Vector3d getOdomTarget(double time) override
     {

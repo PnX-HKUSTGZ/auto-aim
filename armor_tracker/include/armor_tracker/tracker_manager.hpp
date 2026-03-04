@@ -126,9 +126,9 @@ public:
      * 包括创建新追踪器和更新现有追踪器。
      * 
      * @param armors_msg 包含所有观测到装甲板的消息
-     * @param dt 时间间隔
+     * @param is_main_camera 是否为主相机
      */
-    void update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, double dt);
+    void update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, bool is_main_camera);
 
     /**
      * @brief 选择最佳追踪目标
@@ -179,11 +179,9 @@ public:
     /**
      * @brief 清理非活跃的追踪器
      * 
-     * 移除超过丢失时间阈值或状态为LOST的追踪器，释放内存资源。
-     * 
-     * @param now 当前时间
+     * 移除状态为LOST的追踪器，释放内存资源。
      */
-    void cleanInactiveTrackers(rclcpp::Time now);
+    void cleanInactiveTrackers();
 
     /**
      * @brief 重置所有追踪器

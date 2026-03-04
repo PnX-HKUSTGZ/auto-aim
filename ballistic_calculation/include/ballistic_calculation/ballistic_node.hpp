@@ -14,14 +14,21 @@
 // STD
 #include <cv_bridge/cv_bridge.h>
 
+// visualization
+#include <visualization_msgs/msg/marker.hpp>
+
 #include <memory>
 #include <opencv2/core.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <string>
+#include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/float32.hpp>
 
 #include "ballistic_calculation/ballistic_calculator.hpp"
 #include "ballistic_calculation/aim_info.hpp"
 #include "ballistic_calculation/armor_selector.hpp"
+#include "ballistic_calculation/mpc_controller.hpp"
+#include <geometry_msgs/msg/point_stamped.hpp>
 
 namespace rm_auto_aim
 {
@@ -40,18 +47,6 @@ public:
     explicit BallisticCalculateNode(const rclcpp::NodeOptions & options);
 
 private:
-    /**
-     * @brief 判断是否满足开火条件
-     * 
-     * 通过比较当前云台位姿和预测射击位置的差异，
-     * 判断是否满足开火条件
-     * 
-     * @param prepitch 预测俯仰角
-     * @param preyaw 预测偏航角
-     * @return true 满足开火条件
-     * @return false 不满足开火条件
-     */
-    bool ifFire(double prepitch, double preyaw);
 
     /**
      * @brief 装甲车辆目标回调函数
@@ -79,6 +74,7 @@ private:
     
     // ROS2通信组件
     rclcpp::Publisher<auto_aim_interfaces::msg::Firecontrol>::SharedPtr publisher_;  // 火控指令发布者
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr aim_point_pub_;  // 瞄准点可视化发布者
 
     // 装甲车辆目标相关
     rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr car_target_sub_;  // 目标订阅者
@@ -101,22 +97,23 @@ private:
     double K2;             // 第二次大迭代时的步长
     double K;              // 空气阻力系数
     double BULLET_V;       // 子弹出膛速度
-    double THRES1 = 0.01;  // 第一次迭代的收敛阈值
-    double THRES2 = 0.005; // 第二次迭代的收敛阈值
-    double ifFireK_;       // 判断是否开火的角度阈值
+    static const double THRES1;  // 第一次迭代的收敛阈值
+    static const double THRES2; // 第二次迭代的收敛阈值
     double min_v;          // 一级策略切换二级策略速度临界值
     double max_v;          // 二级策略切换三级策略速度临界值
     double v_yaw_gimble;   // 云台最大yaw速度
     double stop_fire_time; // 停止开火时间
-    double fire_delay;     // 开火延迟
     std::vector<double> xyz_vec;  // 枪口的xyz坐标
     std::vector<double> rpy_vec;  // 枪口的rpy角度
 
     // 状态变量
     bool ifstart = false;           // 是否开始标志
     int rate = 1000;               // 节点运行频率
-    double ifFireK;                // 动态开火阈值
     rclcpp::Time last_fire_time;   // 上次开火时间
+    float current_yaw_vel = 0.0;
+    float current_pitch_vel = 0.0;
+
+    bool use_mpc_default;
 
     // 相机信息和图像投影
     sensor_msgs::msg::CameraInfo cam_info_;  // 相机内参信息
@@ -133,8 +130,14 @@ private:
      * @return cv::Point2f 图像平面上的2D点（归一化坐标）
      */
     cv::Point2f projectPointToImage(const Eigen::Vector3d & point_3d);
-};
 
+    Eigen::Vector4d getCurrentGimbalState();
+
+    std::unique_ptr<rm_auto_aim::MPCController> mpc_controller_;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr gimbal_vel_sub_;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr mpc_yaw_tracker_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr iffire_pub_;
+};
 }  // namespace rm_auto_aim
 
 #endif  // BLNODELIBRARY_HPP
