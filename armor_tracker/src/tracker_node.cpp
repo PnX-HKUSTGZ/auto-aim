@@ -3,6 +3,7 @@
 
 // STD
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> 
 #include <iostream>
 #include <memory>
 #include <opencv2/calib3d.hpp>
@@ -375,7 +376,16 @@ void ArmorTrackerNode::processArmors(
         ps.header = armors_msg->header;
         ps.pose = armor.pose;
         try {
-            armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
+            // 加入 10ms (0.01秒) 的超时等待机制
+            // 如果当下 TF 时间戳还没赶上来，程序会稍微等一下串口发出最新 TF，而不是直接报错
+            geometry_msgs::msg::TransformStamped transform = tf2_buffer_->lookupTransform(
+                target_frame_, 
+                ps.header.frame_id, 
+                ps.header.stamp, 
+                rclcpp::Duration::from_seconds(0.01));
+            
+            tf2::doTransform(ps, ps, transform);
+            armor.pose = ps.pose;
         } catch (const tf2::TransformException & ex) {
             RCLCPP_ERROR(get_logger(), "Error while transforming %s", ex.what());
             return;
