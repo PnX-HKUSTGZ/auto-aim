@@ -370,23 +370,38 @@ void ArmorTrackerNode::processArmors(
     const cv::Point2f & cam_center, const std::string & frame_id, bool is_main_camera)
 {
 
-    // 手动执行坐标变换 (替代 tf2_filter)
+     // 手动执行坐标变换 (替代 tf2_filter)
     for (auto & armor : armors_msg->armors) {
         geometry_msgs::msg::PoseStamped ps;
         ps.header = armors_msg->header;
         ps.pose = armor.pose;
         try {
-            // 加入 10ms (0.01秒) 的超时等待机制
-            // 如果当下 TF 时间戳还没赶上来，程序会稍微等一下串口发出最新 TF，而不是直接报错
+            // 首先尝试获取与图像时间戳严格匹配的 TF (不阻塞等待)
             geometry_msgs::msg::TransformStamped transform = tf2_buffer_->lookupTransform(
                 target_frame_, 
                 ps.header.frame_id, 
-                ps.header.stamp, 
-                rclcpp::Duration::from_seconds(0.01));
+                ps.header.stamp);
             
             tf2::doTransform(ps, ps, transform);
             armor.pose = ps.pose;
+        } catch (const tf2::ExtrapolationException & ex) {
+            // 如果 TF 没赶上来（请求的时间在未来），不等待，直接取最新可用的 TF 
+            try {
+                // tf2::TimePointZero 表示直接抓取 TF 树里当前缓冲的最新的那个变换
+                geometry_msgs::msg::TransformStamped fallback_transform = tf2_buffer_->lookupTransform(
+                    target_frame_, 
+                    ps.header.frame_id, 
+                    tf2::TimePointZero);
+                
+                tf2::doTransform(ps, ps, fallback_transform);
+                armor.pose = ps.pose;
+                RCLCPP_WARN(get_logger(), "can't use target_frame for TF, use newest instead: %s", ex.what());
+            } catch (const tf2::TransformException & fallback_ex) {
+                RCLCPP_ERROR(get_logger(), "Fallback transform failed: %s", fallback_ex.what());
+                return;
+            }
         } catch (const tf2::TransformException & ex) {
+            // 捕获除了外推异常之外的其他严重 TF 错误
             RCLCPP_ERROR(get_logger(), "Error while transforming %s", ex.what());
             return;
         }
