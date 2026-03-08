@@ -13,6 +13,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 // STD
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -92,7 +93,55 @@ public:
 
     rclcpp::Time last_update_time_;  // 上次更新时间
 
+    // 前哨站(3板)：仅缓存每块装甲板最近一次观测到的z（不参与EKF更新）
+    bool getOutpostArmorZ(size_t armor_index, const rclcpp::Time & now, double & z) const;
+
+    void setOutpostZCacheWindowSec(double window_sec) { outpost_z_cache_window_sec_ = window_sec; }
+    void setOutpostZMergeTolerance(double merge_tol) { outpost_z_merge_tol_ = merge_tol; }
+
+    // 前哨站(3板)编号推断参数：用VYAW方向 + 相对中板的高度差来推断新观测装甲板编号
+    void setOutpostHeightTolerance(double tol_m) { outpost_height_tol_ = tol_m; }
+    void setOutpostVyawDeadband(double deadband) { outpost_vyaw_deadband_ = deadband; }
+    void setOutpostVyawPositiveIsCCW(bool positive_is_ccw)
+    {
+        outpost_vyaw_positive_is_ccw_ = positive_is_ccw;
+    }
+    void setOutpostHeightMismatchPenalty(double penalty)
+    {
+        outpost_height_mismatch_penalty_ = penalty;
+    }
+
 private:
+    struct OutpostZCache
+    {
+        bool valid = false;
+        double z = 0.0;
+        rclcpp::Time stamp;
+    };
+
+    std::array<OutpostZCache, 3> outpost_z_cache_;
+    double outpost_z_cache_window_sec_ = 2;  // z缓存时间窗(秒)
+    double outpost_z_merge_tol_ = 0.05;         // z合并阈值(米)：<=该阈值视为同一块板
+
+    // 前哨站z缓存状态日志节流（每0.2s输出一次）
+    rclcpp::Time last_outpost_cache_log_time_{0, 0, RCL_ROS_TIME};
+
+    // outpost高度推断：以“单板默认中板(1号)”为锚点，利用高度差区分 2/3 号
+    // - outpost_height_tol_: |z - z_middle| <= tol 认为仍是中板
+    // - outpost_vyaw_deadband_: |vyaw| 小于该值认为旋转方向不可靠
+    // - outpost_vyaw_positive_is_ccw_: true表示VYAW>0对应逆时针
+    // - outpost_height_mismatch_penalty_: 在matchArmor评分中对不符合高度推断的编号加惩罚
+    double outpost_height_tol_ = 0.04;
+    double outpost_vyaw_deadband_ = 0.2;
+    bool outpost_vyaw_positive_is_ccw_ = true;
+    double outpost_height_mismatch_penalty_ = 10.0;
+
+    void mergeOutpostZCache(const rclcpp::Time & now);
+
+    int inferOutpostArmorIdByHeight(double meas_z, const Eigen::VectorXd & ekf_prediction) const;
+
+    rclcpp::Time current_msg_time_{0, 0, RCL_ROS_TIME};
+
     /**
      * @brief 使用单个装甲板初始化EKF
      * 

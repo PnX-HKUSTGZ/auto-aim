@@ -43,9 +43,11 @@ public:
      */
     explicit ExtendedKalmanFilter(
         const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2,
-        const VecVecFunc & h_two, const VecMatFunc & j_f, const VecMatFunc & j_h1,
-        const VecMatFunc & j_h2, const VecMatFunc & j_h_two, const VoidMatFunc & u_q,
-        const VecMatFunc & u_r, const VecMatFunc u_r_two, const Eigen::MatrixXd & P0);
+        const VecVecFunc & h_two, const VecVecFunc & h_three, const VecMatFunc & j_f,
+        const VecMatFunc & j_h1, const VecMatFunc & j_h2, const VecMatFunc & j_h_two,
+        const VecMatFunc & j_h_three, const VoidMatFunc & u_q, const VecMatFunc & u_r,
+        const VecMatFunc & u_r_two, const VecMatFunc & u_r_three,
+        const Eigen::MatrixXd & P0);
 
     /**
      * @brief 设置时间间隔，更新状态转移函数中的时间参数
@@ -88,6 +90,22 @@ public:
     Eigen::VectorXd update2(const Eigen::VectorXd & z);
 
     /**
+     * @brief 使用装甲板3的观测数据更新状态估计
+     * 
+     * @param z 观测向量，包含装甲板3的位置和角度信息
+     * @return 更新后的状态向量
+     */
+    Eigen::VectorXd update3(const Eigen::VectorXd & z);
+
+    /**
+     * @brief 使用三个装甲板的观测数据同时更新状态估计（前哨站专用）
+     *
+     * @param z 联合观测向量，包含三个装甲板的位置/角度与半径信息
+     * @return 更新后的状态向量
+     */
+    Eigen::VectorXd updateThreeArmors(const Eigen::VectorXd & z);
+
+    /**
      * @brief 使用两个装甲板的观测数据同时更新状态估计
      * 
      * 当同时观测到两个装甲板时，使用联合观测进行状态更新，
@@ -128,10 +146,10 @@ private:
 
     int n;  // System dimension
 
-    VecVecFunc f, h1, h2, h_two;
-    VecMatFunc jacobian_f, jacobian_h1, jacobian_h2, jacobian_h_two;
+    VecVecFunc f, h1, h2, h_two, h_three;
+    VecMatFunc jacobian_f, jacobian_h1, jacobian_h2, jacobian_h_two, jacobian_h_three;
     VoidMatFunc update_Q;
-    VecMatFunc update_R, update_R_two;
+    VecMatFunc update_R, update_R_two, update_R_three;
 
     Eigen::MatrixXd I;  // Identity matrix
     Eigen::VectorXd x_pri, x_post;

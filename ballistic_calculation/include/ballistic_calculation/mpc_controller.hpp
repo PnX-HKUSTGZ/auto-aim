@@ -47,6 +47,11 @@ public:
         double T
     );
 
+    void setGimbalState(const Eigen::Vector4d & gimbal_state)
+    {
+        current_gimbal_state_ = gimbal_state;
+    }
+
 private:
     struct CachedState
     {
@@ -93,6 +98,7 @@ private:
     double nowSeconds() const;
 
     Eigen::Vector3d getOdomTarget(const auto_aim_interfaces::msg::Target & target_msg, double time);
+    Eigen::Vector4d current_gimbal_state_; // [yaw, yaw_vel, pitch, pitch_vel]
 };
 
 }  // namespace rm_auto_aim

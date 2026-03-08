@@ -7,21 +7,20 @@
 #include <auto_aim_interfaces/msg/target.hpp>
 #include <cfloat>
 #include <cmath>
+#include <geometry_msgs/msg/point_stamped.hpp>
 #include <memory>
 #include <opencv2/calib3d.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/subscription.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <string>
 #include <vector>
-
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
+#include <visualization_msgs/msg/marker.hpp>
 
 #include "ballistic_calculation/mpc_controller.hpp"
-#include <visualization_msgs/msg/marker.hpp>
-#include <geometry_msgs/msg/point_stamped.hpp>
-#include <std_msgs/msg/float32.hpp>
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace rm_auto_aim
 {
@@ -73,7 +72,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     //创建发布者
     publisher_ = this->create_publisher<auto_aim_interfaces::msg::Firecontrol>("/firecontrol", 10);
     // marker publisher for visualization of aim point (yellow)
-    aim_point_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/aim_point_marker", 10);
+    aim_point_pub_ =
+        this->create_publisher<visualization_msgs::msg::Marker>("/aim_point_marker", 10);
     // iffire publisher for rqt plotting (1.0 for true, 0.0 for false)
     iffire_pub_ = this->create_publisher<std_msgs::msg::Float32>("/firecontrol/iffire", 10);
     //设置时间callback
@@ -98,8 +98,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
             }
         });
     rclcpp::QoS qos = rclcpp::QoS(10).transient_local();
-    mpc_yaw_tracker_pub_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/mpc/yaw_tracker", qos);
-    
+    mpc_yaw_tracker_pub_ =
+        this->create_publisher<std_msgs::msg::Float32MultiArray>("/mpc/yaw_tracker", qos);
 }
 
 // 获取当前云台状态
@@ -109,10 +109,12 @@ Eigen::Vector4d BallisticCalculateNode::getCurrentGimbalState()
     state.setZero();
     try {
         auto t = tfBuffer->lookupTransform("odom", "gimbal_link", tf2::TimePointZero);
-        tf2::Quaternion q(t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w);
+        tf2::Quaternion q(
+            t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z,
+            t.transform.rotation.w);
         double roll, pitch, yaw;
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-        state << yaw, current_yaw_vel, pitch, current_pitch_vel; 
+        state << yaw, current_yaw_vel, pitch, current_pitch_vel;
     } catch (tf2::TransformException & ex) {
         RCLCPP_WARN(this->get_logger(), "Failed to get gimbal state: %s", ex.what());
     }
@@ -135,15 +137,25 @@ void BallisticCalculateNode::carTargetCallback(
     //进入第一次大迭代
     Eigen::Vector3d target = car_info_->getGunTarget(0.0);
 
+    // [DEBUG]
+    // double target_dist = car_info_->getGunTarget(0.0).head<2>().norm();  // 目标水平距离
+    // double theory_T = target_dist / BULLET_V;  // 理论飞行时间（无空气阻力）
+
     //进入迭代
     double init_pitch =
         std::atan(target[2] / std::sqrt(target[0] * target[0] + target[1] * target[1]));
     double init_t =
         std::sqrt(target[0] * target[0] + target[1] * target[1]) / (cos(init_pitch) * BULLET_V);
-    
+
     double temp_t;
     std::pair<double, double> first_iteration_result =
         this->calculator->iteration(THRES1, init_pitch, init_t, *car_info_, temp_t);
+
+    // [DEBUG]
+    // RCLCPP_WARN(
+    //     rclcpp::get_logger("BallisticNode"),
+    //     "【飞行时间排查】目标距离=%.2fm, 理论T=%.3fs, 弹道迭代T=%.3fs, 差值=%.3fs", target_dist,
+    //     theory_T, temp_t, temp_t - theory_T);
 
     //预测并选择合适击打的装甲板
     double temp_theta = first_iteration_result.first;
@@ -151,11 +163,11 @@ void BallisticCalculateNode::carTargetCallback(
     //预测平衡步兵的最佳装甲板
     std::pair<double, double> iffire_result, final_result;
     if (car_target_msg->armors_num == 4 or car_target_msg->armors_num == 3) {
-        std::vector<double> hit_aim = armor_selector_->
-            predictInfantryBestArmor(temp_t, min_v, max_v, v_yaw_gimble); // 瞄准用
-        std::vector<double> hit_aim_fire = armor_selector_->
-            predictInfantryBestArmor(temp_t, DBL_MAX, DBL_MAX, v_yaw_gimble); // 开火判定用
-        
+        std::vector<double> hit_aim = armor_selector_->predictInfantryBestArmor(
+            temp_t, min_v, max_v, v_yaw_gimble);  // 瞄准用
+        std::vector<double> hit_aim_fire = armor_selector_->predictInfantryBestArmor(
+            temp_t, DBL_MAX, DBL_MAX, v_yaw_gimble);  // 开火判定用
+
         //计算瞄准目标
         armor_info_->updateTarget(
             *car_target_msg, hit_aim[0], hit_aim[2] == 0 ? hit_aim_fire[1] : hit_aim[1],
@@ -165,7 +177,7 @@ void BallisticCalculateNode::carTargetCallback(
         armor_info_->updateTarget(
             *car_target_msg, hit_aim_fire[0], hit_aim_fire[1], hit_aim_fire[2]);
         iffire_result = calculator->iteration(THRES2, temp_theta, temp_t, *armor_info_, temp_t);
-        
+
         Eigen::Vector3d aim_target_pos = armor_info_->getOdomTarget(temp_t);  // 使用迭代后的temp_t
 
         // 发布可视化标记，展示选择出的最优装甲板在temp_t时刻的位置
@@ -209,17 +221,18 @@ void BallisticCalculateNode::carTargetCallback(
     // 1. 获取MPC所需输入
     // Eigen::Vector3d target_odom = armor_info_->getOdomTarget(temp_t); // 使用预测时间t的目标位置
     double current_bullet_speed = BULLET_V;
+    Eigen::Vector4d gimbal_state = this->getCurrentGimbalState(); // 获取真实云台状态
+    mpc_controller_->setGimbalState(gimbal_state); // 将云台状态注入到MPCController中
     // 2. 调用MPC计算
     MPCResult mpc_result = mpc_controller_->compute(*car_target_msg, current_bullet_speed, temp_t);
-
 
     // MPC解算前后可视化
     try {
         std_msgs::msg::Float32MultiArray yaw_tracker_msg;
-        yaw_tracker_msg.data.resize(3); // 仅存储3个标量
-        yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
+        yaw_tracker_msg.data.resize(3);                   // 仅存储3个标量
+        yaw_tracker_msg.data[0] = mpc_result.target_yaw;  // 第一个元素：目标yaw
         yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
-        yaw_tracker_msg.data[2] = mpc_result.is_fire;    // 第三个元素：is_fire（是否处于阶跃期）
+        yaw_tracker_msg.data[2] = mpc_result.is_fire;     // 第三个元素：is_fire（是否处于阶跃期）
         mpc_yaw_tracker_pub_->publish(yaw_tracker_msg);
     } catch (...) {
         RCLCPP_WARN(this->get_logger(), "Failed to publish MPC yaw tracker");
@@ -231,9 +244,9 @@ void BallisticCalculateNode::carTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
-        final_pitch = mpc_result.target_pitch + rpy_vec[1]; // 转换到云台坐标系
+        final_pitch = mpc_result.target_pitch + rpy_vec[1];  // 转换到云台坐标系
         final_yaw = mpc_result.target_yaw - rpy_vec[2];
-        
+
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
         pitch_vel = mpc_result.pitch_vel;
@@ -267,14 +280,6 @@ void BallisticCalculateNode::carTargetCallback(
     // }
     // if (fire_msg.iffire) last_fire_time = this->now();
     fire_msg.iffire = mpc_result.is_fire;
-    // // Publish a 1/0 float for rqt plotting of iffire
-    // try { 
-    //     std_msgs::msg::Float32 ifmsg;
-    //     ifmsg.data = fire_msg.iffire ? 1.0f : 0.0f;
-    //     if (iffire_pub_) iffire_pub_->publish(ifmsg);
-    // } catch (...) {
-    //     RCLCPP_WARN(this->get_logger(), "Failed to publish iffire float message");
-    // }
     publisher_->publish(fire_msg);
     // auto func_end_time = this->now();
     // double func_duration = (func_end_time - func_start_time).seconds();
@@ -307,7 +312,7 @@ void BallisticCalculateNode::runeTargetCallback(
     Eigen::Vector3d target_odom = rune_info_->getOdomTarget(rune_t);
     double current_bullet_speed = BULLET_V;
 
-    Eigen::Vector2d target_vel(0.0, 0.0); // 暂时先设为0.0
+    Eigen::Vector2d target_vel(0.0, 0.0);  // 暂时先设为0.0
     RCLCPP_ERROR(this->get_logger(), "暂时没有开发完成，以后记得改\n");
     auto_aim_interfaces::msg::Target mpc_target;
     mpc_target.position.x = target_odom.x();
@@ -324,16 +329,16 @@ void BallisticCalculateNode::runeTargetCallback(
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
         final_pitch = mpc_result.target_pitch;
         final_yaw = mpc_result.target_yaw;
-        
+
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
         pitch_vel = mpc_result.pitch_vel;
         pitch_acc = mpc_result.pitch_acc;
     } else {
         RCLCPP_WARN(this->get_logger(), "MPC failed to solve for rune. Skipping publish.");
-        return; // 直接返回，不发布
+        return;  // 直接返回，不发布
     }
-    
+
     // 将 odom 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
     cv::Point2f projected_point = projectPointToImage(rune_info_->getOdomTarget(rune_t));
 
@@ -353,7 +358,7 @@ void BallisticCalculateNode::runeTargetCallback(
     fire_msg.projected_x = projected_point.x;
     fire_msg.projected_y = projected_point.y;
     fire_msg.id = "rune";
-    fire_msg.iffire = 0; // 符文模式下暂不使用MPC开火决策
+    fire_msg.iffire = 0;  // 符文模式下暂不使用MPC开火决策
     // Publish iffire as 0 for rune mode to allow plotting
     try {
         std_msgs::msg::Float32 ifmsg;
@@ -420,7 +425,8 @@ cv::Point2f BallisticCalculateNode::projectPointToImage(const Eigen::Vector3d & 
         // 执行投影
         cv::projectPoints(object_point, rvec, tvec, camera_matrix, dist_coeffs, image_points);
 
-        return cv::Point2f(image_points[0].x / cam_info_.width, image_points[0].y / cam_info_.height);
+        return cv::Point2f(
+            image_points[0].x / cam_info_.width, image_points[0].y / cam_info_.height);
     } catch (tf2::TransformException & ex) {
         RCLCPP_WARN(this->get_logger(), "Could not transform: %s", ex.what());
         return cv::Point2f(-1, -1);  // 返回无效点

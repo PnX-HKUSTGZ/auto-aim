@@ -1,30 +1,32 @@
 #include "ballistic_calculation/mpc_controller.hpp"
+
 #include <Eigen/src/Core/Matrix.h>
 
-#include <auto_aim_interfaces/msg/detail/firecontrol__struct.hpp>
-#include <vector>
-#include <cmath>
 #include <algorithm>
-#include <stdexcept>
+#include <auto_aim_interfaces/msg/detail/firecontrol__struct.hpp>
+#include <cmath>
 #include <opencv2/opencv.hpp>
+#include <stdexcept>
+#include <vector>
 
 #include "ballistic_calculation/math_util.hpp"
-#include "yaml-cpp/yaml.h"
 #include "rclcpp/rclcpp.hpp"
+#include "yaml-cpp/yaml.h"
 
 namespace rm_auto_aim
 {
-MPCController::MPCController(rclcpp::Node *node)
+MPCController::MPCController(rclcpp::Node * node)
 {
-    min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
+    min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0);
     max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
     fire_delay = node->declare_parameter("fire_delay", 0.0);
-    iffire_ = node->declare_parameter("ifFireK", 0.05);
+    iffire_ = node->declare_parameter("ifFireK", 0.01);
     setupYawSolver(node);
     setupPitchSolver(node);
 }
 
-MPCController::~MPCController() {
+MPCController::~MPCController()
+{
     if (yaw_solver_) free(yaw_solver_);
     if (pitch_solver_) free(pitch_solver_);
 }
@@ -69,30 +71,38 @@ std::optional<MPCController::CachedState> MPCController::queryLatest(double stam
 }
 
 MPCResult MPCController::compute(
-    const auto_aim_interfaces::msg::Target & target_msg,
-    double bullet_speed, double fly_time)
+    const auto_aim_interfaces::msg::Target & target_msg, double bullet_speed, double fly_time)
 {
+    // double target_stamp = target_msg.header.stamp.sec + target_msg.header.stamp.nanosec / 1e9;
+    // double mpc_now = nowSeconds();
+
+    // RCLCPP_WARN(
+    //     rclcpp::get_logger("MPCController"),
+    //     "【时间同步排查】目标消息时间=%.3fs, MPC当前时间=%.3fs, 差值=%.3fs", target_stamp, mpc_now,
+    //     mpc_now - target_stamp);
+
     MPCResult result;
     result.is_valid = false;
     result.is_fire = false;
 
-
     if (bullet_speed < 10 || bullet_speed > 35 || DT <= 1e-6) {
-        bullet_speed = 22; // Fallback default
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Invalid bullet speed, using default 22m/s");
+        bullet_speed = 22;  // Fallback default
+        RCLCPP_WARN(
+            rclcpp::get_logger("MPCController"), "Invalid bullet speed, using default 22m/s");
     }
     Trajectory traj;
-    
+
     try {
         traj = getTrajectory(target_msg, bullet_speed, fly_time);
     } catch (const std::exception & e) {
-        RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Trajectory generation failed: %s", e.what());
+        RCLCPP_ERROR(
+            rclcpp::get_logger("MPCController"), "Trajectory generation failed: %s", e.what());
         return result;
     }
 
     // Solve Yaw
     Eigen::VectorXd x0_yaw(2);
-    x0_yaw << traj(0, 0), 0.0;
+    x0_yaw << current_gimbal_state_(0), current_gimbal_state_(1); // 真实偏航角 + 真实偏航速度
     if (x0_yaw.hasNaN() || x0_yaw.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid yaw initial state");
         return result;
@@ -105,16 +115,17 @@ MPCResult MPCController::compute(
         return result;
     }
     yaw_solver_->work->Xref = yaw_ref;
-    
+
     int solve_ret_yaw = tiny_solve(yaw_solver_);
     if (solve_ret_yaw != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
+        RCLCPP_DEBUG(
+            rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
     }
 
     // Solve Pitch
     Eigen::VectorXd x0_pitch(2);
-    x0_pitch << traj(2, 0),  0.0;
-    
+    x0_pitch << current_gimbal_state_(2), current_gimbal_state_(3); // 真实俯仰角 + 真实俯仰速度
+
     if (x0_pitch.hasNaN() || x0_pitch.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid pitch initial state");
         return result;
@@ -123,27 +134,28 @@ MPCResult MPCController::compute(
 
     Eigen::MatrixXd pitch_ref = traj.block(2, 0, 2, HORIZON);
     if (pitch_ref.hasNaN()) {
-         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "NaN in pitch reference");
-         return result;
+        RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "NaN in pitch reference");
+        return result;
     }
     pitch_solver_->work->Xref = pitch_ref;
 
     // Solve Pitch
     int solve_ret_pitch = tiny_solve(pitch_solver_);
     if (solve_ret_pitch != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret_pitch);
+        RCLCPP_WARN(
+            rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret_pitch);
     }
-    
+
     // Extract MPC results
     const int fire_delay_idx = static_cast<int>(fire_delay / DT);
     const int fire_idx = HALF_HORIZON + fire_delay_idx;
-    const int aim_idx = HALF_HORIZON;    
+    const int aim_idx = HALF_HORIZON;
 
     // 当前控制指令（发给云台执行，无fire_delay）
     double yaw_current = limit_rad(yaw_solver_->work->x.coeff(0, aim_idx));
     double yaw_vel_current = yaw_solver_->work->x.coeff(1, aim_idx);
     double yaw_acc_current = yaw_solver_->work->u.coeff(0, aim_idx);
-    
+
     double pitch_current = limit_rad(pitch_solver_->work->x.coeff(0, aim_idx));
     double pitch_vel_current = pitch_solver_->work->x.coeff(1, aim_idx);
     double pitch_acc_current = pitch_solver_->work->u.coeff(0, aim_idx);
@@ -152,7 +164,7 @@ MPCResult MPCController::compute(
     double yaw_at_fire = limit_rad(yaw_solver_->work->x.coeff(0, fire_idx));
     // double yaw_vel_at_fire = yaw_solver_->work->x.coeff(1, fire_idx);
     // double yaw_acc_at_fire = yaw_solver_->work->u.coeff(0, fire_idx);
-    
+
     double pitch_at_fire = limit_rad(pitch_solver_->work->x.coeff(0, fire_idx));
     // double pitch_vel_at_fire = pitch_solver_->work->x.coeff(1, fire_idx);
     // double pitch_acc_at_fire = pitch_solver_->work->u.coeff(0, fire_idx);
@@ -166,8 +178,8 @@ MPCResult MPCController::compute(
     result.is_valid = true;
 
     // 控制限幅和死区处理
-    const double MAX_VEL = 5.0;  
-    const double MAX_ACC = 8.0; 
+    const double MAX_VEL = 5.0;
+    const double MAX_ACC = 8.0;
     const double DEAD_ZONE_VEL = 0.01;
     const double DEAD_ZONE_ACC = 0.05;
 
@@ -196,16 +208,16 @@ MPCResult MPCController::compute(
     double pitch_error = std::abs(target_pitch_at_fire - pitch_at_fire);
 
     if (yaw_error <= iffire_ && pitch_error <= iffire_) {
-        result.is_fire = true; // 处于非阶跃期
+        result.is_fire = true;  // 处于非阶跃期
     }
 
     result.target_yaw = target_yaw_current;
     result.target_pitch = target_pitch_current;
 
     // 优化前
-    Eigen::Vector3d target_pos_vec(target_msg.position.x, target_msg.position.y, target_msg.position.z);
+    Eigen::Vector3d target_pos_vec(
+        target_msg.position.x, target_msg.position.y, target_msg.position.z);
     Eigen::Vector2d target_vel_vec(target_msg.velocity.x, target_msg.velocity.y);
-
 
     // Plot pitch reference (from traj) and optimized pitch (from solver) in a single image
 
@@ -365,42 +377,47 @@ MPCResult MPCController::compute(
 }
 
 // Compute odometry-based target position for a given time
-Eigen::Vector3d MPCController::getOdomTarget(const auto_aim_interfaces::msg::Target & target_msg, double time)
+Eigen::Vector3d MPCController::getOdomTarget(
+    const auto_aim_interfaces::msg::Target & target_msg, double time)
 {
     armor_selector_.updateTarget(target_msg);
     std::vector<double> init_armor;
-    try{
-        init_armor = armor_selector_.predictInfantryBestArmor(time, max_switch_speed_, max_switch_speed_, 5.0); 
+    try {
+        init_armor = armor_selector_.predictInfantryBestArmor(
+            time, max_switch_speed_, max_switch_speed_, 5.0);
     } catch (const std::exception & e) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Armor prediction failed: %s", e.what());
         throw;
     }
     if (init_armor.size() < 3) {
-        RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "predictInfantryBestArmor returned too few elements: %zu", init_armor.size());
+        RCLCPP_ERROR(
+            rclcpp::get_logger("MPCController"),
+            "predictInfantryBestArmor returned too few elements: %zu", init_armor.size());
         throw std::runtime_error("predictInfantryBestArmor returned insufficient data");
     }
-    
+
     // std::cerr << "init_armor size: " << init_armor.size() << "\n";
     double r0 = init_armor[2];
     double z0 = init_armor[1];
     double theta0 = init_armor[0];
 
     return Eigen::Vector3d(
-        target_msg.position.x + target_msg.velocity.x * time - r0 * std::cos(theta0 + target_msg.v_yaw * time),
-        target_msg.position.y + target_msg.velocity.y * time - r0 * std::sin(theta0 + target_msg.v_yaw * time),
-        z0 + target_msg.velocity.z * time
-    );
+        target_msg.position.x + target_msg.velocity.x * time -
+            r0 * std::cos(theta0 + target_msg.v_yaw * time),
+        target_msg.position.y + target_msg.velocity.y * time -
+            r0 * std::sin(theta0 + target_msg.v_yaw * time),
+        z0 + target_msg.velocity.z * time);
 }
 
 Trajectory MPCController::getTrajectory(
-    const auto_aim_interfaces::msg::Target & target_msg, 
-    double bullet_speed, double fly_time)
+    const auto_aim_interfaces::msg::Target & target_msg, double bullet_speed, double fly_time)
 {
     Trajectory traj;
     traj.setZero();
-    
-    Eigen::Vector3d current_pos(target_msg.position.x, target_msg.position.y, target_msg.position.z);
-    
+
+    Eigen::Vector3d current_pos(
+        target_msg.position.x, target_msg.position.y, target_msg.position.z);
+
     Eigen::Vector2d last_yaw_pitch;
     bool has_last = false;
 
@@ -414,15 +431,14 @@ Trajectory MPCController::getTrajectory(
     auto latest_cached = queryLatest(base_stamp);
 
     for (int i = -HALF_HORIZON; i < HALF_HORIZON; i++) {
-        int idx = i + HALF_HORIZON; // column index in traj (0..HORIZON-1)
+        int idx = i + HALF_HORIZON;  // column index in traj (0..HORIZON-1)
         if (idx < 0 || idx >= HORIZON) continue;
 
         double t_pred = DT * (i + 1);
         double abs_time = base_stamp + t_pred;
 
         // 使用历史插值的条件：窗口内存在数据且 abs_time 位于缓存范围 [hist_start, latest_cached->stamp]
-        bool use_cache = latest_cached.has_value() &&
-                         abs_time <= latest_cached->stamp + 1e-6 &&
+        bool use_cache = latest_cached.has_value() && abs_time <= latest_cached->stamp + 1e-6 &&
                          abs_time >= hist_start - 1e-6;
         if (use_cache) {
             // 找到 abs_time 前后的最近两帧，做线性插值（时间加权）
@@ -452,7 +468,7 @@ Trajectory MPCController::getTrajectory(
                 double t0 = prev.stamp;
                 double t1 = next.stamp;
                 if (std::abs(t1 - t0) < 1e-6) {
-                    t1 = t0 + 1e-6; // 避免除零
+                    t1 = t0 + 1e-6;  // 避免除零
                 }
                 double w1 = (abs_time - t0) / (t1 - t0);
                 w1 = std::clamp(w1, 0.0, 1.0);
@@ -465,20 +481,49 @@ Trajectory MPCController::getTrajectory(
                 double yaw_vel_interp = lerp(prev.yaw_vel, next.yaw_vel);
                 double pitch_vel_interp = lerp(prev.pitch_vel, next.pitch_vel);
 
-                traj.col(idx) << yaw_interp, yaw_vel_interp,
-                                 pitch_interp, pitch_vel_interp;
+                traj.col(idx) << yaw_interp, yaw_vel_interp, pitch_interp, pitch_vel_interp;
+
+                // [DEBUG]
+                // double real_yaw =
+                //     aim(getOdomTarget(target_msg, fly_time + t_pred), bullet_speed)(0);
+                // double mpc_ref_yaw = traj(0, idx);
+                // RCLCPP_WARN(
+                //     rclcpp::get_logger("MPCController"),
+                //     "【轨迹超前排查】idx=%d, 真实yaw=%.3f, MPC参考yaw=%.3f, 超前量=%.3f rad", idx,
+                //     real_yaw, mpc_ref_yaw, mpc_ref_yaw - real_yaw);
+
                 last_yaw_pitch = {yaw_interp, pitch_interp};
                 has_last = true;
                 continue;
             } else if (has_prev) {
-                traj.col(idx) << limit_rad(prev.yaw), prev.yaw_vel,
-                                 limit_rad(prev.pitch), prev.pitch_vel;
+                traj.col(idx) << limit_rad(prev.yaw), prev.yaw_vel, limit_rad(prev.pitch),
+                    prev.pitch_vel;
+
+                // [DEBUG]
+                // double real_yaw =
+                //     aim(getOdomTarget(target_msg, fly_time + t_pred), bullet_speed)(0);
+                // double mpc_ref_yaw = traj(0, idx);
+                // RCLCPP_WARN(
+                //     rclcpp::get_logger("MPCController"),
+                //     "【轨迹超前排查】idx=%d, 真实yaw=%.3f, MPC参考yaw=%.3f, 超前量=%.3f rad", idx,
+                //     real_yaw, mpc_ref_yaw, mpc_ref_yaw - real_yaw);
+
                 last_yaw_pitch = {limit_rad(prev.yaw), limit_rad(prev.pitch)};
                 has_last = true;
                 continue;
             } else if (has_next) {
-                traj.col(idx) << limit_rad(next.yaw), next.yaw_vel,
-                                 limit_rad(next.pitch), next.pitch_vel;
+                traj.col(idx) << limit_rad(next.yaw), next.yaw_vel, limit_rad(next.pitch),
+                    next.pitch_vel;
+
+                // [DEBUG]
+                // double real_yaw =
+                //     aim(getOdomTarget(target_msg, fly_time + t_pred), bullet_speed)(0);
+                // double mpc_ref_yaw = traj(0, idx);
+                // RCLCPP_WARN(
+                //     rclcpp::get_logger("MPCController"),
+                //     "【轨迹超前排查】idx=%d, 真实yaw=%.3f, MPC参考yaw=%.3f, 超前量=%.3f rad", idx,
+                //     real_yaw, mpc_ref_yaw, mpc_ref_yaw - real_yaw);
+
                 last_yaw_pitch = {limit_rad(next.yaw), limit_rad(next.pitch)};
                 has_last = true;
                 continue;
@@ -486,7 +531,8 @@ Trajectory MPCController::getTrajectory(
         }
 
         if (!has_last) {
-            Eigen::Vector3d init_armor_pos = getOdomTarget(target_msg, fly_time - HALF_HORIZON * DT);
+            Eigen::Vector3d init_armor_pos =
+                getOdomTarget(target_msg, fly_time - HALF_HORIZON * DT);
             last_yaw_pitch = aim(init_armor_pos, bullet_speed);
             has_last = true;
         }
@@ -503,10 +549,18 @@ Trajectory MPCController::getTrajectory(
 
         double pitch_diff = limit_rad(next_yaw_pitch(1) - last_yaw_pitch(1));
         double pitch_vel = std::clamp(pitch_diff / (2.0 * DT), -5.0, 5.0);
-        
+
         // write into trajectory at proper column
-        traj.col(idx) << limit_rad(curr_yaw_pitch(0)), yaw_vel,
-                         limit_rad(curr_yaw_pitch(1)), pitch_vel;
+        traj.col(idx) << limit_rad(curr_yaw_pitch(0)), yaw_vel, limit_rad(curr_yaw_pitch(1)),
+            pitch_vel;
+
+        // [DEBUG]
+        // double real_yaw = aim(getOdomTarget(target_msg, fly_time + t_pred), bullet_speed)(0);
+        // double mpc_ref_yaw = traj(0, idx);
+        // RCLCPP_WARN(
+        //     rclcpp::get_logger("MPCController"),
+        //     "【轨迹超前排查】idx=%d, 真实yaw=%.3f, MPC参考yaw=%.3f, 超前量=%.3f rad", idx, real_yaw,
+        //     mpc_ref_yaw, mpc_ref_yaw - real_yaw);
 
         last_yaw_pitch = curr_yaw_pitch;
     }
@@ -528,7 +582,7 @@ Eigen::Matrix<double, 2, 1> MPCController::aim(
     return {limit_rad(azim), limit_rad(pitch)};
 }
 
-void MPCController::setupYawSolver(rclcpp::Node *node)
+void MPCController::setupYawSolver(rclcpp::Node * node)
 {
     double max_yaw_acc = node->declare_parameter("max_yaw_acc", 10.0);
     std::vector<double> Q_yaw = node->declare_parameter("Q_yaw", std::vector<double>{9e6, 0.0});
@@ -550,7 +604,7 @@ void MPCController::setupYawSolver(rclcpp::Node *node)
     yaw_solver_->settings->max_iter = 100;
 }
 
-void MPCController::setupPitchSolver(rclcpp::Node *node)
+void MPCController::setupPitchSolver(rclcpp::Node * node)
 {
     double max_pitch_acc = node->declare_parameter("max_pitch_acc", 100.0);
     std::vector<double> Q_pitch = node->declare_parameter("Q_pitch", std::vector<double>{9e6, 0.0});

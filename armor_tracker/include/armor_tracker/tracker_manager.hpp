@@ -52,6 +52,16 @@ private:
     int tracking_thres_;
     double lost_time_thres_;
 
+    // 前哨站(3板)z缓存参数（不参与EKF）
+    double outpost_z_cache_window_sec_ = 7;
+    double outpost_z_merge_tol_ = 0.01;
+
+    // 前哨站(3板)编号推断参数：高度差 + VYAW方向
+    double outpost_height_tol_ = 0.04;
+    double outpost_vyaw_deadband_ = 0.2;
+    bool outpost_vyaw_positive_is_ccw_ = true;
+    double outpost_height_mismatch_penalty_ = 20.0;
+
     // 权重参数
     double w_distance_;       // 距离图像中心的权重_3D
     double w_twoD_distance_;  // 距离图像中心的权重_2D
@@ -61,6 +71,37 @@ private:
     VisionMode mode_ = VisionMode::AUTO;
 
 public:
+    void setOutpostZCacheParams(double window_sec, double merge_tol)
+    {
+        outpost_z_cache_window_sec_ = window_sec;
+        outpost_z_merge_tol_ = merge_tol;
+        for (auto & kv : trackers_) {
+            if (!kv.second) {
+                continue;
+            }
+            kv.second->setOutpostZCacheWindowSec(outpost_z_cache_window_sec_);
+            kv.second->setOutpostZMergeTolerance(outpost_z_merge_tol_);
+        }
+    }
+
+    void setOutpostHeightInferParams(
+        double height_tol_m, double vyaw_deadband, bool vyaw_positive_is_ccw,
+        double height_mismatch_penalty)
+    {
+        outpost_height_tol_ = height_tol_m;
+        outpost_vyaw_deadband_ = vyaw_deadband;
+        outpost_vyaw_positive_is_ccw_ = vyaw_positive_is_ccw;
+        outpost_height_mismatch_penalty_ = height_mismatch_penalty;
+        for (auto & kv : trackers_) {
+            if (!kv.second) {
+                continue;
+            }
+            kv.second->setOutpostHeightTolerance(outpost_height_tol_);
+            kv.second->setOutpostVyawDeadband(outpost_vyaw_deadband_);
+            kv.second->setOutpostVyawPositiveIsCCW(outpost_vyaw_positive_is_ccw_);
+            kv.second->setOutpostHeightMismatchPenalty(outpost_height_mismatch_penalty_);
+        }
+    }
     /**
      * @brief 设置评分权重参数
      * 

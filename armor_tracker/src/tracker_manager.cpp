@@ -96,6 +96,12 @@ void TrackerManager::initNewTracker(
 {
     auto tracker = std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_);
     tracker->tracking_thres = tracking_thres_;
+    tracker->setOutpostZCacheWindowSec(outpost_z_cache_window_sec_);
+    tracker->setOutpostZMergeTolerance(outpost_z_merge_tol_);
+    tracker->setOutpostHeightTolerance(outpost_height_tol_);
+    tracker->setOutpostVyawDeadband(outpost_vyaw_deadband_);
+    tracker->setOutpostVyawPositiveIsCCW(outpost_vyaw_positive_is_ccw_);
+    tracker->setOutpostHeightMismatchPenalty(outpost_height_mismatch_penalty_);
 
     // 复制 EKF 模板
     tracker->ekf = ekf_template_;
