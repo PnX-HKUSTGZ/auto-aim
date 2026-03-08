@@ -47,6 +47,15 @@ struct RuneDetectorParam
     //! 是否启用神符中心强制构造窗口
     bool ENABLE_CENTER_FORCE_CONSTRUCT_WINDOW = true;
 
+    // >>>>>>>>>> [新增代码开始] >>>>>>>>>>
+    //! 是否开启形态学闭运算以修复断裂特征
+    bool ENABLE_MORPHOLOGY = false;
+    //! 形态学操作的核大小 (建议为3或5)
+    int MORPHOLOGY_KERNEL_SIZE = 3;
+    //! 形态学操作的迭代次数
+    int MORPHOLOGY_ITERATIONS = 1;
+    // <<<<<<<<<< [新增代码结束] <<<<<<<<<<
+
     YML_INIT(
         RuneDetectorParam,
         YML_ADD_PARAM(GRAY_THRESHOLD_RED);
@@ -66,7 +75,12 @@ struct RuneDetectorParam
         YML_ADD_PARAM(MAX_MATCH_DEVIATION_RATIO);
         YML_ADD_PARAM(ESTIMATE_CENTER_VALID_TIME);
         YML_ADD_PARAM(CENTER_FORCE_CONSTRUCT_WINDOW_RATIO);
-        YML_ADD_PARAM(ENABLE_CENTER_FORCE_CONSTRUCT_WINDOW);)
+        YML_ADD_PARAM(ENABLE_CENTER_FORCE_CONSTRUCT_WINDOW);
+        // >>>>>>>>>> [新增代码开始] >>>>>>>>>>
+        YML_ADD_PARAM(ENABLE_MORPHOLOGY);
+        YML_ADD_PARAM(MORPHOLOGY_KERNEL_SIZE);
+        YML_ADD_PARAM(MORPHOLOGY_ITERATIONS);)
+        // <<<<<<<<<< [新增代码结束] <<<<<<<<<<
 };
 
 //! RuneDetectorParam 参数模块

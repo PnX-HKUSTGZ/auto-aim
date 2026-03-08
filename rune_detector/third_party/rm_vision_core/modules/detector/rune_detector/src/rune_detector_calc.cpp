@@ -75,6 +75,20 @@ void RuneDetector::binary(const cv::Mat &src, cv::Mat &bin, PixChannel target_co
                                     data_bin[col] = 255;
                         }
                     });
+    // >>>>>>>>>> [新增代码开始] >>>>>>>>>>
+    // 应用形态学闭运算修复断裂
+    if (rune_detector_param.ENABLE_MORPHOLOGY)
+    {
+        int k_size = rune_detector_param.MORPHOLOGY_KERNEL_SIZE;
+        if (k_size > 0)
+        {
+            // 获取结构元素 (核)
+            cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(k_size, k_size));
+            // 执行闭运算
+            cv::morphologyEx(bin, bin, cv::MORPH_CLOSE, kernel, cv::Point(-1, -1), rune_detector_param.MORPHOLOGY_ITERATIONS);
+        }
+    }
+    // <<<<<<<<<< [新增代码结束] <<<<<<<<<<
 }
 
 bool RuneDetector::filterInactiveTarget(std::vector<FeatureNode_ptr> &inactive_targets)
