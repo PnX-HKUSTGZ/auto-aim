@@ -45,8 +45,9 @@ void TrackerManager::update(
 {
     rclcpp::Time msg_time = armors_msg->header.stamp;
     if (trackers_.empty()) {
-        RCLCPP_WARN(
-            rclcpp::get_logger("armor_tracker"),
+        static rclcpp::Clock warn_clock(RCL_SYSTEM_TIME);
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("armor_tracker"), warn_clock, 2000,
             "No active trackers available. Initializing new trackers if possible.");
     }
 
