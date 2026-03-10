@@ -89,13 +89,29 @@ public:
 };
 
 /**
+ * @brief 深度缩放因子顶点
+ * 
+ * 用于在BA优化中修正PnP估计的深度/距离
+ */
+class VertexScale : public g2o::BaseVertex<1, double>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    VertexScale() = default;
+    void setToOriginImpl() override { _estimate = 1.0; }
+    void oplusImpl(const double * update) override { _estimate += update[0]; }
+    bool read(std::istream & in) override { return true; }
+    bool write(std::ostream & out) const override { return true; }
+};
+
+/**
  * @brief 投影误差边
  * 
  * 图优化中用于计算特定偏航角下装甲板的重投影误差
- * 该边连接 VertexYaw 和 VertexPointXYZ 两种顶点
+ * 该边连接 VertexYaw、VertexPointXYZ 和 VertexScale 三种顶点
  */
 class EdgeProjection
-: public g2o::BaseBinaryEdge<2, Eigen::Vector2d, VertexYaw, g2o::VertexPointXYZ>
+: public g2o::BaseMultiEdge<2, Eigen::Vector2d>
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;

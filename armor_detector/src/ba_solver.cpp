@@ -95,6 +95,8 @@ void BaSolver::solveBa(
 
     auto * v_yaw = dynamic_cast<VertexYaw *>(optimizer_.vertex(id_counter++));
     v_yaw->setEstimate(initial_armor_yaw);
+    auto * v_scale = dynamic_cast<VertexScale *>(optimizer_.vertex(id_counter++));
+    v_scale->setEstimate(1.0);
     for (size_t i = 0; i < 4; i++) {
         auto * v_point = dynamic_cast<g2o::VertexPointXYZ *>(optimizer_.vertex(id_counter++));
         v_point->setEstimate(
@@ -115,70 +117,23 @@ void BaSolver::solveBa(
     // 执行优化
     optimizer_.initializeOptimization();
     optimizer_.optimize(30);
-    // Get yaw angle after optimization
+    // Get yaw angle and scale after optimization
     double yaw_optimized = v_yaw->estimate();
+    double scale_optimized = v_scale->estimate();
 
-    if (std::isnan(yaw_optimized)) {
-        RCLCPP_ERROR(rclcpp::get_logger("armor_detector"), "Yaw angle is nan after optimization");
+    if (std::isnan(yaw_optimized) || std::isnan(scale_optimized)) {
+        RCLCPP_ERROR(
+            rclcpp::get_logger("armor_detector"),
+            "Optimization result is nan (yaw=%f, scale=%f)", yaw_optimized, scale_optimized);
         return;
     }
+    // 限制缩放因子在合理范围内，防止异常值
+    scale_optimized = std::clamp(scale_optimized, 0.5, 2.0);
+    // 应用深度缩放修正
+    t_camera_armor *= scale_optimized;
+
     Sophus::SO3d R_yaw = Sophus::SO3d::exp(Eigen::Vector3d(0, 0, yaw_optimized));
     r_odom_armor = (R_yaw * R_pitch).matrix();
-    // 通过左右两条边之间的距离矫正深度。
-    // 使用两条边相互到对方直线的点到线距离，并取中位数，提升对角点噪声和离群点的鲁棒性。
-    auto calcLateralEdgeGap = [](const auto & p0, const auto & p1, const auto & q0, const auto & q1)
-        -> double {
-            auto toEigen2 = [](const auto & p) -> Eigen::Vector2d {
-                if constexpr (std::is_same_v<std::decay_t<decltype(p)>, cv::Point2f>) {
-                    return Eigen::Vector2d(p.x, p.y);
-                } else {
-                    return Eigen::Vector2d(p.x(), p.y());
-                }
-            };
-
-            const Eigen::Vector2d p0v = toEigen2(p0);
-            const Eigen::Vector2d p1v = toEigen2(p1);
-            const Eigen::Vector2d q0v = toEigen2(q0);
-            const Eigen::Vector2d q1v = toEigen2(q1);
-
-            auto pointToLineDistance = [](const Eigen::Vector2d & x, const Eigen::Vector2d & a,
-                                          const Eigen::Vector2d & b) -> double {
-                const Eigen::Vector2d d = b - a;
-                const double n = d.norm();
-                if (n < 1e-9) {
-                    return (x - a).norm();
-                }
-                const Eigen::Vector2d n_hat(-d.y() / n, d.x() / n);
-                return std::abs((x - a).dot(n_hat));
-            };
-
-            std::array<double, 4> distances = {
-                pointToLineDistance(q0v, p0v, p1v), pointToLineDistance(q1v, p0v, p1v),
-                pointToLineDistance(p0v, q0v, q1v), pointToLineDistance(p1v, q0v, q1v)};
-            std::sort(distances.begin(), distances.end());
-            return 0.5 * (distances[1] + distances[2]);
-        };
-
-    const double lateral_gap_measure = calcLateralEdgeGap(
-        landmarks[3], landmarks[0], landmarks[1], landmarks[2]);
-    Eigen::Vector2d expect_points[4];
-    for (size_t i = 0; i < 4; i++) {
-        expect_points[i] =
-            (R_odom_to_camera * r_odom_armor * object_points[i] + t_camera_armor).hnormalized();
-    }
-
-    const double lateral_gap_expect = calcLateralEdgeGap(
-        expect_points[3], expect_points[0], expect_points[1], expect_points[2]);
-
-    if (lateral_gap_measure > 1e-9 && std::isfinite(lateral_gap_measure) &&
-        std::isfinite(lateral_gap_expect) && lateral_gap_expect > 0.0) {
-        t_camera_armor *= lateral_gap_expect / lateral_gap_measure;
-    } else {
-        RCLCPP_WARN(
-            rclcpp::get_logger("armor_detector"),
-            "Skip distance correction due to invalid lateral edge gap (measure=%.6f, expect=%.6f)",
-            lateral_gap_measure, lateral_gap_expect);
-    }
     t_odom_armor = R_camera_to_odom * t_camera_armor + t_camera_to_odom;
 
     return;
@@ -364,7 +319,10 @@ void BaSolver::initializeOneArmorsOptimization(g2o::SparseOptimizer & optimizer)
     v_yaw->setId(id_counter++);
     optimizer.addVertex(v_yaw);
 
-    // cv::undistortPoints(landmarks, landmarks, camera_matrix_, dist_coeffs_);
+    VertexScale * v_scale = new VertexScale();
+    v_scale->setId(id_counter++);
+    optimizer.addVertex(v_scale);
+
     for (size_t i = 0; i < 4; i++) {
         g2o::VertexPointXYZ * v_point = new g2o::VertexPointXYZ();
         v_point->setId(id_counter++);
@@ -375,6 +333,7 @@ void BaSolver::initializeOneArmorsOptimization(g2o::SparseOptimizer & optimizer)
         edge->setId(i);
         edge->setVertex(0, v_yaw);
         edge->setVertex(1, v_point);
+        edge->setVertex(2, v_scale);
         edge->setInformation(EdgeProjection::InfoMatrixType::Identity());
         edge->setRobustKernel(new g2o::RobustKernelHuber);
         optimizer.addEdge(edge);

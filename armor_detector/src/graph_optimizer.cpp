@@ -30,7 +30,7 @@ namespace rm_auto_aim
 {
 
 void VertexYaw::oplusImpl(const double * update) { _estimate += update[0]; }
-EdgeProjection::EdgeProjection() {}
+EdgeProjection::EdgeProjection() { resize(3); }
 void EdgeProjection::setCameraPose(
     const Sophus::SO3d & R_odom_to_camera, const Eigen::Vector3d & t_camera_armor)
 {
@@ -50,10 +50,12 @@ void EdgeProjection::computeError()
 
     // 获取 3D 点
     const Eigen::Vector3d & p_3d = static_cast<g2o::VertexPointXYZ *>(_vertices[1])->estimate();
+    // 获取深度缩放因子
+    double scale = static_cast<VertexScale *>(_vertices[2])->estimate();
     const Eigen::Vector2d & obs = _measurement;
 
-    // 利用预计算结果减少乘法次数
-    Eigen::Vector3d p = K_ * (Rz * p_3d) + t_;
+    // 利用预计算结果减少乘法次数（scale 修正平移向量）
+    Eigen::Vector3d p = K_ * (Rz * p_3d) + scale * t_;
     p /= p.z();
 
     // 计算重投影误差
