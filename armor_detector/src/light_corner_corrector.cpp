@@ -85,10 +85,6 @@ void LightCornerCorrector::correctCorners(Armor & armor, const cv::Mat & gray_im
         if (cv::Point2f b = findCorner(gray_img, armor.left_light, left_axis, "bottom"); b.x > 0) {
             armor.left_light.bottom = b;
         }
-        armor.left_light.tilt_angle = std::atan2(
-                                          armor.left_light.bottom.x - armor.left_light.top.x,
-                                          armor.left_light.bottom.y - armor.left_light.top.y) *
-                                      180 / CV_PI;
     }
 
     if (armor.right_light.width > PASS_OPTIMIZE_WIDTH) {
@@ -104,11 +100,15 @@ void LightCornerCorrector::correctCorners(Armor & armor, const cv::Mat & gray_im
             b.x > 0) {
             armor.right_light.bottom = b;
         }
-        armor.right_light.tilt_angle = std::atan2(
-                                           armor.right_light.bottom.x - armor.right_light.top.x,
-                                           armor.right_light.bottom.y - armor.right_light.top.y) *
-                                       180 / CV_PI;
     }
+    armor.left_light.tilt_angle = std::atan2(
+                                        armor.left_light.bottom.x - armor.left_light.top.x,
+                                        armor.left_light.bottom.y - armor.left_light.top.y) *
+                                    180 / CV_PI;
+    armor.right_light.tilt_angle = std::atan2(
+                                        armor.right_light.bottom.x - armor.right_light.top.x,
+                                        armor.right_light.bottom.y - armor.right_light.top.y) *
+                                    180 / CV_PI;
     double theta_1 = armor.left_light.tilt_angle, theta_2 = armor.right_light.tilt_angle;
     armor.sign = (theta_1 + theta_2) / 2 <= 0;
 }
@@ -131,15 +131,19 @@ SymmetryAxis LightCornerCorrector::findSymmetryAxis(const cv::Mat & gray_img, co
         scaled_vertices[i] = center + vec;
     }
 
+    
+
     cv::RotatedRect scaled_rect(
         scaled_vertices[0],
         scaled_vertices[1],
         scaled_vertices[2]
     );
 
-    cv::Rect light_box = scaled_rect.boundingRect() & cv::Rect(0, 0, gray_img.cols, gray_img.rows);
+        
 
+    cv::Rect light_box = scaled_rect.boundingRect() & cv::Rect(0, 0, gray_img.cols, gray_img.rows);
     // 提取ROI并创建掩码
+    
     cv::Mat roi = gray_img(light_box).clone();
     cv::Mat mask = cv::Mat::zeros(roi.size(), CV_8UC1);
 

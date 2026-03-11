@@ -30,14 +30,17 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
   measurement(Eigen::VectorXd::Zero(4)),
   target_state(Eigen::VectorXd::Zero(19)),
   last_update_time_(0.0),
-  max_match_distance_(max_match_distance),
-  max_match_yaw_diff_(max_match_yaw_diff)
+  last_main_update_time_(0.0),
+    max_match_distance_(max_match_distance),
+    max_match_yaw_diff_(max_match_yaw_diff),
+    detect_count_(0)
 {
 }
 //初始化追踪器
 void Tracker::init(const Armors::SharedPtr & armors_msg)
 {
     if (armors_msg->armors.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("armor_tracker"), "Failed to init EKF with empty msg!");
         return;
     }
     if (armors_msg->armors[0].number == "outpost") {
@@ -102,13 +105,43 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
     tracked_id = tracked_armor.number;
     updateArmorsNum();
     tracker_state = DETECTING;  //将追踪状态设为detecting
+    last_update_time_ = armors_msg->header.stamp;
     return;
 }
 
-void Tracker::update(const Armors::SharedPtr & armors_msg)
+bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 //根据经过EKF加权后的观测和预测来更新装甲板的追踪状态
 {
-    // KF predict
+    rclcpp::Time msg_time = armors_msg->header.stamp; 
+
+    // 主/广角相机 决策逻辑
+    if (!is_main_camera) {
+        // // 如果是广角相机，且主相机在 100ms 内更新过，则忽略此帧广角数据
+        // std::cerr << "time since last main update: "
+        //           << (msg_time.seconds() - last_main_update_time_.seconds()) * 1000 << " ms"
+        //           << std::endl;
+        if ((msg_time.seconds() - last_main_update_time_.seconds()) < 0.1) {
+            RCLCPP_DEBUG(
+                rclcpp::get_logger("armor_tracker"),
+                "Ignoring wide camera data due to recent main camera update.");
+            return false;
+        }
+    }
+
+    if (msg_time.nanoseconds() < last_update_time_.nanoseconds()) {
+        static rclcpp::Clock main_warn_clock(RCL_SYSTEM_TIME);
+        static rclcpp::Clock wide_warn_clock(RCL_SYSTEM_TIME);
+        auto & warn_clock = is_main_camera ? main_warn_clock : wide_warn_clock;
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("armor_tracker"), warn_clock, 1000,
+            "msg received is too old, skip processing. source=%s",
+            is_main_camera ? "main" : "wide");
+        return false;
+    }
+    // KF predict（先做快照，未匹配则回滚）
+    auto ekf_backup = ekf;
+
+    ekf.setTimeInterval((msg_time - last_update_time_).seconds()); 
     Eigen::VectorXd ekf_prediction = ekf.predict();
     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF predict");
 
@@ -123,119 +156,71 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
 
     if (armors_msg->armors.empty()) {
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "No armors found, using EKF prediction");
-        return;
+        ekf = ekf_backup;
+        return matched;
     }
     // init tracker info
     twoD_distance = DBL_MAX;
     info_position_diff = DBL_MAX;
     info_yaw_diff = DBL_MAX;
-
-    // 前哨站专属更新逻辑（3块装甲板）
-    if (tracked_armors_num == ArmorsNum::OUTPOST_3) {
-        if (armors_msg->armors.size() == 1) {
-            int matched_id = matchArmor(armors_msg->armors[0], ekf_prediction);
+    if (armors_msg->armors.size() == 1) {
+        int matched_id = matchArmor(armors_msg->armors[0], ekf_prediction);
+        if (matched_id == 1) {
+            // Matched armor1 found
             tracked_armor = armors_msg->armors[0];
-                matched = true;
-                auto p = tracked_armor.pose.position;
-            if (matched_id == 1) {
-                double measured_yaw = orientationToYaw(
-                tracked_armor.pose.orientation, p, target_state(YAW1));
-                measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
-                constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
-                target_state = ekf.update1(measurement);
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Outpost EKF update1");
-            } else if (matched_id == 2){
-                double measured_yaw = orientationToYaw(
-                tracked_armor.pose.orientation, p, target_state(YAW2));
-                measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
-                constrainOutpostHeights(target_state(ZC2), target_state(ZC3), target_state(ZC1));
-                target_state = ekf.update2(measurement);
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Outpost EKF update2");
-            }
-            else if (matched_id == 3){
-                double measured_yaw = orientationToYaw(
-                tracked_armor.pose.orientation, p, target_state(YAW3));
-                measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
-                constrainOutpostHeights(target_state(ZC3), target_state(ZC1), target_state(ZC2));
-                target_state = ekf.update3(measurement);
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Outpost EKF update3");
-            }
-        }else {
-                RCLCPP_DEBUG(
-                    rclcpp::get_logger("armor_tracker"),
-                    "Reset outpost tracker by single armor(match failed)!");
-                init(armors_msg);
-                return;
-            }
-
-            target_state(R1) = target_state(R2) = target_state(R3) = 0.275;
-            ekf.setState(target_state);
-            
-            // // 每次update在EKF预测后同步当前状态中的ZC到z缓存容器
-            // z_slots_[0] = ekf_prediction(ZC1);
-            // z_slots_[1] = ekf_prediction(ZC2);
-            // z_slots_[2] = ekf_prediction(ZC3);
-        
-    } else {
-        // 原有4块板更新逻辑（不变）
-        if (armors_msg->armors.size() == 1) {
-            int matched_id = matchArmor(armors_msg->armors[0], ekf_prediction);
-            if (matched_id == 1) {
-                // Matched armor1 found
-                tracked_armor = armors_msg->armors[0];
-                matched = true;
-                auto p = tracked_armor.pose.position;
-                // Update EKF
-                double measured_yaw = orientationToYaw(
-                    tracked_armor.pose.orientation, p,
-                    target_state(YAW1));  //四元数方向转换为偏航角
-                measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
-                target_state = ekf.update1(measurement);
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1");
-            } else if (matched_id == 2) {
-                // Matched armor2 found
-                tracked_armor_2 = armors_msg->armors[0];
-                matched = true;
-                auto p = tracked_armor_2.pose.position;
-                // Update EKF
-                double measured_yaw = orientationToYaw(
-                    tracked_armor_2.pose.orientation, p,
-                    target_state(YAW2));  //四元数方向转换为偏航角
-                measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
-                target_state = ekf.update2(measurement);
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2");
-            } else {
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Reset tracker by single armor!");
-                init(armors_msg);
-                return;
-            }
+            matched = true;
+            auto p = tracked_armor.pose.position;
+            // Update EKF
+            double measured_yaw = orientationToYaw(
+                tracked_armor.pose.orientation, p,
+                target_state(YAW1));  //四元数方向转换为偏航角
+            measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
+            target_state = ekf.update1(measurement);
+            RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1");
+        } else if (matched_id == 2) {
+            // Matched armor2 found
+            tracked_armor_2 = armors_msg->armors[0];
+            matched = true;
+            auto p = tracked_armor_2.pose.position;
+            // Update EKF
+            double measured_yaw = orientationToYaw(
+                tracked_armor_2.pose.orientation, p,
+                target_state(YAW2));  //四元数方向转换为偏航角
+            measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
+            target_state = ekf.update2(measurement);
+            RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2");
+        } else {
+            RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by single armor!");
+            init(armors_msg);
+            return matched;
         }
-        if (armors_msg->armors.size() == 2) {
-            int matched_armor1 = matchArmor(armors_msg->armors[0], ekf_prediction);
-            int matched_armor2 = matchArmor(armors_msg->armors[1], ekf_prediction);
-            if (matched_armor1 == 0 || matched_armor2 == 0) {
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Reset tracker by two armors!");
-                init(armors_msg);
-                return;
-            }
-            if (matched_armor1 == 2 && matched_armor2 == 1) {
-                std::swap(armors_msg->armors[0], armors_msg->armors[1]);
-                std::swap(matched_armor1, matched_armor2);
-            }
-            if (matched_armor1 == 1 && matched_armor2 == 2) {
-                // Matched armor found
-                tracked_armor = armors_msg->armors[0];
-                tracked_armor_2 = armors_msg->armors[1];
-                matched = true;
-                auto p1 = tracked_armor.pose.position;
-                auto p2 = tracked_armor_2.pose.position;
-                // Update EKF
-                double yaw_a = orientationToYaw(
-                    tracked_armor.pose.orientation, p1,
-                    target_state(YAW1));  //四元数方向转换为偏航角
-                double yaw_b = orientationToYaw(
-                    tracked_armor_2.pose.orientation, p2,
-                    target_state(YAW2));  //四元数方向转换为偏航角
+    }
+    if (armors_msg->armors.size() == 2) {
+        int matched_armor1 = matchArmor(armors_msg->armors[0], ekf_prediction);
+        int matched_armor2 = matchArmor(armors_msg->armors[1], ekf_prediction);
+        if (matched_armor1 == 0 || matched_armor2 == 0) {
+            RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by two armors!");
+            init(armors_msg);
+            return matched;
+        }
+        if (matched_armor1 == 2 && matched_armor2 == 1) {
+            std::swap(armors_msg->armors[0], armors_msg->armors[1]);
+            std::swap(matched_armor1, matched_armor2);
+        }
+        if (matched_armor1 == 1 && matched_armor2 == 2) {
+            // Matched armor found
+            tracked_armor = armors_msg->armors[0];
+            tracked_armor_2 = armors_msg->armors[1];
+            matched = true;
+            auto p1 = tracked_armor.pose.position;
+            auto p2 = tracked_armor_2.pose.position;
+            // Update EKF
+            double yaw_a = orientationToYaw(
+                tracked_armor.pose.orientation, p1,
+                target_state(YAW1));  //四元数方向转换为偏航角
+            double yaw_b = orientationToYaw(
+                tracked_armor_2.pose.orientation, p2,
+                target_state(YAW2));  //四元数方向转换为偏航角
 
                 measurement = Eigen::VectorXd(10);
                 double xa = p1.x, ya = p1.y, xb = p2.x, yb = p2.y;
@@ -249,62 +234,100 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
                     measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
                 }
 
-                target_state = ekf.updateTwo(measurement);
-                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
-            } else {
-                RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
-                return;
-            }
+            target_state = ekf.updateTwo(measurement);
+            RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
+        } else {
+            RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
+            return matched;
         }
-        // 原有约束逻辑（不变）
-        for (int r_idx : {R1, R2}) {
-            target_state(r_idx) = fmax(target_state(r_idx), 0.2);
-            target_state(r_idx) = fmin(target_state(r_idx), 0.3);
+    }
+    if (tracked_armors_num == ArmorsNum::OUTPOST_3) {
+        target_state(R1) = target_state(R2) = 0.2765;  // 固定半径
+        // 约束速度
+        if (std::abs(std::abs(target_state(VYAW)) - 0.8 * M_PI) < 0.2 * M_PI) {
+            target_state(VYAW) = target_state(VYAW) > 0 ? 0.8 * M_PI : -0.8 * M_PI;
         }
-        if (target_state(YAW1) < -M_PI) {
-            target_state(YAW1) += 4 * M_PI / double(tracked_armors_num);
-            target_state(YAW2) += 4 * M_PI / double(tracked_armors_num);
-            ekf.setState(target_state);
-        }
-        if (target_state(YAW2) > M_PI) {
-            target_state(YAW1) -= 4 * M_PI / double(tracked_armors_num);
-            target_state(YAW2) -= 4 * M_PI / double(tracked_armors_num);
-            ekf.setState(target_state);
-        }
-        double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
-        target_state(YAW1) = yaw_average - M_PI / double(tracked_armors_num);
-        target_state(YAW2) = yaw_average + M_PI / double(tracked_armors_num);
         ekf.setState(target_state);
     }
+    // 防止半径扩散
+    for (int r_idx : {R1, R2}) {
+        target_state(r_idx) = fmax(target_state(r_idx), 0.2);
+        target_state(r_idx) = fmin(target_state(r_idx), 0.3); // hero: 0.4
+    }
+    // 防止yaw角度扩散
+    if (target_state(YAW1) < -M_PI) {
+        target_state(YAW1) += 4 * M_PI / double(tracked_armors_num);
+        target_state(YAW2) += 4 * M_PI / double(tracked_armors_num);
+        ekf.setState(target_state);
+    }
+    if (target_state(YAW2) > M_PI) {
+        target_state(YAW1) -= 4 * M_PI / double(tracked_armors_num);
+        target_state(YAW2) -= 4 * M_PI / double(tracked_armors_num);
+        ekf.setState(target_state);
+    }
+    double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
+    target_state(YAW1) = yaw_average - M_PI / double(tracked_armors_num);
+    target_state(YAW2) = yaw_average + M_PI / double(tracked_armors_num);
+    ekf.setState(target_state);
 
-    // 状态机逻辑（不变）
-    if (tracker_state == DETECTING) {
-        if (matched) {
-            detect_count_++;
-            if (detect_count_ > tracking_thres) {
-                detect_count_ = 0;
-                tracker_state = TRACKING;
+    if (!matched) {
+        ekf = ekf_backup;
+    }
+
+    return matched;
+}
+
+void Tracker::updateState(
+    bool matched, const rclcpp::Time & msg_time, double temp_lost_time, double lost_time_thres,
+    int tracking_thres, bool is_main_camera)
+{
+    if (matched) {
+        last_update_time_ = msg_time; 
+        if (is_main_camera) {
+            last_main_update_time_ = msg_time;
+        }
+    }
+
+    double time_since_update = (msg_time - last_update_time_).seconds();
+    if (time_since_update < 0) time_since_update = 0.0;
+
+    switch (tracker_state) {
+        case DETECTING:
+            if (matched) {
+                increaseDetectCount();
+                if (getDetectCount() > tracking_thres) {
+                    resetDetectCount();
+                    tracker_state = TRACKING;
+                }
+            } else {
+                resetDetectCount();
+                if (time_since_update > lost_time_thres) {
+                    tracker_state = LOST;
+                } else if (time_since_update > temp_lost_time) {
+                    tracker_state = TEMP_LOST;
+                }
             }
-        } else {
-            detect_count_ = 0;
-            tracker_state = LOST;
-        }
-    } else if (tracker_state == TRACKING) {
-        if (!matched) {
-            tracker_state = TEMP_LOST;
-            lost_count_++;
-        }
-    } else if (tracker_state == TEMP_LOST) {
-        if (!matched) {
-            lost_count_++;
-            if (lost_count_ > lost_thres) {
-                lost_count_ = 0;
+            break;
+        case TRACKING:
+            if (matched) {
+                resetDetectCount();
+            } else if (time_since_update > lost_time_thres) {
+                tracker_state = LOST;
+            } else if (time_since_update > temp_lost_time) {
+                tracker_state = TEMP_LOST;
+            }
+            break;
+        case TEMP_LOST:
+            if (matched) {
+                tracker_state = TRACKING;
+                resetDetectCount();
+            } else if (time_since_update > lost_time_thres) {
                 tracker_state = LOST;
             }
-        } else {
-            tracker_state = TRACKING;
-            lost_count_ = 0;
-        }
+            break;
+        case LOST:
+            resetDetectCount();
+            break;
     }
 }
 int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_prediction)

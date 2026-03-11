@@ -58,18 +58,44 @@ public:
 
     /**
      * @brief 更新追踪器状态
-     * 
-     * 根据新的装甲板观测数据更新追踪器状态，包括EKF预测和更新、
-     * 装甲板匹配、状态机转换等。
-     * 
+     *
+     * 执行EKF预测和更新，并返回当前帧是否成功匹配到装甲板。
+     * 匹配成功时会刷新last_update_time_，否则仅输出预测结果。
+     *
      * @param armors_msg 包含最新装甲板观测数据的消息
+     * @return true 当前帧找到匹配装甲板
+     * @return false 当前帧未找到匹配装甲板
      */
-    void update(const Armors::SharedPtr & armors_msg);
+    bool update(const Armors::SharedPtr & armors_msg, bool is_main_camera);
+
+    /**
+     * @brief 获取/维护检测计数
+     *
+     * 由TrackerManager外部状态机调用，避免重复在Tracker内部维护。
+     */
+    int getDetectCount() const { return detect_count_; }
+    void resetDetectCount() { detect_count_ = 0; }
+    void increaseDetectCount() { ++detect_count_; }
+
+    /**
+     * @brief 基于时间阈值更新状态机
+     *
+     * 使用msg_time与last_update_time_的时间差，对应匹配结果切换
+     * DETECTING/TRACKING/TEMP_LOST/LOST状态。
+     *
+     * @param matched 当前帧是否匹配到装甲板
+     * @param msg_time 当前消息时间戳
+     * @param temp_lost_time 进入TEMP_LOST的时间阈值
+     * @param lost_time_thres 进入LOST的时间阈值
+     * @param tracking_thres 进入TRACKING所需的连续检测帧数
+     */
+    void updateState(
+        bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
+        double lost_time_thres, int tracking_thres, bool is_main_camera);
 
     ExtendedKalmanFilter ekf;
 
     int tracking_thres;
-    int lost_thres;
 
     enum State {
         LOST,
@@ -91,7 +117,8 @@ public:
 
     Eigen::VectorXd target_state;
 
-    rclcpp::Time last_update_time_;  // 上次更新时间
+    rclcpp::Time last_update_time_;  // 上次有匹配的更新时间，也作为EKF时间基准
+    rclcpp::Time last_main_update_time_; // 上次主相机更新时间
 
 private:
     /**
@@ -199,7 +226,6 @@ private:
     // std::array<double, 3> z_slots_{{0.0, 0.0, 0.0}};
 
     int detect_count_;
-    int lost_count_;
 };
 
 }  // namespace rm_auto_aim

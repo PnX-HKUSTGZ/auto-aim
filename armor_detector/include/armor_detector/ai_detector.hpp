@@ -101,6 +101,9 @@ private:
     ov::Core core;                                          ///< OpenVINO 核心
     std::shared_ptr<ov::Model> model;                       ///< 模型
     ov::CompiledModel compiled_model;                       ///< 编译后的模型
+    ov::InferRequest infer_request_;                        ///< 复用的推理请求，避免频繁创建
+    ov::Tensor input_tensor_;                               ///< 输入张量复用，减少分配
+    cv::Mat contiguous_input_;                              ///< 连续内存的输入缓存
     std::unique_ptr<ov::preprocess::PrePostProcessor> ppp;  ///< 预处理器
 
     // 参数
