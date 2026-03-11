@@ -13,6 +13,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 // STD
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -165,6 +166,20 @@ private:
     int matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_prediction);
 
     /**
+     * @brief 对 outpost 单装甲观测场景下的未观测装甲板高度进行硬约束
+     *
+     * 第一个参数为当前观测到的装甲板高度，后两个参数为未观测装甲板高度。
+     * 该函数用于后续在 outpost 且 armors.size()==1 的更新流程中施加高度差约束。
+     *
+     * @param observed_armor_z 当前观测到的装甲板高度
+     * @param unobserved_armor_z_1 未观测装甲板1的高度（可被函数内修正）
+     * @param unobserved_armor_z_2 未观测装甲板2的高度（可被函数内修正）
+     */
+    void constrainOutpostHeights(
+        double observed_armor_z, double & unobserved_armor_z_1, double & unobserved_armor_z_2,
+        double height_diff = 0.102, double height_diff_threshold = 0.05);
+
+    /**
      * @brief 从状态向量计算装甲板位置
      * 
      * 根据EKF的状态向量（包含机器人中心位置、半径、偏航角等），
@@ -177,6 +192,11 @@ private:
 
     double max_match_distance_;
     double max_match_yaw_diff_;
+
+    // // 前哨站初始化轮转板序号：1 -> 2 -> 3 -> 1
+    // int r_ = 1;
+    // // z高度缓存槽位：0号槽对应1号板，1号槽对应2号板，2号槽对应3号板
+    // std::array<double, 3> z_slots_{{0.0, 0.0, 0.0}};
 
     int detect_count_;
     int lost_count_;
