@@ -40,9 +40,9 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions & options)
 {
     RCLCPP_INFO(this->get_logger(), "Starting RuneDetectorNode with Tiger Core!");
 
-    frame_id_ = declare_parameter("frame_id", "camera_optical_frame");
+    frame_id_ = declare_parameter("frame_id", "camera_main_optical_frame");
     binary_thresh_ = declare_parameter("binary_thresh", 100);
-    detect_color_ = declare_parameter("detect_color", 1) == 0 ? PixChannel::RED : PixChannel::BLUE;
+    detect_color_ = declare_parameter("detect_color", 0) == 0 ? PixChannel::RED : PixChannel::BLUE;
 
     tiger_detector_ = initDetector();
 
