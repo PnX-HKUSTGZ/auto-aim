@@ -222,6 +222,31 @@ void ArmorTrackerNode::initializeEKF()
         h(3, YAW2) = 1;
         return h;
     };
+    // h3 - Observation function for armor 3
+    auto h3 = [](const Eigen::VectorXd & x) {
+        Eigen::VectorXd z(4);
+        double xc = x(XC), yc = x(YC), yaw = x(YAW3), r = x(R3);
+        z(0) = xc - r * cos(yaw);  // xa
+        z(1) = yc - r * sin(yaw);  // ya
+        z(2) = x(ZC3);             // za
+        z(3) = x(YAW3);            // yaw
+        return z;
+    };
+    // J_h3 - Jacobian of observation function for armor 3
+    auto j_h3 = [](const Eigen::VectorXd & x) {
+        Eigen::MatrixXd h(4, 16);
+        h.setZero();
+        double yaw = x(YAW3), r = x(R3);
+        h(0, XC) = 1;
+        h(0, R3) = -cos(yaw);
+        h(0, YAW3) = r * sin(yaw);
+        h(1, YC) = 1;
+        h(1, R3) = -sin(yaw);
+        h(1, YAW3) = -r * cos(yaw);
+        h(2, ZC3) = 1;
+        h(3, YAW3) = 1;
+        return h;
+    };
     // h_two - Observation function for 2 armors
     auto h_two = [](const Eigen::VectorXd & x) {
         Eigen::VectorXd z(10);  // 2装甲板(8维) + R1/R2(2维)
@@ -264,69 +289,6 @@ void ArmorTrackerNode::initializeEKF()
 
         h(8, R1) = 1;
         h(9, R2) = 1;
-        return h;
-    };
-    // h_three - Observation function for 3 armors (outpost)
-    auto h_three = [](const Eigen::VectorXd & x) {
-        Eigen::VectorXd z(16);
-        double xc = x(XC), yc = x(YC);
-        double yaw1 = x(YAW1), yaw2 = x(YAW2), yaw3 = x(YAW3);
-        double r1 = x(R1), r2 = x(R2), r3 = x(R3);
-        z(0) = xc - r1 * cos(yaw1);  // xa1
-        z(1) = yc - r1 * sin(yaw1);  // ya1
-        z(2) = x(ZC1);               // za1
-        z(3) = yaw1;                 // yaw1
-        z(4) = xc - r2 * cos(yaw2);  // xa2
-        z(5) = yc - r2 * sin(yaw2);  // ya2
-        z(6) = x(ZC2);               // za2
-        z(7) = yaw2;                 // yaw2
-        z(8) = xc - r3 * cos(yaw3);  // xa3
-        z(9) = yc - r3 * sin(yaw3);  // ya3
-        z(10) = x(ZC3);              // za3
-        z(11) = yaw3;                // yaw3
-        z(12) = r1;                  // r1
-        z(13) = r2;                  // r2
-        z(14) = r3;                  // r3
-        z(15) = x(R_OUTPOST);        // R_OUTPOST
-        return z;
-    };
-    // J_h_three - Jacobian of observation function for 3 armors (outpost)
-    auto j_h_three = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(16, 16);
-        h.setZero();
-        double yaw1 = x(YAW1), yaw2 = x(YAW2), yaw3 = x(YAW3);
-        double r1 = x(R1), r2 = x(R2), r3 = x(R3);
-        h(0, XC) = 1;
-        h(0, R1) = -cos(yaw1);
-        h(0, YAW1) = r1 * sin(yaw1);
-        h(1, YC) = 1;
-        h(1, R1) = -sin(yaw1);
-        h(1, YAW1) = -r1 * cos(yaw1);
-        h(2, ZC1) = 1;
-        h(3, YAW1) = 1;
-
-        h(4, XC) = 1;
-        h(4, R2) = -cos(yaw2);
-        h(4, YAW2) = r2 * sin(yaw2);
-        h(5, YC) = 1;
-        h(5, R2) = -sin(yaw2);
-        h(5, YAW2) = -r2 * cos(yaw2);
-        h(6, ZC2) = 1;
-        h(7, YAW2) = 1;
-
-        h(8, XC) = 1;
-        h(8, R3) = -cos(yaw3);
-        h(8, YAW3) = r3 * sin(yaw3);
-        h(9, YC) = 1;
-        h(9, R3) = -sin(yaw3);
-        h(9, YAW3) = -r3 * cos(yaw3);
-        h(10, ZC3) = 1;
-        h(11, YAW3) = 1;
-
-        h(12, R1) = 1;
-        h(13, R2) = 1;
-        h(14, R3) = 1;
-        h(15, R_OUTPOST) = 1;
         return h;
     };
     // update_Q - process noise covariance matrix
@@ -400,21 +362,12 @@ void ArmorTrackerNode::initializeEKF()
             abs(x * z[5]), abs(x * z[6]), r_yaw, r_radius, r_radius;
         return r;
     };
-    auto u_r_three = [this](const Eigen::VectorXd & z) {
-        Eigen::DiagonalMatrix<double, 16> r;
-        double x = r_xyz_factor;
-        // 装甲板1/2/3的XYZ噪声 + YAW噪声 + R1/R2/R3/R_OUTPOST噪声
-        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw, abs(x * z[4]),
-            abs(x * z[5]), abs(x * z[6]), r_yaw, abs(x * z[8]), abs(x * z[9]), abs(x * z[10]),
-            r_yaw, r_radius, r_radius, r_radius, 1e-6;
-        return r;
-    };
     // P - error estimate covariance matrix
     Eigen::DiagonalMatrix<double, 16> p0;
     p0.setIdentity();
     // 创建 EKF 并设置到 TrackerManager 中
-    ExtendedKalmanFilter ekf{f, h1, h2, h_two, h_three, j_f, j_h1, j_h2, j_h_two, j_h_three,
-                             u_q, u_r, u_r_two, u_r_three, p0};
+    ExtendedKalmanFilter ekf{f, h1, h2, h3, h_two, j_f, j_h1, j_h2, j_h3, j_h_two, u_q, u_r,
+                             u_r_two, p0};
     tracker_manager_->setEKFTemplate(ekf);
 }
 

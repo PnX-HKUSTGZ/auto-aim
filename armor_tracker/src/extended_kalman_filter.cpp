@@ -5,26 +5,25 @@ namespace rm_auto_aim
 {
 
 ExtendedKalmanFilter::ExtendedKalmanFilter(
-    const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2, const VecVecFunc & h_two,
-    const VecVecFunc & h_three, const VecMatFunc & j_f, const VecMatFunc & j_h1,
-    const VecMatFunc & j_h2, const VecMatFunc & j_h_two, const VecMatFunc & j_h_three,
-    const VoidMatFunc & u_q, const VecMatFunc & u_r, const VecMatFunc & u_r_two,
-    const VecMatFunc & u_r_three, const Eigen::MatrixXd & P0)
+        const VecVecFunc & f, const VecVecFunc & h1, const VecVecFunc & h2, const VecVecFunc & h3,
+        const VecVecFunc & h_two, const VecMatFunc & j_f, const VecMatFunc & j_h1,
+        const VecMatFunc & j_h2, const VecMatFunc & j_h3, const VecMatFunc & j_h_two,
+        const VoidMatFunc & u_q, const VecMatFunc & u_r, const VecMatFunc & u_r_two,
+        const Eigen::MatrixXd & P0)
 : n(P0.rows()),  // 首先初始化系统维度
   f(f),
   h1(h1),
   h2(h2),
+    h3(h3),
   h_two(h_two),
-  h_three(h_three),
   jacobian_f(j_f),
   jacobian_h1(j_h1),
   jacobian_h2(j_h2),
+    jacobian_h3(j_h3),
   jacobian_h_two(j_h_two),
-  jacobian_h_three(j_h_three),
   update_Q(u_q),
   update_R(u_r),
   update_R_two(u_r_two),
-  update_R_three(u_r_three),
   I(Eigen::MatrixXd::Identity(n, n)),
   x_pri(n),
   x_post(n),
@@ -136,21 +135,6 @@ Eigen::VectorXd ExtendedKalmanFilter::update2(const Eigen::VectorXd & z)
 
 Eigen::VectorXd ExtendedKalmanFilter::update3(const Eigen::VectorXd & z)
 {
-    // 复用update2的逻辑，仅替换H3/jacobian_h3
-    static VecMatFunc jacobian_h3 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 16);
-        h.setZero();
-        double yaw = x(14), r = x(11);
-        h(0, 0) = 1;
-        h(0, 11) = -cos(yaw);
-        h(0, 14) = r * sin(yaw);
-        h(1, 2) = 1;
-        h(1, 11) = -sin(yaw);
-        h(1, 14) = -r * cos(yaw);
-        h(2, 6) = 1;
-        h(3, 14) = 1;
-        return h;
-    };
     Eigen::MatrixXd H3 = jacobian_h3(x_pri);
     R.noalias() = update_R(z);
     // 前哨站专属：给Δz/r设极小观测噪声（软约束）
@@ -159,18 +143,7 @@ Eigen::VectorXd ExtendedKalmanFilter::update3(const Eigen::VectorXd & z)
         R(3, 3) = 0.001;  // Yaw观测噪声极小
     }
     K.noalias() = computeKalmanGain(H3, R);
-    updateStateAndCovariance(
-        z, H3,
-        [](const Eigen::VectorXd & x) {
-            Eigen::VectorXd z(4);
-            double xc = x(0), yc = x(2), yaw = x(14), r = x(11);
-            z(0) = xc - r * cos(yaw);
-            z(1) = yc - r * sin(yaw);
-            z(2) = x(6);
-            z(3) = yaw;
-            return z;
-        },
-        K);
+    updateStateAndCovariance(z, H3, h3, K);
     return x_post;
 }
 
@@ -180,20 +153,6 @@ Eigen::VectorXd ExtendedKalmanFilter::updateTwo(const Eigen::VectorXd & z)
     R_two.noalias() = update_R_two(z);
     K.noalias() = computeKalmanGain(H_two, R_two);
     updateStateAndCovariance(z, H_two, h_two, K);
-    return x_post;
-}
-
-Eigen::VectorXd ExtendedKalmanFilter::updateThreeArmors(const Eigen::VectorXd & z)
-{
-    H_two.noalias() = jacobian_h_three(x_pri);
-    R_two.noalias() = update_R_three(z);
-    // 前哨站约束：半径观测噪声设为极小
-    if (R_two.rows() >= 16) {
-        R_two.block<3, 3>(12, 12) = Eigen::Matrix3d::Identity() * 0.001;  // r1/r2/r3噪声极小
-        R_two(15, 15) = 1e-6;                                             // r_outpost噪声极小
-    }
-    K.noalias() = computeKalmanGain(H_two, R_two);
-    updateStateAndCovariance(z, H_two, h_three, K);
     return x_post;
 }
 
