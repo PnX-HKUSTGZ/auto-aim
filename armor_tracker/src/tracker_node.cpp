@@ -142,9 +142,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 void ArmorTrackerNode::initializeEKF()
 {
     // EKF
-    // 状态向量更新为19维：
-    // xa = x_armor, xc = x_robot_center
-    // state: xc, v_xc, yc, v_yc, zc1, zc2, zc3, v_zc, v_yaw, r1, r2, r3, yaw1, yaw2, yaw3, dz1, dz2, dz3, r_outpost
+    // 状态向量为16维：
+    // state: xc, v_xc, yc, v_yc, zc1, zc2, zc3, v_zc, v_yaw, r1, r2, r3, yaw1, yaw2, yaw3, r_outpost
     // measurement: xa, ya, za, yaw
     // f - Process function
     auto f = [this](const Eigen::VectorXd & x) {
@@ -157,36 +156,20 @@ void ArmorTrackerNode::initializeEKF()
         x_new(YAW1) += x(VYAW) * dt_;
         x_new(YAW2) += x(VYAW) * dt_;
         x_new(YAW3) += x(VYAW) * dt_;
-        x_new(DZ1) = x(ZC2) - x(ZC1);
-        x_new(DZ2) = x(ZC3) - x(ZC2);
-        x_new(DZ3) = x(ZC1) - x(ZC3);
+        x_new(R_OUTPOST) = 0.275;
         return x_new;
     };
     // J_f - Jacobian of process function
     auto j_f = [this](const Eigen::VectorXd &) {
-        Eigen::MatrixXd f(19, 19);
-        f.setZero();
-        // clang-format off
-        f << 1,  dt_, 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // XC
-             0,   1,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VXC
-             0,   0,  1,  dt_, 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // YC
-             0,   0,  0,   1,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VYC
-             0,   0,  0,   0,  1,   0,   0,  dt_, 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // ZC1
-             0,   0,  0,   0,  0,   1,   0,  dt_, 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // ZC2
-             0,   0,  0,   0,  0,   0,   1,  dt_, 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // ZC3（新增）
-             0,   0,  0,   0,  0,   0,   0,   1,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VZC
-             0,   0,  0,   0,  0,   0,   0,   0,  1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VYAW
-             0,   0,  0,   0,  0,   0,   0,   0,  0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0, // R1
-             0,   0,  0,   0,  0,   0,   0,   0,  0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0, // R2
-             0,   0,  0,   0,  0,   0,   0,   0,  0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0, // R3（新增）
-             0,   0,  0,   0,  0,   0,   0,   0, dt_, 0,   0,   0,   1,   0,   0,   0,   0,   0,   0, // YAW1
-             0,   0,  0,   0,  0,   0,   0,   0, dt_, 0,   0,   0,   0,   1,   0,   0,   0,   0,   0, // YAW2
-             0,   0,  0,   0,  0,   0,   0,   0, dt_, 0,   0,   0,   0,   0,   1,   0,   0,   0,   0, // YAW3（新增）
-             0,   0,  0,   0, -1,   1,   0,   0,  0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0, // DZ1（新增：ZC2-ZC1）
-             0,   0,  0,   0,  0,  -1,   1,   0,  0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0, // DZ2（新增：ZC3-ZC2）
-             0,   0,  0,   0,  1,   0,  -1,   0,  0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0, // DZ3（新增：ZC1-ZC3）
-             0,   0,  0,   0,  0,   0,   0,   0,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1; // R_OUTPOST（新增）
-        // clang-format on
+        Eigen::MatrixXd f = Eigen::MatrixXd::Identity(16, 16);
+        f(XC, VXC) = dt_;
+        f(YC, VYC) = dt_;
+        f(ZC1, VZC) = dt_;
+        f(ZC2, VZC) = dt_;
+        f(ZC3, VZC) = dt_;
+        f(YAW1, VYAW) = dt_;
+        f(YAW2, VYAW) = dt_;
+        f(YAW3, VYAW) = dt_;
         return f;
     };
     // h1 - Observation function for armor 1
@@ -201,16 +184,17 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h1 - Jacobian of observation function for armor 1
     auto j_h1 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 19);
+        Eigen::MatrixXd h(4, 16);
         h.setZero();
         double yaw = x(YAW1), r = x(R1);
-        // clang-format off
-        //    xc vxc yc vyc zc1 zc2 zc3 vzc vyaw r1 r2 r3 yaw1 yaw2 yaw3 dz1 dz2 dz3 routpost
-        h <<  1,  0,  0,  0,  0,  0,  0,  0,  0, -cos(yaw), 0,  0, r*sin(yaw), 0,  0,  0,  0,  0,  0, // xa
-              0,  0,  1,  0,  0,  0,  0,  0,  0, -sin(yaw), 0,  0,-r*cos(yaw), 0,  0,  0,  0,  0,  0, // ya
-              0,  0,  0,  0,  1,  0,  0,  0,  0,        0,  0,  0,        0,  0,  0,  0,  0,  0,  0, // za
-              0,  0,  0,  0,  0,  0,  0,  0,  0,        0,  0,  0,        1,  0,  0,  0,  0,  0,  0; // yaw
-        // clang-format on
+        h(0, XC) = 1;
+        h(0, R1) = -cos(yaw);
+        h(0, YAW1) = r * sin(yaw);
+        h(1, YC) = 1;
+        h(1, R1) = -sin(yaw);
+        h(1, YAW1) = -r * cos(yaw);
+        h(2, ZC1) = 1;
+        h(3, YAW1) = 1;
         return h;
     };
     // h2 - Observation function for armor 2
@@ -225,15 +209,17 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h2 - Jacobian of observation function for armor 2
     auto j_h2 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 19);
+        Eigen::MatrixXd h(4, 16);
+        h.setZero();
         double yaw = x(YAW2), r = x(R2);
-        // clang-format off
-        //    xc vxc yc vyc zc1 zc2 zc3 vzc vyaw r1 r2 r3 yaw1 yaw2 yaw3 dz1 dz2 dz3 routpost
-        h <<  1,  0,  0,  0,  0,  0,  0,  0,  0,  0, -cos(yaw), 0,  0, r*sin(yaw), 0,  0,  0,  0,  0, // xa
-              0,  0,  1,  0,  0,  0,  0,  0,  0,  0, -sin(yaw), 0,  0,-r*cos(yaw), 0,  0,  0,  0,  0, // ya
-              0,  0,  0,  0,  0,  1,  0,  0,  0,  0,        0,  0,  0,        0,  0,  0,  0,  0,  0, // za
-              0,  0,  0,  0,  0,  0,  0,  0,  0,  0,        0,  0,  0,        1,  0,  0,  0,  0,  0; // yaw
-        // clang-format on
+        h(0, XC) = 1;
+        h(0, R2) = -cos(yaw);
+        h(0, YAW2) = r * sin(yaw);
+        h(1, YC) = 1;
+        h(1, R2) = -sin(yaw);
+        h(1, YAW2) = -r * cos(yaw);
+        h(2, ZC2) = 1;
+        h(3, YAW2) = 1;
         return h;
     };
     // h_two - Observation function for 2 armors
@@ -254,23 +240,30 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h_two - Jacobian of observation function for 2 armors
     auto j_h_two = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(10, 19);
+        Eigen::MatrixXd h(10, 16);
         h.setZero();
         double yaw1 = x(YAW1), yaw2 = x(YAW2);
         double r1 = x(R1), r2 = x(R2);
-        // clang-format off
-        // 列索引：0:XC,1:VXC,2:YC,3:VYC,4:ZC1,5:ZC2,6:ZC3,7:VZC,8:VYAW,9:R1,10:R2,11:R3,12:YAW1,13:YAW2,14:YAW3,15:DZ1,16:DZ2,17:DZ3,18:R_OUTPOST
-        h <<  1,   0,   0,   0,   0,   0,   0,   0,   0,   -cos(yaw1), 0,   0,   r1*sin(yaw1), 0,   0,   0,   0,   0,   0,   // xa1
-            0,   0,   1,   0,   0,   0,   0,   0,   0,   -sin(yaw1), 0,   0,   -r1*cos(yaw1),0,   0,   0,   0,   0,   0,   // ya1
-            0,   0,   0,   0,   1,   0,   0,   0,   0,   0,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // za1
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   0,   1,            0,   0,   0,   0,   0,   0,   // yaw1
-            1,   0,   0,   0,   0,   0,   0,   0,   0,   0,          -cos(yaw2),0,   0,            r2*sin(yaw2),0,   0,   0,   0,   0,   // xa2
-            0,   0,   1,   0,   0,   0,   0,   0,   0,   0,          -sin(yaw2),0,   0,            -r2*cos(yaw2),0,   0,   0,   0,   0,   // ya2
-            0,   0,   0,   0,   0,   1,   0,   0,   0,   0,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // za2
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   0,   0,            1,   0,   0,   0,   0,   0,   // yaw2
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   1,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // r1
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          1,   0,   0,            0,   0,   0,   0,   0,   0;   // r2
-        // clang-format on
+        h(0, XC) = 1;
+        h(0, R1) = -cos(yaw1);
+        h(0, YAW1) = r1 * sin(yaw1);
+        h(1, YC) = 1;
+        h(1, R1) = -sin(yaw1);
+        h(1, YAW1) = -r1 * cos(yaw1);
+        h(2, ZC1) = 1;
+        h(3, YAW1) = 1;
+
+        h(4, XC) = 1;
+        h(4, R2) = -cos(yaw2);
+        h(4, YAW2) = r2 * sin(yaw2);
+        h(5, YC) = 1;
+        h(5, R2) = -sin(yaw2);
+        h(5, YAW2) = -r2 * cos(yaw2);
+        h(6, ZC2) = 1;
+        h(7, YAW2) = 1;
+
+        h(8, R1) = 1;
+        h(9, R2) = 1;
         return h;
     };
     // h_three - Observation function for 3 armors (outpost)
@@ -299,29 +292,41 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h_three - Jacobian of observation function for 3 armors (outpost)
     auto j_h_three = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(16, 19);
+        Eigen::MatrixXd h(16, 16);
         h.setZero();
         double yaw1 = x(YAW1), yaw2 = x(YAW2), yaw3 = x(YAW3);
         double r1 = x(R1), r2 = x(R2), r3 = x(R3);
-        // clang-format off
-        // 列索引：0:XC,1:VXC,2:YC,3:VYC,4:ZC1,5:ZC2,6:ZC3,7:VZC,8:VYAW,9:R1,10:R2,11:R3,12:YAW1,13:YAW2,14:YAW3,15:DZ1,16:DZ2,17:DZ3,18:R_OUTPOST
-        h <<  1,   0,   0,   0,   0,   0,   0,   0,   0,   -cos(yaw1), 0,   0,   r1*sin(yaw1), 0,   0,   0,   0,   0,   0,   // xa1
-            0,   0,   1,   0,   0,   0,   0,   0,   0,   -sin(yaw1), 0,   0,   -r1*cos(yaw1),0,   0,   0,   0,   0,   0,   // ya1
-            0,   0,   0,   0,   1,   0,   0,   0,   0,   0,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // za1
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   0,   1,            0,   0,   0,   0,   0,   0,   // yaw1
-            1,   0,   0,   0,   0,   0,   0,   0,   0,   0,          -cos(yaw2),0,   0,            r2*sin(yaw2),0,   0,   0,   0,   0,   // xa2
-            0,   0,   1,   0,   0,   0,   0,   0,   0,   0,          -sin(yaw2),0,   0,            -r2*cos(yaw2),0,   0,   0,   0,   0,   // ya2
-            0,   0,   0,   0,   0,   1,   0,   0,   0,   0,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // za2
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   0,   0,            1,   0,   0,   0,   0,   0,   // yaw2
-            1,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   -cos(yaw3),0,   0,            r3*sin(yaw3),0,   0,   0,   0,   // xa3
-            0,   0,   1,   0,   0,   0,   0,   0,   0,   0,          0,   -sin(yaw3),0,   0,            -r3*cos(yaw3),0,   0,   0,   0,   // ya3
-            0,   0,   0,   0,   0,   0,   1,   0,   0,   0,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // za3
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   0,   0,            0,   1,   0,   0,   0,   0,   // yaw3
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   1,          0,   0,   0,            0,   0,   0,   0,   0,   0,   // r1
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          1,   0,   0,            0,   0,   0,   0,   0,   0,   // r2
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   1,   0,            0,   0,   0,   0,   0,   0,   // r3
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,          0,   0,   0,            0,   0,   0,   0,   0,   1;  // r_outpost
-        // clang-format on
+        h(0, XC) = 1;
+        h(0, R1) = -cos(yaw1);
+        h(0, YAW1) = r1 * sin(yaw1);
+        h(1, YC) = 1;
+        h(1, R1) = -sin(yaw1);
+        h(1, YAW1) = -r1 * cos(yaw1);
+        h(2, ZC1) = 1;
+        h(3, YAW1) = 1;
+
+        h(4, XC) = 1;
+        h(4, R2) = -cos(yaw2);
+        h(4, YAW2) = r2 * sin(yaw2);
+        h(5, YC) = 1;
+        h(5, R2) = -sin(yaw2);
+        h(5, YAW2) = -r2 * cos(yaw2);
+        h(6, ZC2) = 1;
+        h(7, YAW2) = 1;
+
+        h(8, XC) = 1;
+        h(8, R3) = -cos(yaw3);
+        h(8, YAW3) = r3 * sin(yaw3);
+        h(9, YC) = 1;
+        h(9, R3) = -sin(yaw3);
+        h(9, YAW3) = -r3 * cos(yaw3);
+        h(10, ZC3) = 1;
+        h(11, YAW3) = 1;
+
+        h(12, R1) = 1;
+        h(13, R2) = 1;
+        h(14, R3) = 1;
+        h(15, R_OUTPOST) = 1;
         return h;
     };
     // update_Q - process noise covariance matrix
@@ -330,7 +335,7 @@ void ArmorTrackerNode::initializeEKF()
     s2qyaw_ = declare_parameter("ekf.sigma2_q_yaw", 100.0);
     s2qr_ = declare_parameter("ekf.sigma2_q_r", 800.0);
     auto u_q = [this]() {
-        Eigen::MatrixXd q(19, 19);
+        Eigen::MatrixXd q(16, 16);
         q.setZero();
         double t = dt_, x = s2qxy_, z = s2qz_, y = s2qyaw_, r = s2qr_;
         double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x, q_vx_vx = pow(t, 2) * x;
@@ -339,28 +344,42 @@ void ArmorTrackerNode::initializeEKF()
         double q_yaw_yaw = pow(t, 4) / 4 * y, q_yaw_vyaw = pow(t, 3) / 2 * y,
                q_vyaw_vyaw = pow(t, 2) * y;
         double q_r = pow(t, 4) / 4 * r;
-        // clang-format off
-        //    xc      v_xc    yc      v_yc    zc1     zc2     zc3     v_zc    v_yaw   r1      r2      r3      yaw1    yaw2    yaw3    dz1     dz2     dz3     r_outpost
-        q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 0行: XC/VXC
-              q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 1行: XC/VXC
-              0,      0,      q_y_y,  q_y_vy, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 2行: YC/VYC
-              0,      0,      q_y_vy, q_vy_vy,0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 3行: YC/VYC
-              0,      0,      0,      0,      q_z_z,  0,      0,      q_z_vz, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 4行: ZC1
-              0,      0,      0,      0,      0,      q_z_z,  0,      q_z_vz, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 5行: ZC2
-              0,      0,      0,      0,      0,      0,      q_z_z,  q_z_vz, 0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 6行: ZC3 (新增)
-              0,      0,      0,      0,      q_z_vz, q_z_vz, q_z_vz, q_vz_vz,0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,          // 7行: VZC
-              0,      0,      0,      0,      0,      0,      0,      0,      q_vyaw_vyaw,0,      0,      0,      q_yaw_vyaw,q_yaw_vyaw,q_yaw_vyaw,0,      0,      0,      0,          // 8行: VYAW
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,      0,      0,      0,      0,      0,      0,      0,          // 9行: R1
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,      0,      0,      0,      0,      0,      0,          // 10行: R2
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      q_r,    0,      0,      0,      0,      0,      0,      0,          // 11行: R3 (新增)
-              0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw,0,      0,      0,      q_yaw_yaw,0,      0,      0,      0,      0,      0,          // 12行: YAW1
-              0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw,0,      0,      0,      0,      q_yaw_yaw,0,      0,      0,      0,      0,          // 13行: YAW2
-              0,      0,      0,      0,      0,      0,      0,      0,      q_yaw_vyaw,0,      0,      0,      0,      0,      q_yaw_yaw,0,      0,      0,      0,          // 14行: YAW3 (新增)
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1e-4,   0,      0,      0,          // 15行: DZ1 (小噪声)
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1e-4,   0,      0,          // 16行: DZ2 (小噪声)
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1e-4,   0,          // 17行: DZ3 (小噪声)
-              0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1e-6;     // 18行: R_OUTPOST (极小噪声)
-        // clang-format on
+        q(XC, XC) = q_x_x;
+        q(XC, VXC) = q_x_vx;
+        q(VXC, XC) = q_x_vx;
+        q(VXC, VXC) = q_vx_vx;
+
+        q(YC, YC) = q_y_y;
+        q(YC, VYC) = q_y_vy;
+        q(VYC, YC) = q_y_vy;
+        q(VYC, VYC) = q_vy_vy;
+
+        q(ZC1, ZC1) = q_z_z;
+        q(ZC2, ZC2) = q_z_z;
+        q(ZC3, ZC3) = q_z_z;
+        q(ZC1, VZC) = q_z_vz;
+        q(ZC2, VZC) = q_z_vz;
+        q(ZC3, VZC) = q_z_vz;
+        q(VZC, ZC1) = q_z_vz;
+        q(VZC, ZC2) = q_z_vz;
+        q(VZC, ZC3) = q_z_vz;
+        q(VZC, VZC) = q_vz_vz;
+
+        q(VYAW, VYAW) = q_vyaw_vyaw;
+        q(VYAW, YAW1) = q_yaw_vyaw;
+        q(VYAW, YAW2) = q_yaw_vyaw;
+        q(VYAW, YAW3) = q_yaw_vyaw;
+        q(YAW1, VYAW) = q_yaw_vyaw;
+        q(YAW2, VYAW) = q_yaw_vyaw;
+        q(YAW3, VYAW) = q_yaw_vyaw;
+        q(YAW1, YAW1) = q_yaw_yaw;
+        q(YAW2, YAW2) = q_yaw_yaw;
+        q(YAW3, YAW3) = q_yaw_yaw;
+
+        q(R1, R1) = q_r;
+        q(R2, R2) = q_r;
+        q(R3, R3) = q_r;
+        q(R_OUTPOST, R_OUTPOST) = 1e-6;
         return q;
     };
     // update_R - measurement noise covariance matrix
@@ -391,7 +410,7 @@ void ArmorTrackerNode::initializeEKF()
         return r;
     };
     // P - error estimate covariance matrix
-    Eigen::DiagonalMatrix<double, 19> p0;
+    Eigen::DiagonalMatrix<double, 16> p0;
     p0.setIdentity();
     // 创建 EKF 并设置到 TrackerManager 中
     ExtendedKalmanFilter ekf{f, h1, h2, h_two, h_three, j_f, j_h1, j_h2, j_h_two, j_h_three,

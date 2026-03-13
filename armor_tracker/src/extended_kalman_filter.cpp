@@ -1,4 +1,5 @@
 #include "armor_tracker/extended_kalman_filter.hpp"
+#include "armor_tracker/types.hpp"
 
 namespace rm_auto_aim
 {
@@ -44,7 +45,7 @@ ExtendedKalmanFilter::ExtendedKalmanFilter(
 
 void ExtendedKalmanFilter::setTimeInterval(double dt)
 {
-    // 更新状态转移函数，适配19维状态向量
+    // 更新状态转移函数，适配16维状态向量
     f = [dt](const Eigen::VectorXd & x) {
         Eigen::VectorXd x_new = x;
         // 更新位置: 位置 + 速度 * 时间
@@ -58,42 +59,23 @@ void ExtendedKalmanFilter::setTimeInterval(double dt)
         x_new(12) += x(8) * dt;  // yaw1 = yaw1 + v_yaw * dt
         x_new(13) += x(8) * dt;  // yaw2 = yaw2 + v_yaw * dt
         x_new(14) += x(8) * dt;  // yaw3 = yaw3 + v_yaw * dt
-
-        // 前哨站高差约束：Δz保持恒定（软约束）
-        x_new(15) = x(5) - x(4);
-        x_new(16) = x(6) - x(5);
-        x_new(17) = x(4) - x(6);
         // 前哨站半径约束：固定基准半径
-        x_new(18) = 0.2765;  // 前哨站固定半径值
+        x_new(15) = 0.275;  // 前哨站固定半径值
 
         return x_new;
     };
 
     // 同时更新对应的雅可比矩阵函数
     jacobian_f = [dt](const Eigen::VectorXd &) {
-        Eigen::MatrixXd f(19, 19);
-        f.setZero();  // 先初始化全零，避免未初始化的随机值
-        // clang-format off
-        f<< 1,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // XC = XC + VXC*dt
-            0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VXC = VXC
-            0,   0,   1,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // YC = YC + VYC*dt
-            0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VYC = VYC
-            0,   0,   0,   0,   1,   0,   0,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // ZC1 = ZC1 + VZC*dt
-            0,   0,   0,   0,   0,   1,   0,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // ZC2 = ZC2 + VZC*dt
-            0,   0,   0,   0,   0,   0,   1,  dt,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // ZC3 = ZC3 + VZC*dt
-            0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VZC = VZC
-            0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // VYAW = VYAW
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0, // R1 = R1
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,   0, // R2 = R2
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0, // R3 = R3
-            0,   0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0, // YAW1 = YAW1 + VYAW*dt
-            0,   0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0, // YAW2 = YAW2 + VYAW*dt
-            0,   0,   0,   0,   0,   0,   0,   0,  dt,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0, // YAW3 = YAW3 + VYAW*dt
-            0,   0,   0,   0,  -1,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0, // DZ1 = ZC2 - ZC1 (Δz1=ZC2-ZC1)
-            0,   0,   0,   0,   0,  -1,   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,   0, // DZ2 = ZC3 - ZC2 (Δz2=ZC3-ZC2)
-            0,   0,   0,   0,   1,   0,  -1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   0, // DZ3 = ZC1 - ZC3 (Δz3=ZC1-ZC3)
-            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1; // R_OUTPOST = R_OUTPOST (固定值)
-        // clang-format on
+        Eigen::MatrixXd f = Eigen::MatrixXd::Identity(16, 16);
+        f(XC, VXC) = dt;
+        f(YC, VYC) = dt;
+        f(ZC1, VZC) = dt;
+        f(ZC2, VZC) = dt;
+        f(ZC3, VZC) = dt;
+        f(YAW1, VYAW) = dt;
+        f(YAW2, VYAW) = dt;
+        f(YAW3, VYAW) = dt;
         return f;
     };
 }
@@ -156,7 +138,7 @@ Eigen::VectorXd ExtendedKalmanFilter::update3(const Eigen::VectorXd & z)
 {
     // 复用update2的逻辑，仅替换H3/jacobian_h3
     static VecMatFunc jacobian_h3 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 19);
+        Eigen::MatrixXd h(4, 16);
         h.setZero();
         double yaw = x(14), r = x(11);
         h(0, 0) = 1;
@@ -172,7 +154,7 @@ Eigen::VectorXd ExtendedKalmanFilter::update3(const Eigen::VectorXd & z)
     Eigen::MatrixXd H3 = jacobian_h3(x_pri);
     R.noalias() = update_R(z);
     // 前哨站专属：给Δz/r设极小观测噪声（软约束）
-    if (x_post(18) > 0) {
+    if (x_post(R_OUTPOST) > 0) {
         R(2, 2) = 0.001;  // Z轴观测噪声极小
         R(3, 3) = 0.001;  // Yaw观测噪声极小
     }
