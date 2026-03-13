@@ -40,7 +40,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     // 初始化tracker管理器
     tracker_manager_ = std::make_unique<TrackerManager>(
         this->declare_parameter("tracker.max_match_distance", 0.15),
-        this->declare_parameter("tracker.max_match_yaw_diff", 0.3),
+        this->declare_parameter("tracker.max_match_yaw_diff", 1.0),
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
         this->declare_parameter("tracker.lost_time_thres", 0.3),
         this->declare_parameter("tracker.switch_cooldown", 1.0));

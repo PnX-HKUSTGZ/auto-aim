@@ -10,6 +10,8 @@
 
 #include <cmath>
 #include <iostream>
+#include <algorithm>
+#include <opencv2/core.hpp>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -40,9 +42,9 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff)
 //初始化追踪器
 void Tracker::init(const Armors::SharedPtr & armors_msg)
 {
-    // RCLCPP_INFO(
-    //     rclcpp::get_logger("armor_tracker"), "Tracker init called at %.6f s",
-    //     rclcpp::Time(armors_msg->header.stamp).seconds());
+    RCLCPP_INFO(
+        rclcpp::get_logger("armor_tracker"), "Tracker init called at %.6f s",
+        rclcpp::Time(armors_msg->header.stamp).seconds());
     if (armors_msg->armors.empty()) {
         RCLCPP_ERROR(rclcpp::get_logger("armor_tracker"), "Failed to init EKF with empty msg!");
         return;
@@ -185,15 +187,15 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 if (matched_id == 1) {
                     target_state = ekf.update1(measurement);
                     constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
-                    RCLCPP_INFO(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
+                    RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
                 } else if (matched_id == 2) {
                     target_state = ekf.update2(measurement);
                     constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
-                    RCLCPP_INFO(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
+                    RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
                 } else {
                     target_state = ekf.update3(measurement);
                     constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
-                    RCLCPP_INFO(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
+                    RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
                 
                 } 
             }else {
@@ -412,26 +414,40 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
 
         // 优先匹配最小差值
         double min_diff = std::min({yaw_diff_1, yaw_diff_2, yaw_diff_3});
-        if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_ &&
-            position_diff_1 < max_match_distance_) {
+        if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_+0.5 //&&
+            //position_diff_1 < max_match_distance_
+            ) {
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_1);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_1);
+            std::cerr<<"匹配了1";
             return 1;
         } else if (
-            min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_ &&
-            position_diff_2 < max_match_distance_) {
+            min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_+0.5 //&&
+            //position_diff_2 < max_match_distance_
+            ) {
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_2);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_2);
+            std::cerr<<"匹配了2";
             return 2;
         } else if (
-            min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_ &&
-            position_diff_3 < max_match_distance_) {
+            min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_+0.5 //&&
+            //position_diff_3 < max_match_distance_
+            ) {
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_3);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_3);
+            std::cerr<<"匹配了3";
             return 3;  // 第三块板匹配
+        }else{
+            double a =min_diff-max_match_yaw_diff_;
+            // double b =std::min({position_diff_1-max_match_distance_,position_diff_2-max_match_distance_,position_diff_3-max_match_distance_});
+            // if (b == position_diff_1 - max_match_distance_){std::cerr<<"距离用了1";}else if (b == position_diff_2 - max_match_distance_){std::cerr<<"距离用了2";}
+            // else if (b == position_diff_3 - max_match_distance_){std::cerr<<"距离用了3";}
+            if (min_diff == yaw_diff_1){std::cerr<<"角度用了1"<<"距离差为"<<position_diff_1-max_match_distance_;}else if (min_diff == yaw_diff_2){std::cerr<<"角度用了2"<<"距离差为"<<position_diff_2-max_match_distance_;;}
+            else if (min_diff == yaw_diff_3){std::cerr<<"角度用了3"<<"距离差为"<<position_diff_3-max_match_distance_;;}
+            std::cerr<<"没匹配上，角度差为:"<<a;
         }
         return 0;
     } else {
