@@ -87,10 +87,12 @@ public:
      * @param temp_lost_time 进入TEMP_LOST的时间阈值
      * @param lost_time_thres 进入LOST的时间阈值
      * @param tracking_thres 进入TRACKING所需的连续检测帧数
+        * @param miss_match_time_thres 进入MISS_MATCH的时间阈值
+        * @param is_main_camera 当前帧是否来自主相机
      */
     void updateState(
         bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
-        double lost_time_thres, int tracking_thres, bool is_main_camera);
+        double lost_time_thres, int tracking_thres, double miss_match_time_thres, bool is_main_camera);
 
     ExtendedKalmanFilter ekf;
 
@@ -101,6 +103,7 @@ public:
         DETECTING,
         TRACKING,
         TEMP_LOST,
+        MISS_MATCH,
     } tracker_state;
 
     std::string tracked_id;

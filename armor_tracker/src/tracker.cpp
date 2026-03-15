@@ -140,9 +140,9 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
         } else {
             RCLCPP_WARN(
                 rclcpp::get_logger("armor_tracker"),
-                "Single armor miss, keep prediction and enter TEMP_LOST instead of reset.");
+                "Single armor miss, keep prediction and enter MISS_MATCH instead of reset.");
             if (tracker_state == TRACKING || tracker_state == DETECTING) {
-                tracker_state = TEMP_LOST;
+                tracker_state = MISS_MATCH;
             }
         }
     }
@@ -152,9 +152,9 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
         if (matched_armor1 == 0 || matched_armor2 == 0) {
             RCLCPP_WARN(
                 rclcpp::get_logger("armor_tracker"),
-                "Two-armors miss, keep prediction and enter TEMP_LOST instead of reset.");
+                "Two-armors miss, keep prediction and enter MISS_MATCH instead of reset.");
             if (tracker_state == TRACKING || tracker_state == DETECTING) {
-                tracker_state = TEMP_LOST;
+                tracker_state = MISS_MATCH;
             }
         }
         if (matched_armor1 != 0 && matched_armor2 != 0) {
@@ -236,7 +236,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
 void Tracker::updateState(
     bool matched, const rclcpp::Time & msg_time, double temp_lost_time, double lost_time_thres,
-    int tracking_thres, bool is_main_camera)
+    int tracking_thres, double miss_match_time_thres, bool is_main_camera)
 {
     if (matched) {
         last_update_time_ = msg_time; 
@@ -281,6 +281,14 @@ void Tracker::updateState(
             } else if (time_since_update > lost_time_thres) {
                 tracker_state = LOST;
             }
+            break;
+        case MISS_MATCH:
+            if (matched) {
+                tracker_state = TRACKING;
+                resetDetectCount();
+            } else if (time_since_update > miss_match_time_thres) {
+                tracker_state = LOST; // 较短时间未匹配上，直接转为LOST
+            } 
             break;
         case LOST:
             resetDetectCount();
