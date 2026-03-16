@@ -3,6 +3,7 @@
 
 // STD
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> 
 #include <iostream>
 #include <memory>
 #include <opencv2/calib3d.hpp>
@@ -40,6 +41,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         this->declare_parameter("tracker.max_match_yaw_diff", 1.0),
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
         this->declare_parameter("tracker.lost_time_thres", 0.3),
+        this->declare_parameter("tracker.miss_match_time_thres", 0.03), // 新增错匹配时间阈值
         this->declare_parameter("tracker.switch_cooldown", 1.0));
 
     // 设置评分权重参数
@@ -392,14 +394,38 @@ void ArmorTrackerNode::processArmors(
     const cv::Point2f & cam_center, const std::string & frame_id, bool is_main_camera)
 {
 
-    // 手动执行坐标变换 (替代 tf2_filter)
+     // 手动执行坐标变换 (替代 tf2_filter)
     for (auto & armor : armors_msg->armors) {
         geometry_msgs::msg::PoseStamped ps;
         ps.header = armors_msg->header;
         ps.pose = armor.pose;
         try {
-            armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
+            // 首先尝试获取与图像时间戳严格匹配的 TF (不阻塞等待)
+            geometry_msgs::msg::TransformStamped transform = tf2_buffer_->lookupTransform(
+                target_frame_, 
+                ps.header.frame_id, 
+                ps.header.stamp);
+            
+            tf2::doTransform(ps, ps, transform);
+            armor.pose = ps.pose;
+        } catch (const tf2::ExtrapolationException & ex) {
+            // 如果 TF 没赶上来（请求的时间在未来），不等待，直接取最新可用的 TF 
+            try {
+                // tf2::TimePointZero 表示直接抓取 TF 树里当前缓冲的最新的那个变换
+                geometry_msgs::msg::TransformStamped fallback_transform = tf2_buffer_->lookupTransform(
+                    target_frame_, 
+                    ps.header.frame_id, 
+                    tf2::TimePointZero);
+                
+                tf2::doTransform(ps, ps, fallback_transform);
+                armor.pose = ps.pose;
+                RCLCPP_WARN(get_logger(), "can't use target_frame for TF, use newest instead: %s", ex.what());
+            } catch (const tf2::TransformException & fallback_ex) {
+                RCLCPP_ERROR(get_logger(), "Fallback transform failed: %s", fallback_ex.what());
+                return;
+            }
         } catch (const tf2::TransformException & ex) {
+            // 捕获除了外推异常之外的其他严重 TF 错误
             RCLCPP_ERROR(get_logger(), "Error while transforming %s", ex.what());
             return;
         }

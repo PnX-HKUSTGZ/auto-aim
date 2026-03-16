@@ -14,6 +14,11 @@
 
 namespace rm_auto_aim
 {
+namespace
+{
+static rclcpp::Clock g_mpc_log_clock(RCL_ROS_TIME);
+}
+
 MPCController::MPCController(rclcpp::Node *node)
 {
     min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
@@ -108,7 +113,9 @@ MPCResult MPCController::compute(
     
     int solve_ret_yaw = tiny_solve(yaw_solver_);
     if (solve_ret_yaw != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("MPCController"), g_mpc_log_clock, 2000,
+            "Yaw MPC solve failed: %d", solve_ret_yaw);
     }
 
     // Solve Pitch
@@ -131,7 +138,9 @@ MPCResult MPCController::compute(
     // Solve Pitch
     int solve_ret_pitch = tiny_solve(pitch_solver_);
     if (solve_ret_pitch != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret_pitch);
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("MPCController"), g_mpc_log_clock, 2000,
+            "Pitch MPC solve failed: %d", solve_ret_pitch);
     }
     
     // Extract MPC results

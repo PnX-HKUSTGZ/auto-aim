@@ -138,56 +138,64 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             target_state = ekf.update2(measurement);
             RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2");
         } else {
-            RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by single armor!");
-            init(armors_msg);
-            return matched;
+            RCLCPP_WARN(
+                rclcpp::get_logger("armor_tracker"),
+                "Single armor miss, keep prediction and enter MISS_MATCH instead of reset.");
+            if (tracker_state == TRACKING || tracker_state == DETECTING) {
+                tracker_state = MISS_MATCH;
+            }
         }
     }
     if (armors_msg->armors.size() == 2) {
         int matched_armor1 = matchArmor(armors_msg->armors[0], ekf_prediction);
         int matched_armor2 = matchArmor(armors_msg->armors[1], ekf_prediction);
         if (matched_armor1 == 0 || matched_armor2 == 0) {
-            RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by two armors!");
-            init(armors_msg);
-            return matched;
-        }
-        if (matched_armor1 == 2 && matched_armor2 == 1) {
-            std::swap(armors_msg->armors[0], armors_msg->armors[1]);
-            std::swap(matched_armor1, matched_armor2);
-        }
-        if (matched_armor1 == 1 && matched_armor2 == 2) {
-            // Matched armor found
-            tracked_armor = armors_msg->armors[0];
-            tracked_armor_2 = armors_msg->armors[1];
-            matched = true;
-            auto p1 = tracked_armor.pose.position;
-            auto p2 = tracked_armor_2.pose.position;
-            // Update EKF
-            double yaw_a = orientationToYaw(
-                tracked_armor.pose.orientation, p1,
-                target_state(YAW1));  //四元数方向转换为偏航角
-            double yaw_b = orientationToYaw(
-                tracked_armor_2.pose.orientation, p2,
-                target_state(YAW2));  //四元数方向转换为偏航角
-
-            measurement = Eigen::VectorXd(10);
-            double xa = p1.x, ya = p1.y, xb = p2.x, yb = p2.y;
-            double A = sin(yaw_b - yaw_a);
-            double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya)) / A;
-            double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya)) / A;
-            if (abs(r1 - target_state(R1)) > 0.1 || abs(r2 - target_state(R2)) > 0.1) {
-                measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, target_state(R1),
-                    target_state(R2);
-            } else {
-                measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
+            RCLCPP_WARN(
+                rclcpp::get_logger("armor_tracker"),
+                "Two-armors miss, keep prediction and enter MISS_MATCH instead of reset.");
+            if (tracker_state == TRACKING || tracker_state == DETECTING) {
+                tracker_state = MISS_MATCH;
             }
+        }
+        if (matched_armor1 != 0 && matched_armor2 != 0) {
+            if (matched_armor1 == 2 && matched_armor2 == 1) {
+                std::swap(armors_msg->armors[0], armors_msg->armors[1]);
+                std::swap(matched_armor1, matched_armor2);
+            }
+            if (matched_armor1 == 1 && matched_armor2 == 2) {
+                // Matched armor found
+                tracked_armor = armors_msg->armors[0];
+                tracked_armor_2 = armors_msg->armors[1];
+                matched = true;
+                auto p1 = tracked_armor.pose.position;
+                auto p2 = tracked_armor_2.pose.position;
+                // Update EKF
+                double yaw_a = orientationToYaw(
+                    tracked_armor.pose.orientation, p1,
+                    target_state(YAW1));  //四元数方向转换为偏航角
+                double yaw_b = orientationToYaw(
+                    tracked_armor_2.pose.orientation, p2,
+                    target_state(YAW2));  //四元数方向转换为偏航角
 
-            target_state = ekf.updateTwo(measurement);
-            RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
-        } else {
-            RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
-            ekf = ekf_backup;
-            return matched;
+                measurement = Eigen::VectorXd(10);
+                double xa = p1.x, ya = p1.y, xb = p2.x, yb = p2.y;
+                double A = sin(yaw_b - yaw_a);
+                double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya)) / A;
+                double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya)) / A;
+                if (abs(r1 - target_state(R1)) > 0.1 || abs(r2 - target_state(R2)) > 0.1) {
+                    measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b,
+                        target_state(R1), target_state(R2);
+                } else {
+                    measurement << p1.x, p1.y, p1.z, yaw_a, p2.x, p2.y, p2.z, yaw_b, r1, r2;
+                }
+
+                target_state = ekf.updateTwo(measurement);
+                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
+            } else {
+                RCLCPP_ERROR(rclcpp::get_logger("tracker"), "2 armors are too close!");
+                ekf = ekf_backup;
+                return matched;
+            }
         }
     }
     if (tracked_armors_num == ArmorsNum::OUTPOST_3) {
@@ -228,7 +236,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
 void Tracker::updateState(
     bool matched, const rclcpp::Time & msg_time, double temp_lost_time, double lost_time_thres,
-    int tracking_thres, bool is_main_camera)
+    int tracking_thres, double miss_match_time_thres, bool is_main_camera)
 {
     if (matched) {
         last_update_time_ = msg_time; 
@@ -273,6 +281,14 @@ void Tracker::updateState(
             } else if (time_since_update > lost_time_thres) {
                 tracker_state = LOST;
             }
+            break;
+        case MISS_MATCH:
+            if (matched) {
+                tracker_state = TRACKING;
+                resetDetectCount();
+            } else if (time_since_update > miss_match_time_thres) {
+                tracker_state = LOST; // 较短时间未匹配上，直接转为LOST
+            } 
             break;
         case LOST:
             resetDetectCount();

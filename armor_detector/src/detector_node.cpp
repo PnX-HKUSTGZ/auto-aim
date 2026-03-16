@@ -11,6 +11,7 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <cmath>
 #include <image_transport/image_transport.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/core/eigen.hpp>
@@ -534,6 +535,7 @@ bool ArmorDetectorNode::updateTransform(
 
 void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, const cv::Mat & tvec)
 {
+    // TODO: 这里的坐标变换有一点小小的旋转顺序问题,谁有闲心改就改一下(已打补丁,不会有大问题)
     //提取云台系欧拉角
     cv::Mat rotation_matrix;
     cv::Rodrigues(rvec, rotation_matrix);
@@ -571,6 +573,20 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
          t_odom_to_camera);
     armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
     if (use_ai_detector_){
+        Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2);  //提取欧拉角
+        if (abs(rpy(1)) > M_PI / 2) {
+            rpy(0) = std::atan2(std::sin(M_PI + rpy(0)), std::cos(M_PI + rpy(0)));  // 旋转roll 180度
+            rpy(1) = std::atan2(std::sin(M_PI - rpy(1)), std::cos(M_PI - rpy(1)));  // pitch, 使用补角
+            rpy(2) = std::atan2(std::sin(M_PI + rpy(2)), std::cos(M_PI + rpy(2)));  // 旋转yaw 180度
+        }
+        rpy(0) = 0.0; 
+        rpy(1) = armor.number == "outpost" ? -0.26 : 0.26; 
+        armor.r_odom_armor =
+             Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()) * 
+             Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY()) *
+            (Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX()))
+                .toRotationMatrix();
+        armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
         return; 
     }
     if (abs(rpy(0)) < 0.26) {
