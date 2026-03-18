@@ -300,40 +300,41 @@ void BallisticCalculateNode::runeTargetCallback(
         std::sqrt(target[0] * target[0] + target[1] * target[1]) / (cos(init_pitch) * BULLET_V);
 
     double rune_t = init_t;
-    // std::pair<double, double> iteration_result =
-    //     this->calculator->iteration(THRES2, init_pitch, init_t, *rune_info_, rune_t);
+    std::pair<double, double> iteration_result =
+    this->calculator->iteration(THRES2, init_pitch, init_t, *rune_info_, rune_t);
 
     // MPC 优化部分
-    Eigen::Vector3d target_odom = rune_info_->getOdomTarget(rune_t);
-    double current_bullet_speed = BULLET_V;
+    // Eigen::Vector3d target_odom = rune_info_->getOdomTarget(rune_t);
+    // double current_bullet_speed = BULLET_V;
 
-    Eigen::Vector2d target_vel(0.0, 0.0); // 暂时先设为0.0
-    RCLCPP_ERROR(this->get_logger(), "暂时没有开发完成，以后记得改\n");
-    auto_aim_interfaces::msg::Target mpc_target;
-    mpc_target.position.x = target_odom.x();
-    mpc_target.position.y = target_odom.y();
-    mpc_target.position.z = target_odom.z();
-    mpc_target.velocity.x = target_vel.x();
-    mpc_target.velocity.y = target_vel.y();
-    MPCResult mpc_result = mpc_controller_->compute(mpc_target, current_bullet_speed, rune_t);
+    // Eigen::Vector2d target_vel(0.0, 0.0); // 暂时先设为0.0
+    // RCLCPP_ERROR(this->get_logger(), "暂时没有开发完成，以后记得改\n");
+    // auto_aim_interfaces::msg::Target mpc_target;
+    // mpc_target.position.x = target_odom.x();
+    // mpc_target.position.y = target_odom.y();
+    // mpc_target.position.z = target_odom.z();
+    // mpc_target.velocity.x = target_vel.x();
+    // mpc_target.velocity.y = target_vel.y();
+    // MPCResult mpc_result = mpc_controller_->compute(mpc_target, current_bullet_speed, rune_t);
 
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
 
-    if (use_mpc_default && mpc_result.is_valid) {
-        RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
-        final_pitch = mpc_result.target_pitch;
-        final_yaw = mpc_result.target_yaw;
+    // if (use_mpc_default && mpc_result.is_valid) {
+    //     RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
+    //     final_pitch = mpc_result.target_pitch;
+    //     final_yaw = mpc_result.target_yaw;
         
-        yaw_vel = mpc_result.yaw_vel;
-        yaw_acc = mpc_result.yaw_acc;
-        pitch_vel = mpc_result.pitch_vel;
-        pitch_acc = mpc_result.pitch_acc;
-    } else {
-        RCLCPP_WARN(this->get_logger(), "MPC failed to solve for rune. Skipping publish.");
-        return; // 直接返回，不发布
-    }
-    
+    //     yaw_vel = mpc_result.yaw_vel;
+    //     yaw_acc = mpc_result.yaw_acc;
+    //     pitch_vel = mpc_result.pitch_vel;
+    //     pitch_acc = mpc_result.pitch_acc;
+    // } else {
+    //     RCLCPP_WARN(this->get_logger(), "MPC failed to solve for rune. Skipping publish.");
+    //     return; // 直接返回，不发布
+    // }
+    final_pitch = iteration_result.first; 
+    final_yaw = std::atan2(target[1], target[0]); 
     // 将 odom 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
     cv::Point2f projected_point = projectPointToImage(rune_info_->getOdomTarget(rune_t));
 
@@ -353,7 +354,7 @@ void BallisticCalculateNode::runeTargetCallback(
     fire_msg.projected_x = projected_point.x;
     fire_msg.projected_y = projected_point.y;
     fire_msg.id = "rune";
-    fire_msg.iffire = 0; // 符文模式下暂不使用MPC开火决策
+    fire_msg.iffire = 1; // 符文模式下暂不使用MPC开火决策
     // Publish iffire as 0 for rune mode to allow plotting
     try {
         std_msgs::msg::Float32 ifmsg;

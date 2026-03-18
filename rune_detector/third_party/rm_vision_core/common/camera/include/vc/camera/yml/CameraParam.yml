@@ -18,14 +18,13 @@ cameraMatrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: f
-   data: [ 1.61335217e+03, 0., 6.93771606e+02, 0., 1.58594580e+03,
-       5.91027893e+02, 0., 0., 1. ]
+   data: [ 2.38407593e+03, 0., 7.19500000e+02, 0., 2.38407593e+03,
+       5.39500000e+02, 0., 0., 1. ]
 distCoeff: !!opencv-matrix
    rows: 5
    cols: 1
    dt: f
-   data: [ -5.49999997e-02, -4.72000018e-02, 3.89999989e-03,
-       5.49999997e-03, 6.20000018e-03 ]
+   data: [ 1.52836945e-02, -6.00926280e-01, 0., 0., 3.79522634e+00 ]
 camera2joint_euler_angle: !!opencv-matrix
    rows: 3
    cols: 1

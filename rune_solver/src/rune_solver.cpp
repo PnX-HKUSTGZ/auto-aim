@@ -185,7 +185,7 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune & pre
 
             // 初始化姿态消息
             geometry_msgs::msg::PoseStamped ps;
-            ps.header.frame_id = "camera_optical_frame";
+            ps.header.frame_id = predicted_target.header.frame_id.empty() ? "camera_main_optical_frame" : predicted_target.header.frame_id;
             ps.header.stamp = predicted_target.header.stamp;
 
             // 填充姿态消息
@@ -197,8 +197,15 @@ Eigen::Matrix4d RuneSolver::solvePose(const auto_aim_interfaces::msg::Rune & pre
             ps.pose.position.y = tvec.at<double>(1);
             ps.pose.position.z = tvec.at<double>(2);
 
-            // 转换到 odom 坐标系
-            ps = tf2_buffer_->transform(ps, "odom");
+            // 转换到 odom 坐标系（借鉴 Tracker 的回退策略）
+            try {
+                auto transform = tf2_buffer_->lookupTransform("odom", ps.header.frame_id, ps.header.stamp);
+                tf2::doTransform(ps, ps, transform);
+            } catch (const tf2::ExtrapolationException & ex) {
+                auto fallback_transform = tf2_buffer_->lookupTransform("odom", ps.header.frame_id, tf2::TimePointZero);
+                tf2::doTransform(ps, ps, fallback_transform);
+                RCLCPP_WARN(rclcpp::get_logger("rune_solver"), "can't use exact time for TF, use newest instead: %s", ex.what());
+            }
             double roll, pitch, yaw;
             tf2::Quaternion quat_tf(
                 ps.pose.orientation.x, ps.pose.orientation.y, ps.pose.orientation.z,
