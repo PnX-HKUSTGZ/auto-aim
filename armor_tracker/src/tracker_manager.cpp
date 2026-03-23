@@ -14,6 +14,7 @@ namespace rm_auto_aim
 // TrackerManager类的实现
 TrackerManager::TrackerManager(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
+        int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
     int tracking_thres,
     double lost_time_thres,double miss_match_time_thres, double switch_cooldown)
 : trackers_(),
@@ -23,6 +24,8 @@ TrackerManager::TrackerManager(
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
   max_translation_speed_(max_translation_speed),
+    camera_switch_position_only_frames_(camera_switch_position_only_frames),
+    wide_ignore_after_main_sec_(wide_ignore_after_main_sec),
   tracking_thres_(tracking_thres),
   lost_time_thres_(lost_time_thres),
   miss_match_time_thres_(miss_match_time_thres),
@@ -119,7 +122,9 @@ void TrackerManager::initNewTracker(
     rclcpp::Time msg_time)
 {
     auto tracker =
-        std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_, max_translation_speed_);
+        std::make_shared<Tracker>(
+            max_match_distance_, max_match_yaw_diff_, max_translation_speed_,
+            camera_switch_position_only_frames_, wide_ignore_after_main_sec_);
     tracker->tracking_thres = tracking_thres_;
 
     // 复制 EKF 模板

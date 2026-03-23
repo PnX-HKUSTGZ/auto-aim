@@ -40,6 +40,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         this->declare_parameter("tracker.max_match_distance", 0.15),
         this->declare_parameter("tracker.max_match_yaw_diff", 1.0),
         this->declare_parameter("tracker.max_translation_speed", 5.0),
+        this->declare_parameter("tracker.camera_switch_position_only_frames", 3),
+        this->declare_parameter("tracker.wide_ignore_after_main_sec", 0.1),
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
         this->declare_parameter("tracker.lost_time_thres", 0.3),
         this->declare_parameter("tracker.miss_match_time_thres", 0.03), // 新增错匹配时间阈值

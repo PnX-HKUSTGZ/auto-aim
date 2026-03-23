@@ -41,7 +41,9 @@ public:
      * @param max_match_yaw_diff 装甲板匹配的最大偏航角差阈值
      */
     Tracker(
-        double max_match_distance, double max_match_yaw_diff, double max_translation_speed = 5.0);
+        double max_match_distance, double max_match_yaw_diff, double max_translation_speed = 5.0,
+        int camera_switch_position_only_frames = 3,
+        double wide_ignore_after_main_sec = 0.1);
 
     using Armors = auto_aim_interfaces::msg::Armors;
     using Armor = auto_aim_interfaces::msg::Armor;
@@ -214,6 +216,11 @@ private:
     double max_match_distance_;
     double max_match_yaw_diff_;
     double max_translation_speed_;
+    int camera_switch_position_only_frames_;
+    int remaining_position_only_frames_;
+    bool has_last_camera_source_;
+    bool last_camera_is_main_;
+    double wide_ignore_after_main_sec_;
 
     int detect_count_;
 };

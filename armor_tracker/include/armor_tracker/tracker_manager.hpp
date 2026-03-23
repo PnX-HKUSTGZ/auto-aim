@@ -50,6 +50,8 @@ private:
     double max_match_distance_;
     double max_match_yaw_diff_;
     double max_translation_speed_;
+    int camera_switch_position_only_frames_;
+    double wide_ignore_after_main_sec_;
     int tracking_thres_;
     double lost_time_thres_;
     double miss_match_time_thres_;
@@ -120,6 +122,7 @@ public:
      */
     TrackerManager(
         double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
+        int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
         int tracking_thres,
         double lost_time_thres, double miss_match_time_thres,  double switch_cooldown = 1.0);
 
