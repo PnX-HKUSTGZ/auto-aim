@@ -116,7 +116,7 @@ void BaSolver::solveBa(
 
     // 执行优化
     optimizer_.initializeOptimization();
-    optimizer_.optimize(30);
+    optimizer_.optimize(60);
     // Get yaw angle and scale after optimization
     double yaw_optimized = v_yaw->estimate();
     double scale_optimized = v_scale->estimate();
