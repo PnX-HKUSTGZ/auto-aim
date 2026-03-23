@@ -49,6 +49,7 @@ private:
     // 计算评分的参数
     double max_match_distance_;
     double max_match_yaw_diff_;
+    double max_translation_speed_;
     int tracking_thres_;
     double lost_time_thres_;
     double miss_match_time_thres_;
@@ -118,7 +119,8 @@ public:
      * @param switch_cooldown 目标切换冷却时间，默认1.0秒
      */
     TrackerManager(
-        double max_match_distance, double max_match_yaw_diff, int tracking_thres,
+        double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
+        int tracking_thres,
         double lost_time_thres, double miss_match_time_thres,  double switch_cooldown = 1.0);
 
     /**

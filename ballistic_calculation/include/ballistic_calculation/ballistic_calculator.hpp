@@ -5,6 +5,7 @@
 #include <ceres/jet.h>
 
 #include <cmath>
+#include <algorithm>
 #include <Eigen/Dense>
 #include <auto_aim_interfaces/msg/rune_target.hpp>
 #include <geometry_msgs/msg/detail/point__struct.hpp>
@@ -33,6 +34,42 @@ private:
     // parameter
     double k;           // 空气阻力系数，需要parameter_declare来调整参数
     double bulletV;     // 子弹速度，需要parameter_declare来调整参数
+    bool has_last_valid_solution_ = false;
+    double last_valid_pitch_ = 0.0;
+    double last_valid_t_ = 0.05;
+    static constexpr double MIN_T = 1e-3;
+    static constexpr double MIN_DENOM = 1e-6;
+    static constexpr double MAX_EXP_ARG = 50.0;
+
+    double sanitizeTimeGuess(double guess) const
+    {
+        if (!std::isfinite(guess) || guess < MIN_T) {
+            return 0.05;
+        }
+        return std::clamp(guess, MIN_T, 3.0);
+    }
+
+    std::pair<double, double> fallbackToLastValidOrSafe(double safe_pitch, double safe_t)
+    {
+        if (has_last_valid_solution_ && std::isfinite(last_valid_pitch_) && std::isfinite(last_valid_t_)) {
+            return std::make_pair(last_valid_pitch_, sanitizeTimeGuess(last_valid_t_));
+        }
+        return std::make_pair(safe_pitch, sanitizeTimeGuess(safe_t));
+    }
+
+    void updateLastValidSolution(double pitch, double t)
+    {
+        if (!std::isfinite(pitch)) {
+            return;
+        }
+        double safe_t = sanitizeTimeGuess(t);
+        if (!std::isfinite(safe_t)) {
+            return;
+        }
+        last_valid_pitch_ = pitch;
+        last_valid_t_ = safe_t;
+        has_last_valid_solution_ = true;
+    }
 
     /**
      * @brief 使用 Ceres 优化器优化飞行时间
@@ -46,7 +83,13 @@ private:
     template <typename T>
     double optimizeTime(double initial_guess, T & state_info, double & temp_pitch)
     {
-        double t = initial_guess;  // 时间初值
+        double safe_initial_guess = sanitizeTimeGuess(initial_guess);
+        if (!std::isfinite(temp_pitch) || !std::isfinite(k) || !std::isfinite(bulletV) ||
+            std::abs(k) < MIN_DENOM || bulletV <= MIN_DENOM)
+        {
+            return safe_initial_guess;
+        }
+        double t = safe_initial_guess;  // 时间初值
 
         // 构建 Ceres 优化问题
         ceres::Problem problem;
@@ -67,9 +110,12 @@ private:
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
 
-        if (!summary.IsSolutionUsable() || t <= 0) {
-            RCLCPP_WARN(rclcpp::get_logger("Ballistic"), "Time optimization failed, use initial guess: %.3f", initial_guess);
-            return initial_guess;
+        if (!summary.IsSolutionUsable() || !std::isfinite(t) || t <= MIN_T) {
+            RCLCPP_WARN(
+                rclcpp::get_logger("Ballistic"),
+                "Time optimization failed, use safe initial guess: %.3f (raw: %.3f)",
+                safe_initial_guess, initial_guess);
+            return safe_initial_guess;
         }
 
         return t;  // 返回优化后的时间值
@@ -177,7 +223,18 @@ public:
     std::pair<double, double> iteration(
         const double & thres, double & init_pitch, double & init_t, T & target_info, double & t_out)
     {
-        double pitch = init_pitch, t = init_t;  // 初始化pitch和t
+        double pitch = init_pitch, t = sanitizeTimeGuess(init_t);  // 初始化pitch和t
+        if (!std::isfinite(pitch)) {
+            Eigen::Vector3d target0 = target_info.getGunTarget(0.0);
+            double dist0 = std::hypot(target0[0], target0[1]);
+            pitch = std::atan2(target0[2], std::max(dist0, MIN_T));
+        }
+        if (!std::isfinite(pitch)) {
+            auto fallback = fallbackToLastValidOrSafe(0.0, t);
+            t_out = fallback.second;
+            return std::make_pair(fallback.first, 0.0);
+        }
+
         double differ;  // 角度差值
         std::pair<double, double> update_tmp_pitch_t;
 
@@ -188,27 +245,45 @@ public:
             
             // 第二步：获取预测目标位置
             Eigen::Vector3d new_target = target_info.getGunTarget(t);
+            if (!new_target.allFinite()) {
+                t = sanitizeTimeGuess(t);
+                break;
+            }
 
             // 计算水平距离和高度
-            double preddist = sqrt(pow(new_target[0], 2) + pow(new_target[1], 2));
+            double preddist = std::hypot(new_target[0], new_target[1]);
             double predheight = new_target[2];
 
             // 第三步：修正俯仰角
             update_tmp_pitch_t = fixTiteratPitch(preddist, predheight);
 
             // 检查收敛性
-            differ = pitch - update_tmp_pitch_t.first;
-            pitch = update_tmp_pitch_t.first;
-            t = update_tmp_pitch_t.second;
+            if (std::isfinite(update_tmp_pitch_t.first)) {
+                differ = pitch - update_tmp_pitch_t.first;
+                pitch = update_tmp_pitch_t.first;
+            } else {
+                differ = thres + 1.0;
+            }
+            t = sanitizeTimeGuess(update_tmp_pitch_t.second);
 
             if (abs(differ) < thres) {
                 break;  // 达到收敛条件，退出迭代
             }
         }
-        t_out = t;
+        t_out = sanitizeTimeGuess(t);
         // 计算最终目标位置和偏航角
-        Eigen::Vector3d last_target = target_info.getGunTarget(t);
+        Eigen::Vector3d last_target = target_info.getGunTarget(t_out);
+        if (!last_target.allFinite()) {
+            last_target = target_info.getGunTarget(0.0);
+        }
+        if (!last_target.allFinite()) {
+            auto fallback = fallbackToLastValidOrSafe(pitch, t_out);
+            t_out = fallback.second;
+            updateLastValidSolution(fallback.first, t_out);
+            return std::make_pair(fallback.first, 0.0);
+        }
         double predyaw = atan2(last_target[1], last_target[0]);
+        updateLastValidSolution(pitch, t_out);
         
         return std::make_pair(pitch, predyaw);
     }
@@ -235,6 +310,13 @@ public:
         double dist_horizon = horizon_dis;  // 和目标在水平方向上的距离
         double target_height = height;      // 和目标在垂直方向上的距离
 
+        if (!std::isfinite(dist_horizon) || !std::isfinite(target_height) || !std::isfinite(k) ||
+            !std::isfinite(bulletV) || std::abs(k) < MIN_DENOM || bulletV <= MIN_DENOM)
+        {
+            return fallbackToLastValidOrSafe(0.0, 0.05);
+        }
+        dist_horizon = std::max(dist_horizon, MIN_T);
+
         // 迭代参数初始化
         double vx, vy, fly_time, tmp_height = target_height, delta_height = 0, tmp_pitch,
                                  real_height;
@@ -242,22 +324,42 @@ public:
         // 进行10次迭代优化
         for (size_t i = 0; i < 10; i++) {
             // 计算当前俯仰角
-            tmp_pitch = atan((tmp_height) / dist_horizon);
+            tmp_pitch = std::atan2(tmp_height, dist_horizon);
             
             // 分解初始速度
             vx = bulletV * cos(tmp_pitch);
             vy = bulletV * sin(tmp_pitch);
+            if (!std::isfinite(vx) || !std::isfinite(vy) || std::abs(vx) < MIN_DENOM) {
+                fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
+                break;
+            }
 
             // 计算飞行时间（考虑空气阻力）
-            fly_time = (exp(k * dist_horizon) - 1) / (k * vx);
+            double exp_arg = std::clamp(k * dist_horizon, -MAX_EXP_ARG, MAX_EXP_ARG);
+            fly_time = (std::exp(exp_arg) - 1) / (k * vx);
+            if (!std::isfinite(fly_time) || fly_time <= MIN_T) {
+                fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
+                break;
+            }
             
             // 计算实际高度（考虑重力和空气阻力）
             double term = vy + 9.8 / k;
-            real_height = term * (1.0 - std::exp(-k * fly_time)) / k - (9.8 * fly_time) / k;
+            double decay_arg = std::clamp(-k * fly_time, -MAX_EXP_ARG, MAX_EXP_ARG);
+            real_height = term * (1.0 - std::exp(decay_arg)) / k - (9.8 * fly_time) / k;
+            if (!std::isfinite(real_height)) {
+                fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
+                break;
+            }
             
             // 计算高度误差并修正
             delta_height = target_height - real_height;
             tmp_height += delta_height;
+        }
+        if (!std::isfinite(tmp_pitch)) {
+            tmp_pitch = std::atan2(target_height, dist_horizon);
+        }
+        if (!std::isfinite(fly_time) || fly_time <= MIN_T) {
+            fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
         }
         return std::make_pair(tmp_pitch, fly_time);
     };

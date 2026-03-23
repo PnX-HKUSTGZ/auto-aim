@@ -40,7 +40,8 @@ public:
      * @param max_match_distance 装甲板匹配的最大位置距离阈值
      * @param max_match_yaw_diff 装甲板匹配的最大偏航角差阈值
      */
-    Tracker(double max_match_distance, double max_match_yaw_diff);
+    Tracker(
+        double max_match_distance, double max_match_yaw_diff, double max_translation_speed = 5.0);
 
     using Armors = auto_aim_interfaces::msg::Armors;
     using Armor = auto_aim_interfaces::msg::Armor;
@@ -205,8 +206,14 @@ private:
      */
     std::vector<Eigen::Vector3d> getArmorPositionFromState(const Eigen::VectorXd & x);
 
+    /**
+     * @brief 对平移速度向量(vx, vy, vz)做模长限幅
+     */
+    void limitTranslationVelocity(Eigen::VectorXd & state) const;
+
     double max_match_distance_;
     double max_match_yaw_diff_;
+    double max_translation_speed_;
 
     int detect_count_;
 };

@@ -28,6 +28,29 @@ namespace rm_auto_aim
 using target = auto_aim_interfaces::msg::Target;
 using firemsg = auto_aim_interfaces::msg::Firecontrol;
 
+namespace
+{
+constexpr double MIN_TIME_GUESS = 1e-3;
+constexpr double MIN_DIST_GUESS = 1e-4;
+constexpr double MIN_DENOM_GUESS = 1e-4;
+
+std::pair<double, double> makeSafeInitialGuess(const Eigen::Vector3d & target, double bullet_v)
+{
+    double dist_xy = std::hypot(target[0], target[1]);
+    double pitch = std::atan2(target[2], std::max(dist_xy, MIN_DIST_GUESS));
+    double denom = std::cos(pitch) * bullet_v;
+    if (!std::isfinite(denom) || std::abs(denom) < MIN_DENOM_GUESS) {
+        denom = (denom >= 0.0 ? 1.0 : -1.0) * MIN_DENOM_GUESS;
+    }
+
+    double t = dist_xy / std::abs(denom);
+    if (!std::isfinite(t) || t < MIN_TIME_GUESS) {
+        t = MIN_TIME_GUESS;
+    }
+    return {pitch, t};
+}
+}  // namespace
+
 const double BallisticCalculateNode::THRES1 = 0.01;
 const double BallisticCalculateNode::THRES2 = 0.005;
 
@@ -136,10 +159,7 @@ void BallisticCalculateNode::carTargetCallback(
     Eigen::Vector3d target = car_info_->getGunTarget(0.0);
 
     //进入迭代
-    double init_pitch =
-        std::atan(target[2] / std::sqrt(target[0] * target[0] + target[1] * target[1]));
-    double init_t =
-        std::sqrt(target[0] * target[0] + target[1] * target[1]) / (cos(init_pitch) * BULLET_V);
+    auto [init_pitch, init_t] = makeSafeInitialGuess(target, BULLET_V);
     
     double temp_t;
     std::pair<double, double> first_iteration_result =
@@ -294,10 +314,7 @@ void BallisticCalculateNode::runeTargetCallback(
     Eigen::Vector3d target = rune_info_->getGunTarget(0.0);
 
     //进入迭代
-    double init_pitch =
-        std::atan(target[2] / std::sqrt(target[0] * target[0] + target[1] * target[1]));
-    double init_t =
-        std::sqrt(target[0] * target[0] + target[1] * target[1]) / (cos(init_pitch) * BULLET_V);
+    auto [init_pitch, init_t] = makeSafeInitialGuess(target, BULLET_V);
 
     double rune_t = init_t;
     // std::pair<double, double> iteration_result =
