@@ -21,8 +21,7 @@ static rclcpp::Clock g_mpc_log_clock(RCL_ROS_TIME);
 
 MPCController::MPCController(rclcpp::Node *node)
 {
-    min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
-    max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
+    
     fire_delay = node->declare_parameter("fire_delay", 0.0);
     iffire_ = node->declare_parameter("ifFireK", 0.05);
     setupYawSolver(node);
