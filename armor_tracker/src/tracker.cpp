@@ -32,7 +32,7 @@ Tracker::Tracker(
 : tracker_state(LOST),
   tracked_id(std::string("")),
   measurement(Eigen::VectorXd::Zero(4)),
-  target_state(Eigen::VectorXd::Zero(9)),
+    target_state(Eigen::VectorXd::Zero(12)),
   last_update_time_(0.0),
   last_main_update_time_(0.0),
   max_match_distance_(max_match_distance),
@@ -47,11 +47,11 @@ Tracker::Tracker(
 {
 }
 //初始化追踪器
-void Tracker::init(const Armors::SharedPtr & armors_msg)
+bool Tracker::init(const Armors::SharedPtr & armors_msg)
 {
     if (armors_msg->armors.empty()) {
         RCLCPP_ERROR(rclcpp::get_logger("armor_tracker"), "Failed to init EKF with empty msg!");
-        return;
+        return false;
     }
     if (armors_msg->armors.size() == 1) {
         tracked_armor = armors_msg->armors[0];
@@ -63,14 +63,21 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         tracked_armor_2 = armors_msg->armors[1];
         twoD_distance =
             fmin(tracked_armor.distance_to_image_center, tracked_armor_2.distance_to_image_center);
-        initEKFTwo(tracked_armor, tracked_armor_2);
+        if (!initEKFTwo(tracked_armor, tracked_armor_2)) {
+            return false;
+        }
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Init EKF with two armors!");
+    } else {
+        RCLCPP_WARN(
+            rclcpp::get_logger("armor_tracker"),
+            "Init received unsupported armor count: %zu", armors_msg->armors.size());
+        return false;
     }
     updateArmorsNum();
     tracked_id = tracked_armor.number;
     tracker_state = DETECTING;  //将追踪状态设为detecting
     last_update_time_ = armors_msg->header.stamp;
-    return;
+    return true;
 }
 
 bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
@@ -417,7 +424,7 @@ void Tracker::initEKF(const Armor & a)
         ekf.setState(target_state);
     }
 }
-void Tracker::initEKFTwo(const Armor & a, const Armor & b)
+bool Tracker::initEKFTwo(const Armor & a, const Armor & b)
 {
     double xa = a.pose.position.x;
     double ya = a.pose.position.y;
@@ -435,7 +442,7 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
     }
     if (yaw_b - yaw_a < M_PI / 3) {
         RCLCPP_ERROR(rclcpp::get_logger("tracker"), "Init failed");
-        return;
+        return false;
     }
 
     target_state = Eigen::VectorXd::Zero(12);
@@ -462,6 +469,7 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
     target_state(R1) = 0.2765, target_state(R2) = 0.2765;
     limitTranslationVelocity(target_state);
     ekf.setState(target_state);
+    return true;
 }
 
 void Tracker::updateArmorsNum()

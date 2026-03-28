@@ -136,10 +136,15 @@ void TrackerManager::initNewTracker(
     id_armors_msg->header.frame_id = "odom_aim";  // 假设使用odom坐标系
     id_armors_msg->armors = armors;
 
-    // 初始化追踪器
-    tracker->init(id_armors_msg);
-
-    trackers_[id] = tracker;
+    // 初始化成功后再注册，避免未初始化状态进入后续更新流程
+    if (tracker->init(id_armors_msg)) {
+        trackers_[id] = tracker;
+    } else {
+        RCLCPP_WARN(
+            rclcpp::get_logger("armor_tracker"),
+            "Failed to initialize tracker %s, skip registration for this frame.",
+            id.c_str());
+    }
 }
 
 void TrackerManager::cleanInactiveTrackers()

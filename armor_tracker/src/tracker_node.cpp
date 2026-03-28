@@ -336,6 +336,13 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
         return;
     }
 
+    // 如果收到了空消息，且且没有任何活跃的 tracker，那么没必要再次走一遍完整逻辑
+    if (armors_msg->armors.empty() && tracker_manager_->getActiveTrackerIDs().empty()) {
+        main_seq_.fetch_add(1, std::memory_order_acq_rel); 
+        // 记得更新 main_seq 避免 wide_detector 因为没看到最新的 main_seq 而跳过
+        return; 
+    }
+
     struct FlagGuard {
         explicit FlagGuard(std::atomic_bool & flag) : flag_(flag) { flag_.store(true, std::memory_order_release); }
         ~FlagGuard() { flag_.store(false, std::memory_order_release); }

@@ -56,7 +56,7 @@ public:
      * 
      * @param armors_msg 包含装甲板信息的消息
      */
-    void init(const Armors::SharedPtr & armors_msg);
+    bool init(const Armors::SharedPtr & armors_msg);
 
     /**
      * @brief 更新追踪器状态
@@ -145,7 +145,7 @@ private:
      * @param a 第一个装甲板信息
      * @param b 第二个装甲板信息
      */
-    void initEKFTwo(const Armor & a, const Armor & b);
+    bool initEKFTwo(const Armor & a, const Armor & b);
 
     /**
      * @brief 更新追踪目标的装甲板数量信息

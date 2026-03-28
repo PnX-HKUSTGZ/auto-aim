@@ -212,7 +212,7 @@ private:
     image_transport::Publisher tracker_img_pub_;
     std_msgs::msg::Header_<std::allocator<void>>::_stamp_type last_img_time_;
 
-    VisionMode mode_ = VisionMode::AUTO;  // 默认模式为AUTO
+    VisionMode mode_ = VisionMode::HERO;  // 默认模式为HERO
 };
 
 }  // namespace rm_auto_aim
