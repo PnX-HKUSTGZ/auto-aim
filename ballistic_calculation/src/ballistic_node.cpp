@@ -277,6 +277,10 @@ void BallisticCalculateNode::carTargetCallback(
     fire_msg.yaw_acc = yaw_acc;
     fire_msg.pitch_vel = pitch_vel;
     fire_msg.pitch_acc = pitch_acc;
+    {
+        const Eigen::Vector3d target_gun = armor_info_->getGunTarget(temp_t);
+        fire_msg.distance = std::hypot(target_gun.x(), target_gun.y());
+    }
 
     fire_msg.tracking = car_target_msg->tracking;
     fire_msg.id = car_target_msg->id;
@@ -365,6 +369,10 @@ void BallisticCalculateNode::runeTargetCallback(
     fire_msg.yaw_acc = yaw_acc;
     fire_msg.pitch_vel = pitch_vel;
     fire_msg.pitch_acc = pitch_acc;
+    {
+        const Eigen::Vector3d target_gun = rune_info_->getGunTarget(rune_t);
+        fire_msg.distance = std::hypot(target_gun.x(), target_gun.y());
+    }
 
     fire_msg.tracking = _target_msg->tracking;
     fire_msg.projected_x = projected_point.x;
