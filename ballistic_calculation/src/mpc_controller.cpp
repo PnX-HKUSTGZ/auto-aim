@@ -25,6 +25,7 @@ MPCController::MPCController(rclcpp::Node *node)
     fire_delay = node->declare_parameter("fire_delay", 0.0);
     iffire_ = node->declare_parameter("ifFireK", 0.05);
     max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
+    node->get_parameter("air_resistence", air_resistence_);
     setupYawSolver(node);
     setupPitchSolver(node);
 }
@@ -530,7 +531,7 @@ Eigen::Matrix<double, 2, 1> MPCController::aim(
     // std::cerr << "target_odom.y(): "<< target_odom.y() << "\n";
     // std::cerr << "target_odom.x(): "<< target_odom.x() << "\n";
     double azim = std::atan2(target_odom.y(), target_odom.x());
-    Ballistic ballistic(0.1, bullet_speed);
+    Ballistic ballistic(air_resistence_, bullet_speed);
     double horizon_dis = dist;
     double height = target_odom.z();
     auto [pitch, _] = ballistic.fixTiteratPitch(horizon_dis, height);
