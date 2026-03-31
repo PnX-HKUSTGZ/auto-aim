@@ -282,7 +282,7 @@ void BallisticCalculateNode::carTargetCallback(
 
     // 新增目标距离信息
     fire_msg.distance = target.norm();
-    std::cerr << "Target distance: " << fire_msg.distance << " meters\n";
+    // std::cerr << "Target distance: " << fire_msg.distance << " meters\n";
     
     fire_msg.tracking = car_target_msg->tracking;
     fire_msg.id = car_target_msg->id;
