@@ -294,6 +294,7 @@ bool TrackerManager::getIDTarget(
 
     // 设置消息的时间戳
     target_msg.header.stamp = tracker->last_update_time_;
+    target_msg.last_main_update_stamp = tracker->last_main_update_time_;
 
     // 根据追踪状态填充消息
     if (tracker->tracker_state == Tracker::DETECTING) {

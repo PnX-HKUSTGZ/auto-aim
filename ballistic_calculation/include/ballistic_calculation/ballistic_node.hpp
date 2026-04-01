@@ -114,6 +114,7 @@ private:
     float current_pitch_vel = 0.0;
 
     bool use_mpc_default;
+    double recent_main_update_fire_window_sec_;
 
     // 相机信息和图像投影
     sensor_msgs::msg::CameraInfo cam_info_;  // 相机内参信息

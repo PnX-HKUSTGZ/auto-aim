@@ -66,6 +66,8 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
     v_yaw_gimble = this->declare_parameter("max_v_yaw_gimble", 0.8);
     stop_fire_time = this->declare_parameter("stop_fire_time", 0.1);
+    recent_main_update_fire_window_sec_ =
+        this->declare_parameter("recent_main_update_fire_window_sec", 0.3);
     xyz_vec = this->declare_parameter("xyz", std::vector<double>{0.0, 0.0, 0.0});
     rpy_vec = this->declare_parameter("rpy", std::vector<double>{0.0, 0.0, 0.0});
     // 添加MPC开关参数，默认false（不采用MPC结果）
@@ -290,7 +292,19 @@ void BallisticCalculateNode::carTargetCallback(
     //     ifFireK += abs(car_target_msg->v_yaw) * 0.004;
     // }
     // if (fire_msg.iffire) last_fire_time = this->now();
-    fire_msg.iffire = mpc_result.is_fire;
+    const double main_update_age_sec =
+        (this->now() - rclcpp::Time(car_target_msg->last_main_update_stamp)).seconds();
+    const bool recent_main_update_ok =
+        car_target_msg->tracking && main_update_age_sec >= 0.0 &&
+        main_update_age_sec <= recent_main_update_fire_window_sec_;
+    fire_msg.iffire = mpc_result.is_fire && recent_main_update_ok;
+    if (mpc_result.is_fire && !recent_main_update_ok) {
+        RCLCPP_DEBUG_THROTTLE(
+            this->get_logger(), *this->get_clock(), 200,
+            "Suppress fire due to stale main-camera update (main_age=%.3f s, window=%.3f s, tracking=%d)",
+            main_update_age_sec, recent_main_update_fire_window_sec_,
+            car_target_msg->tracking ? 1 : 0);
+    }
     // // Publish a 1/0 float for rqt plotting of iffire
     // try { 
     //     std_msgs::msg::Float32 ifmsg;
