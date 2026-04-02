@@ -84,17 +84,9 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 //根据经过EKF加权后的观测和预测来更新装甲板的追踪状态
 {
     rclcpp::Time msg_time = armors_msg->header.stamp;
-
-    if (has_last_camera_source_ && last_camera_is_main_ != is_main_camera) {
-        remaining_position_only_frames_ = camera_switch_position_only_frames_;
-        RCLCPP_DEBUG(
-            rclcpp::get_logger("armor_tracker"),
-            "Camera source switched (%s -> %s), enable position-only update for %d frames",
-            last_camera_is_main_ ? "main" : "wide", is_main_camera ? "main" : "wide",
-            remaining_position_only_frames_);
+    if (armors_msg->armors.empty()){
+        return false; 
     }
-    has_last_camera_source_ = true;
-    last_camera_is_main_ = is_main_camera;
 
     // 主/广角相机 决策逻辑
     if (!is_main_camera) {
@@ -109,6 +101,18 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             return false;
         }
     }
+
+    const bool switched_wide_to_main =
+        has_last_camera_source_ && !last_camera_is_main_ && is_main_camera;
+    if (switched_wide_to_main) {
+        remaining_position_only_frames_ = camera_switch_position_only_frames_;
+        RCLCPP_INFO(
+            rclcpp::get_logger("armor_tracker"),
+            "Camera source switched (wide -> main), enable position-only update for %d frames",
+            remaining_position_only_frames_);
+    }
+    has_last_camera_source_ = true;
+    last_camera_is_main_ = is_main_camera;
 
     if (msg_time.nanoseconds() < last_update_time_.nanoseconds()) {
         static rclcpp::Clock main_warn_clock(RCL_SYSTEM_TIME);
@@ -131,14 +135,30 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
     ekf.setState(ekf_prediction);
     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF predict");
 
+    // wide: 永远只更新位置，平移速度和角速度直接清零
+    const bool wide_position_only = !is_main_camera;
+
+    // main: 仅在 wide -> main 的前几帧，只更新位置，不更新速度
+    const bool main_position_only_after_wide =
+        is_main_camera && remaining_position_only_frames_ > 0;
+
+    auto apply_velocity_policy = [&](Eigen::VectorXd & state) {
+        if (wide_position_only) {
+            state(VXC) = 0.0;
+            state(VYC) = 0.0;
+            state(VZC) = 0.0;
+            state(VYAW) = ekf_prediction(VYAW);
+        } else if (main_position_only_after_wide) {
+            state(VXC) = predicted_translation_velocity.x();
+            state(VYC) = predicted_translation_velocity.y();
+            state(VZC) = predicted_translation_velocity.z();
+            state(VYAW) = ekf_prediction(VYAW);
+        }
+    };
+
     bool matched = false;
     // Use KF prediction as default target state if no matched armor is found
     target_state = ekf_prediction;
-    if (armors_msg->armors.empty()) {
-        RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "No armors found, using EKF prediction");
-        ekf = ekf_backup;
-        return matched;
-    }
     // init tracker info
     twoD_distance = DBL_MAX;
     info_position_diff = DBL_MAX;
@@ -156,11 +176,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 target_state(YAW1));  //四元数方向转换为偏航角
             measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
             target_state = ekf.update1(measurement);
-            if (remaining_position_only_frames_ > 0) {
-                target_state(VXC) = predicted_translation_velocity.x();
-                target_state(VYC) = predicted_translation_velocity.y();
-                target_state(VZC) = predicted_translation_velocity.z();
-            }
+            apply_velocity_policy(target_state);
             limitTranslationVelocity(target_state);
             ekf.setState(target_state);
             RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1");
@@ -175,11 +191,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 target_state(YAW2));  //四元数方向转换为偏航角
             measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
             target_state = ekf.update2(measurement);
-            if (remaining_position_only_frames_ > 0) {
-                target_state(VXC) = predicted_translation_velocity.x();
-                target_state(VYC) = predicted_translation_velocity.y();
-                target_state(VZC) = predicted_translation_velocity.z();
-            }
+            apply_velocity_policy(target_state);
             limitTranslationVelocity(target_state);
             ekf.setState(target_state);
             RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2");
@@ -236,11 +248,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 }
 
                 target_state = ekf.updateTwo(measurement);
-                if (remaining_position_only_frames_ > 0) {
-                    target_state(VXC) = predicted_translation_velocity.x();
-                    target_state(VYC) = predicted_translation_velocity.y();
-                    target_state(VZC) = predicted_translation_velocity.z();
-                }
+                apply_velocity_policy(target_state);
                 limitTranslationVelocity(target_state);
                 ekf.setState(target_state);
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update");
@@ -284,7 +292,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
     if (!matched) {
         ekf = ekf_backup;
-    } else if (remaining_position_only_frames_ > 0) {
+    } else if (is_main_camera && remaining_position_only_frames_ > 0) {
         --remaining_position_only_frames_;
     }
 
