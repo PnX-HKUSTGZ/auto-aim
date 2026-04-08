@@ -18,6 +18,7 @@
 #include <cfloat>
 #include <memory>
 #include <string>
+#include "armor_tracker/types.hpp"
 
 namespace rm_auto_aim
 
@@ -231,6 +232,10 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
         target_state(YAW1) -= 4 * M_PI / double(tracked_armors_num);
         target_state(YAW2) -= 4 * M_PI / double(tracked_armors_num);
         ekf.setState(target_state);
+    }
+    if(tracker_state == DETECTING){
+        target_state(VXC) = 0.0;
+        target_state(VYC) = 0.0;
     }
     double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
     target_state(YAW1) = yaw_average - M_PI / double(tracked_armors_num);
