@@ -62,11 +62,11 @@ private:
     static constexpr size_t MAX_CACHE_SIZE = 600; // ~6s at 100Hz
 
     double fire_delay;
-    double min_switch_speed_;
     double max_switch_speed_;
     double max_yaw_acc_;       // 偏航最大加速度
     double max_pitch_acc_;     // 俯仰最大加速度
     double iffire_;            // 开火阈值系数
+    double air_resistence_;    // 空气阻力系数 
     std::vector<double> Q_yaw_;// 偏航Q矩阵
     std::vector<double> R_yaw_;// 偏航R矩阵
     std::vector<double> Q_pitch_;// 俯仰Q矩阵

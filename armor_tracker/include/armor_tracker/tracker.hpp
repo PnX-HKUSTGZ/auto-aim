@@ -41,7 +41,8 @@ public:
      * @param max_match_distance 装甲板匹配的最大位置距离阈值
      * @param max_match_yaw_diff 装甲板匹配的最大偏航角差阈值
      */
-    Tracker(double max_match_distance, double max_match_yaw_diff);
+    Tracker(
+        double max_match_distance, double max_match_yaw_diff, double max_translation_speed = 5.0);
 
     using Armors = auto_aim_interfaces::msg::Armors;
     using Armor = auto_aim_interfaces::msg::Armor;
@@ -88,10 +89,12 @@ public:
      * @param temp_lost_time 进入TEMP_LOST的时间阈值
      * @param lost_time_thres 进入LOST的时间阈值
      * @param tracking_thres 进入TRACKING所需的连续检测帧数
+        * @param miss_match_time_thres 进入MISS_MATCH的时间阈值
+        * @param is_main_camera 当前帧是否来自主相机
      */
     void updateState(
         bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
-        double lost_time_thres, int tracking_thres, bool is_main_camera);
+        double lost_time_thres, int tracking_thres, double miss_match_time_thres, bool is_main_camera);
 
     ExtendedKalmanFilter ekf;
 
@@ -102,6 +105,7 @@ public:
         DETECTING,
         TRACKING,
         TEMP_LOST,
+        MISS_MATCH,
     } tracker_state;
 
     std::string tracked_id;
@@ -217,6 +221,11 @@ private:
      */
     std::vector<Eigen::Vector3d> getArmorPositionFromState(const Eigen::VectorXd & x);
 
+    /**
+     * @brief 对平移速度向量(vx, vy, vz)做模长限幅
+     */
+    void limitTranslationVelocity(Eigen::VectorXd & state) const;
+
     double max_match_distance_;
     double max_match_yaw_diff_;
 
@@ -224,6 +233,7 @@ private:
     // int r_ = 1;
     // // z高度缓存槽位：0号槽对应1号板，1号槽对应2号板，2号槽对应3号板
     // std::array<double, 3> z_slots_{{0.0, 0.0, 0.0}};
+    double max_translation_speed_;
 
     int detect_count_;
 };

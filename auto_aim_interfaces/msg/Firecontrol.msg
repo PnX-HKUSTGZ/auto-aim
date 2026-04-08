@@ -7,6 +7,7 @@ float64 pitch_vel
 float64 pitch_acc
 float64 projected_x
 float64 projected_y
+float64 distance
 bool tracking
 bool iffire
 string id
