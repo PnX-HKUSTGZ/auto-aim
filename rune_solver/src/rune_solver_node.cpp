@@ -104,7 +104,7 @@ RuneSolverNode::RuneSolverNode(const rclcpp::NodeOptions & options) : Node("rune
     // Debug 信息
     debug_ = this->declare_parameter("debug", true);
     rune_target_pub_ =
-        this->create_publisher<auto_aim_interfaces::msg::RuneTarget>("rune_solver/rune_target", 10);
+        this->create_publisher<auto_aim_interfaces::msg::RuneTarget>("tracker/rune_target", 10);
     if (debug_) {
         observed_angle_pub_ = this->create_publisher<auto_aim_interfaces::msg::DebugRuneAngle>(
             "rune_solver/observed_angle", rclcpp::SensorDataQoS());

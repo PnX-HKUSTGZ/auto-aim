@@ -21,9 +21,14 @@
 
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
 // std
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <numeric>
 #include <vector>
 
@@ -40,6 +45,10 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions & options)
 {
     RCLCPP_INFO(this->get_logger(), "Starting RuneDetectorNode with Tiger Core!");
 
+    // TF2 for gyro extraction from odom -> gimbal_link
+    tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
+
     frame_id_ = declare_parameter("frame_id", "camera_main_optical_frame");
     binary_thresh_ = declare_parameter("binary_thresh", 100);
     detect_color_ = declare_parameter("detect_color", 0) == 0 ? PixChannel::RED : PixChannel::BLUE;
@@ -50,8 +59,13 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions & options)
         "rune_detector/rune", rclcpp::SensorDataQoS());
 
     debug_ = declare_parameter("debug", true);
+    debug_marker_ = declare_parameter("debug_marker", true);
     if (debug_) {
         createDebugPublishers();
+    }
+    if (debug_marker_) {
+        marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+            "rune_detector/marker", rclcpp::QoS(10));
     }
 
     auto qos = rclcpp::SensorDataQoS();
@@ -113,6 +127,214 @@ void RuneDetectorNode::cameraInfoCallback(const sensor_msgs::msg::CameraInfo::Co
     cam_info_sub_.reset();
 }
 
+GyroData RuneDetectorNode::getGyroData(const rclcpp::Time & stamp)
+{
+    GyroData gyro;
+
+    try {
+        auto latest_tf = tf2_buffer_->lookupTransform("odom", "gimbal_link", tf2::TimePointZero);
+        const rclcpp::Time latest_time = latest_tf.header.stamp;
+
+        geometry_msgs::msg::TransformStamped tf_msg;
+        if (stamp > latest_time) {
+            tf_msg = latest_tf;
+        } else {
+            try {
+                tf_msg = tf2_buffer_->lookupTransform(
+                    "odom", "gimbal_link", stamp,
+                    rclcpp::Duration::from_nanoseconds(1000000));
+            } catch (const tf2::TransformException & ex) {
+                tf_msg = latest_tf;
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 1000,
+                    "rune_detector gyro TF exact-time lookup failed, fallback to latest: %s",
+                    ex.what());
+            }
+        }
+
+        tf2::Quaternion q(
+            tf_msg.transform.rotation.x, tf_msg.transform.rotation.y,
+            tf_msg.transform.rotation.z, tf_msg.transform.rotation.w);
+        double roll = 0.0, pitch = 0.0, yaw = 0.0;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+
+        // Tiger Core expects degree units:
+        // yaw: left negative, right positive
+        // pitch: up negative, down positive
+        constexpr double RAD2DEG = 180.0 / 3.14159265358979323846;
+        gyro.rotation.yaw = static_cast<float>(-yaw * RAD2DEG);
+        gyro.rotation.pitch = static_cast<float>(-pitch * RAD2DEG);
+        gyro.rotation.roll = static_cast<float>(roll * RAD2DEG);
+    } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
+            "rune_detector gyro TF lookup failed, use zero gyro: %s", ex.what());
+    }
+
+    return gyro;
+}
+
+void RuneDetectorNode::clearRune3DMarkers(const rclcpp::Time & stamp)
+{
+    if (!marker_pub_) {
+        return;
+    }
+    visualization_msgs::msg::MarkerArray marker_array;
+    visualization_msgs::msg::Marker clear_marker;
+    clear_marker.header.frame_id = "odom";
+    clear_marker.header.stamp = stamp;
+    clear_marker.action = visualization_msgs::msg::Marker::DELETEALL;
+    marker_array.markers.push_back(clear_marker);
+    marker_pub_->publish(marker_array);
+}
+
+void RuneDetectorNode::publishRune3DMarkers(
+    const rclcpp::Time & stamp, const std::string & camera_frame,
+    const PoseNode & rune_to_camera,
+    const PoseNode * pending_target_to_camera)
+{
+    if (!marker_pub_) {
+        return;
+    }
+
+    try {
+        auto latest_tf = tf2_buffer_->lookupTransform("odom", camera_frame, tf2::TimePointZero);
+        const rclcpp::Time latest_time = latest_tf.header.stamp;
+
+        geometry_msgs::msg::TransformStamped odom_to_cam_tf;
+        if (stamp > latest_time) {
+            odom_to_cam_tf = latest_tf;
+        } else {
+            try {
+                odom_to_cam_tf = tf2_buffer_->lookupTransform(
+                    "odom", camera_frame, stamp,
+                    rclcpp::Duration::from_nanoseconds(1000000));
+            } catch (const tf2::TransformException & ex) {
+                odom_to_cam_tf = latest_tf;
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 1000,
+                    "rune_detector marker TF exact-time lookup failed, fallback to latest: %s",
+                    ex.what());
+            }
+        }
+
+        tf2::Quaternion q_odom_cam(
+            odom_to_cam_tf.transform.rotation.x, odom_to_cam_tf.transform.rotation.y,
+            odom_to_cam_tf.transform.rotation.z, odom_to_cam_tf.transform.rotation.w);
+        tf2::Vector3 t_odom_cam(
+            odom_to_cam_tf.transform.translation.x, odom_to_cam_tf.transform.translation.y,
+            odom_to_cam_tf.transform.translation.z);
+        tf2::Transform odom_T_cam(tf2::Matrix3x3(q_odom_cam), t_odom_cam);
+
+        const auto r = rune_to_camera.rmat();
+        const auto t = rune_to_camera.tvec();
+        constexpr double kMillimeterToMeter = 1e-3;
+        tf2::Matrix3x3 cam_R_rune(
+            r(0, 0), r(0, 1), r(0, 2),
+            r(1, 0), r(1, 1), r(1, 2),
+            r(2, 0), r(2, 1), r(2, 2));
+        tf2::Vector3 cam_t_rune(
+            t(0) * kMillimeterToMeter,
+            t(1) * kMillimeterToMeter,
+            t(2) * kMillimeterToMeter);
+        tf2::Transform cam_T_rune(cam_R_rune, cam_t_rune);
+
+        tf2::Transform odom_T_rune = odom_T_cam * cam_T_rune;
+
+        visualization_msgs::msg::MarkerArray marker_array;
+
+        if (pending_target_to_camera != nullptr) {
+            const auto r_target = pending_target_to_camera->rmat();
+            const auto t_target = pending_target_to_camera->tvec();
+            tf2::Matrix3x3 cam_R_target(
+                r_target(0, 0), r_target(0, 1), r_target(0, 2),
+                r_target(1, 0), r_target(1, 1), r_target(1, 2),
+                r_target(2, 0), r_target(2, 1), r_target(2, 2));
+            tf2::Vector3 cam_t_target(
+                t_target(0) * kMillimeterToMeter,
+                t_target(1) * kMillimeterToMeter,
+                t_target(2) * kMillimeterToMeter);
+            tf2::Transform cam_T_target(cam_R_target, cam_t_target);
+            tf2::Transform odom_T_target = odom_T_cam * cam_T_target;
+
+            visualization_msgs::msg::Marker target_marker;
+            target_marker.header.frame_id = "odom";
+            target_marker.header.stamp = stamp;
+            target_marker.ns = "pending_target_center";
+            target_marker.id = 10;
+            target_marker.type = visualization_msgs::msg::Marker::SPHERE;
+            target_marker.action = visualization_msgs::msg::Marker::ADD;
+            target_marker.scale.x = target_marker.scale.y = target_marker.scale.z = 0.09;
+            target_marker.color.a = 1.0;
+            target_marker.color.r = 1.0;
+            target_marker.color.g = 0.0;
+            target_marker.color.b = 1.0;
+            target_marker.pose.position.x = odom_T_target.getOrigin().x();
+            target_marker.pose.position.y = odom_T_target.getOrigin().y();
+            target_marker.pose.position.z = odom_T_target.getOrigin().z();
+            marker_array.markers.push_back(target_marker);
+        }
+
+        visualization_msgs::msg::Marker center_marker;
+        center_marker.header.frame_id = "odom";
+        center_marker.header.stamp = stamp;
+        center_marker.ns = "rune_center";
+        center_marker.id = 0;
+        center_marker.type = visualization_msgs::msg::Marker::SPHERE;
+        center_marker.action = visualization_msgs::msg::Marker::ADD;
+        center_marker.scale.x = center_marker.scale.y = center_marker.scale.z = 0.12;
+        center_marker.color.a = 1.0;
+        center_marker.color.r = 1.0;
+        center_marker.color.g = 0.6;
+        center_marker.color.b = 0.0;
+        center_marker.pose.position.x = odom_T_rune.getOrigin().x();
+        center_marker.pose.position.y = odom_T_rune.getOrigin().y();
+        center_marker.pose.position.z = odom_T_rune.getOrigin().z();
+        marker_array.markers.push_back(center_marker);
+
+        auto make_axis_arrow = [&](int id, const std::string & ns, const tf2::Vector3 & axis,
+                                   float r_c, float g_c, float b_c) {
+            visualization_msgs::msg::Marker axis_marker;
+            axis_marker.header.frame_id = "odom";
+            axis_marker.header.stamp = stamp;
+            axis_marker.ns = ns;
+            axis_marker.id = id;
+            axis_marker.type = visualization_msgs::msg::Marker::ARROW;
+            axis_marker.action = visualization_msgs::msg::Marker::ADD;
+            axis_marker.scale.x = 0.02;
+            axis_marker.scale.y = 0.04;
+            axis_marker.color.a = 1.0;
+            axis_marker.color.r = r_c;
+            axis_marker.color.g = g_c;
+            axis_marker.color.b = b_c;
+
+            geometry_msgs::msg::Point p0, p1;
+            const tf2::Vector3 origin = odom_T_rune.getOrigin();
+            const tf2::Vector3 axis_end = odom_T_rune * (axis * 0.2);
+            p0.x = origin.x();
+            p0.y = origin.y();
+            p0.z = origin.z();
+            p1.x = axis_end.x();
+            p1.y = axis_end.y();
+            p1.z = axis_end.z();
+            axis_marker.points.push_back(p0);
+            axis_marker.points.push_back(p1);
+            marker_array.markers.push_back(axis_marker);
+        };
+
+        make_axis_arrow(1, "rune_axis_x", tf2::Vector3(1.0, 0.0, 0.0), 1.0, 0.0, 0.0);
+        make_axis_arrow(2, "rune_axis_y", tf2::Vector3(0.0, 1.0, 0.0), 0.0, 1.0, 0.0);
+        make_axis_arrow(3, "rune_axis_z", tf2::Vector3(0.0, 0.0, 1.0), 0.0, 0.0, 1.0);
+
+        marker_pub_->publish(marker_array);
+    } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
+            "rune_detector marker TF lookup failed, clear markers: %s", ex.what());
+        clearRune3DMarkers(stamp);
+    }
+}
+
 // 图像回调函数
 void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
 {
@@ -134,7 +356,7 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     DetectorInput input;
     input.setImage(src_img);
     input.setTick(rclcpp::Time(msg->header.stamp).nanoseconds());
-    input.setGyroData(GyroData());
+    input.setGyroData(getGyroData(timestamp));
     input.setColor(detect_color_);
     input.setColorThresh(static_cast<uint8_t>(binary_thresh_));
     input.setFeatureNodes(rune_groups_);
@@ -153,10 +375,14 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
     rune_msg.header.frame_id = frame_id_;
     rune_msg.header.stamp = timestamp;
     rune_msg.is_lost = true;
+    std::shared_ptr<RuneGroup> current_rune_group = nullptr;
+    bool has_pending_target_pose = false;
+    PoseNode pending_target_to_camera;
 
     if (!rune_groups_.empty())
     {
         auto rune_group = RuneGroup::cast(rune_groups_.front());
+        current_rune_group = rune_group;
         FeatureNode_ptr target_tracker = nullptr;
         for (auto & tr : rune_group->getTrackers())
         {
@@ -181,6 +407,13 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
             auto target = RuneTarget::cast(combo->getChildFeatures().at(FeatureNode::ChildFeatureType::RUNE_TARGET));
             auto center = RuneCenter::cast(combo->getChildFeatures().at(FeatureNode::ChildFeatureType::RUNE_CENTER));
             auto fan = RuneFan::cast(combo->getChildFeatures().at(FeatureNode::ChildFeatureType::RUNE_FAN));
+
+            if (target &&
+                target->getPoseCache().getPoseNodes().count(CoordFrame::CAMERA) > 0) {
+                pending_target_to_camera =
+                    target->getPoseCache().getPoseNodes().at(CoordFrame::CAMERA);
+                has_pending_target_pose = true;
+            }
 
             if (target && center && fan && target->getImageCache().isSetCorners())
             {
@@ -217,11 +450,27 @@ void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedP
 
     rune_pub_->publish(rune_msg);
 
+    if (debug_marker_) {
+        bool published_marker = false;
+        if (current_rune_group) {
+            PoseNode rune_to_camera;
+            if (current_rune_group->getCamPnpDataFromFilter(rune_to_camera)) {
+                publishRune3DMarkers(
+                    timestamp, frame_id_, rune_to_camera,
+                    has_pending_target_pose ? &pending_target_to_camera : nullptr);
+                published_marker = true;
+            }
+        }
+        if (!published_marker) {
+            clearRune3DMarkers(timestamp);
+        }
+    }
+
     if (debug_ && !rune_groups_.empty())
     {
         cv::Mat debug_img = src_img.clone();
         auto rune_group = RuneGroup::cast(rune_groups_.front());
-        //rune_group->drawFeature(debug_img);
+        rune_group->drawFeature(debug_img);
 
         // visualize polygon through r_center (0) and inactive corners (4,5,6)
         if (!rune_msg.is_lost)

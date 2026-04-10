@@ -29,6 +29,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <visualization_msgs/msg/marker_array.hpp>
 // 3rd party
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
@@ -60,6 +63,12 @@ private:
     std::unique_ptr<::RuneDetector> initDetector();
 
     static void rectLongEndpoints(const cv::RotatedRect & r, cv::Point2f & a, cv::Point2f & b);
+    GyroData getGyroData(const rclcpp::Time & stamp);
+    void publishRune3DMarkers(
+        const rclcpp::Time & stamp, const std::string & camera_frame,
+        const PoseNode & rune_to_camera,
+        const PoseNode * pending_target_to_camera = nullptr);
+    void clearRune3DMarkers(const rclcpp::Time & stamp);
 
     void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
     void cameraInfoCallback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
@@ -84,6 +93,7 @@ private:
     //Target publisher
     std::string frame_id_;
     rclcpp::Publisher<auto_aim_interfaces::msg::Rune>::SharedPtr rune_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 
     // Enable/Disable Rune Detector
     rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
@@ -91,6 +101,10 @@ private:
     // Tiger Core detector与特征缓存
     std::unique_ptr<::RuneDetector> tiger_detector_;
     std::vector<FeatureNode_ptr> rune_groups_{};
+
+    // TF for gyro data
+    std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
 
     // Params
     PixChannel detect_color_;    // 检测颜色
@@ -100,6 +114,7 @@ private:
 
     // Debug infomation
     bool debug_{};
+    bool debug_marker_{};
     image_transport::Publisher result_img_pub_;
 
     rclcpp::Time timestamp;

@@ -16,6 +16,8 @@ find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 ament_auto_find_build_dependencies()
 
 # Tiger Core: reuse third_party from rune_detector_for_all

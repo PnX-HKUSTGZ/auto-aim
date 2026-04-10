@@ -39,7 +39,7 @@ cam2joint_tvec: !!opencv-matrix
    rows: 3
    cols: 1
    dt: f
-   data: [ -55., -40., 1.65539993e+02 ]
+   data: [ 60., 40., -120. ]
 lut_vec: []
 serial_number: DA5555072
 image_width: 1440
