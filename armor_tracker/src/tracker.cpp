@@ -99,6 +99,7 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         target_state(R_OUTPOST) = r_outpost;
         ekf.setState(target_state);
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Init EKF for outpost (3 armors)!");
+        std::cerr<< "前哨战被初始化" << std::endl;
     } else {
         // 原有4块板逻辑（不变）
         if (armors_msg->armors.size() == 1) {
@@ -173,7 +174,52 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
     twoD_distance = DBL_MAX;
     info_position_diff = DBL_MAX;
     info_yaw_diff = DBL_MAX;
-    if (armors_msg->armors.size() == 1) {
+    auto update_outpost_with_single_armor = [this, &matched, &ekf_prediction](const Armor & armor) {//因为极少双板情况，直接归到单板，逻辑有待完善
+        int matched_id = matchArmor(armor, ekf_prediction);
+        if (matched_id == 1 || matched_id == 2 || matched_id == 3) {
+            tracked_armor = armor;
+            matched = true;
+            auto p = tracked_armor.pose.position;
+
+            int yaw_idx = (matched_id == 1) ? YAW1 : ((matched_id == 2) ? YAW2 : YAW3);
+            double measured_yaw = orientationToYaw(
+                tracked_armor.pose.orientation, p,
+                target_state(yaw_idx));  // 四元数方向转换为偏航角
+
+            measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
+            if (matched_id == 1) {
+                target_state = ekf.update1(measurement);
+                constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
+                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
+            } else if (matched_id == 2) {
+                target_state = ekf.update2(measurement);
+                constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
+                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
+            } else {
+                target_state = ekf.update3(measurement);
+                constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
+                RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
+            }
+        } else {
+            RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset outpost tracker by single armor!");
+        }
+    };
+
+    if (tracked_armors_num == ArmorsNum::OUTPOST_3 && armors_msg->armors.size() >= 1) {
+        // Outpost keeps a single-armor update path to avoid unstable two-armor geometry.
+        const auto best_it = std::min_element(
+            armors_msg->armors.begin(), armors_msg->armors.end(),
+            [](const Armor & a, const Armor & b) {
+                return a.distance_to_image_center < b.distance_to_image_center;
+            });
+        if (best_it != armors_msg->armors.end()) {
+            update_outpost_with_single_armor(*best_it);
+            if (!matched) {
+                init(armors_msg);
+                return matched;
+            }
+        }
+    } else if (armors_msg->armors.size() == 1) {
         int matched_id = matchArmor(armors_msg->armors[0], ekf_prediction);
         if (tracked_armors_num == ArmorsNum::OUTPOST_3) {
             // 前哨站单板更新：根据匹配到的1/2/3号板分别使用 update1/update2/update3
@@ -239,7 +285,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             }
         }
     
-    }if (armors_msg->armors.size() == 2) {
+    }if (armors_msg->armors.size() == 2 && tracked_armors_num != ArmorsNum::OUTPOST_3) {
         int matched_armor1 = matchArmor(armors_msg->armors[0], ekf_prediction);
         int matched_armor2 = matchArmor(armors_msg->armors[1], ekf_prediction);
         if (matched_armor1 == 0 || matched_armor2 == 0) {
@@ -273,6 +319,13 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 measurement = Eigen::VectorXd(10);
                 double xa = p1.x, ya = p1.y, xb = p2.x, yb = p2.y;
                 double A = sin(yaw_b - yaw_a);
+                if (std::abs(A) < 1e-6) {
+                    RCLCPP_WARN(
+                        rclcpp::get_logger("tracker"),
+                        "Skip two-armor update due to near-zero denominator (yaw_a=%f, yaw_b=%f)",
+                        yaw_a, yaw_b);
+                    return matched;
+                }
                 double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya)) / A;
                 double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya)) / A;
                 if (abs(r1 - target_state(R1)) > 0.1 || abs(r2 - target_state(R2)) > 0.1) {
@@ -657,9 +710,8 @@ double Tracker::orientationToYaw(
         yaw = std::atan2(std::sin(M_PI + yaw), std::cos(M_PI + yaw));  // 旋转yaw 180度
     }
     // Make yaw rang right (-pi~pi to -pi/2~pi/2)
-    if (abs(yaw - yaw_target) > (int(tracked_armors_num) == 4)
-            ? M_PI / 2
-            : M_PI / double(tracked_armors_num)) {
+    if (abs(yaw - yaw_target) >
+        ((int(tracked_armors_num) == 4) ? M_PI / 2 : M_PI / double(tracked_armors_num))) {
         Eigen::Vector3d center(target_state(XC), target_state(YC), target_state(ZC1));
         double r;
         if (yaw_target == target_state(YAW1))

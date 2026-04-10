@@ -10,6 +10,7 @@
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/logging.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <sstream>
 #include <vector>
 
@@ -104,6 +105,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
+    info_pub_graph = this->create_publisher<std_msgs::msg::Float32MultiArray>("/tracker/info_graph", 10);
     target_pub_ = this->create_publisher<auto_aim_interfaces::msg::Target>(
         "/tracker/target", rclcpp::SensorDataQoS());
     tracker_img_pub_ = image_transport::create_publisher(this, "/tracker/result_img");
@@ -594,6 +596,17 @@ void ArmorTrackerNode::publishCallback()
             info_msg.position.z = current_tracker->measurement(2);
             info_msg.yaw = current_tracker->measurement(3);
             info_pub_->publish(info_msg);
+
+            std_msgs::msg::Float32MultiArray graph_msg;
+            graph_msg.data.resize(6);
+            graph_msg.data[0] = static_cast<float>(info_msg.position_diff);
+            graph_msg.data[1] = static_cast<float>(info_msg.yaw_diff);
+            graph_msg.data[2] = static_cast<float>(info_msg.position.x);
+            graph_msg.data[3] = static_cast<float>(info_msg.position.y);
+            graph_msg.data[4] = static_cast<float>(info_msg.position.z);
+            graph_msg.data[5] = static_cast<float>(info_msg.yaw);
+
+            info_pub_graph->publish(graph_msg);
         }
     }
 

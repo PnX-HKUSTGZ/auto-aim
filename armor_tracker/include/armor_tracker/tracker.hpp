@@ -208,7 +208,7 @@ private:
      */
     void constrainOutpostHeights(
         double observed_armor_z, double & unobserved_armor_z_1, double & unobserved_armor_z_2,
-        double height_diff = 0.102, double height_diff_threshold = 0.05);
+        double height_diff = 0.102, double height_diff_threshold = 0.03);
 
     /**
      * @brief 从状态向量计算装甲板位置
