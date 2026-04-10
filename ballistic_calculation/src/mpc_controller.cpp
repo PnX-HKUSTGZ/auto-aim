@@ -14,12 +14,18 @@
 
 namespace rm_auto_aim
 {
+namespace
+{
+static rclcpp::Clock g_mpc_log_clock(RCL_ROS_TIME);
+}
+
 MPCController::MPCController(rclcpp::Node *node)
 {
-    min_switch_speed_ = node->declare_parameter("mpc_min_switch_speed", 5.0); 
-    max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
+    
     fire_delay = node->declare_parameter("fire_delay", 0.0);
     iffire_ = node->declare_parameter("ifFireK", 0.05);
+    max_switch_speed_ = node->declare_parameter("mpc_max_switch_speed", 30.0);
+    node->get_parameter("air_resistence", air_resistence_);
     setupYawSolver(node);
     setupPitchSolver(node);
 }
@@ -108,7 +114,9 @@ MPCResult MPCController::compute(
     
     int solve_ret_yaw = tiny_solve(yaw_solver_);
     if (solve_ret_yaw != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Yaw MPC solve failed: %d", solve_ret_yaw);
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("MPCController"), g_mpc_log_clock, 2000,
+            "Yaw MPC solve failed: %d", solve_ret_yaw);
     }
 
     // Solve Pitch
@@ -131,7 +139,9 @@ MPCResult MPCController::compute(
     // Solve Pitch
     int solve_ret_pitch = tiny_solve(pitch_solver_);
     if (solve_ret_pitch != 0) {
-        RCLCPP_WARN(rclcpp::get_logger("MPCController"), "Pitch MPC solve failed: %d", solve_ret_pitch);
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("MPCController"), g_mpc_log_clock, 2000,
+            "Pitch MPC solve failed: %d", solve_ret_pitch);
     }
     
     // Extract MPC results
@@ -521,7 +531,7 @@ Eigen::Matrix<double, 2, 1> MPCController::aim(
     // std::cerr << "target_odom.y(): "<< target_odom.y() << "\n";
     // std::cerr << "target_odom.x(): "<< target_odom.x() << "\n";
     double azim = std::atan2(target_odom.y(), target_odom.x());
-    Ballistic ballistic(0.1, bullet_speed);
+    Ballistic ballistic(air_resistence_, bullet_speed);
     double horizon_dis = dist;
     double height = target_odom.z();
     auto [pitch, _] = ballistic.fixTiteratPitch(horizon_dis, height);

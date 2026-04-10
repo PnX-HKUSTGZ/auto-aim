@@ -13,16 +13,19 @@ namespace rm_auto_aim
 
 // TrackerManager类的实现
 TrackerManager::TrackerManager(
-    double max_match_distance, double max_match_yaw_diff, int tracking_thres,
-    double lost_time_thres, double switch_cooldown)
+    double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
+    int tracking_thres,
+    double lost_time_thres,double miss_match_time_thres, double switch_cooldown)
 : trackers_(),
   current_tracked_id_(""),
   last_switch_time_(rclcpp::Clock().now()),
   switch_cooldown_(switch_cooldown),
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
+  max_translation_speed_(max_translation_speed),
   tracking_thres_(tracking_thres),
   lost_time_thres_(lost_time_thres),
+  miss_match_time_thres_(miss_match_time_thres),
   w_distance_(0.5),
   w_twoD_distance_(0.5)
 {
@@ -45,8 +48,9 @@ void TrackerManager::update(
 {
     rclcpp::Time msg_time = armors_msg->header.stamp;
     if (trackers_.empty()) {
-        RCLCPP_WARN(
-            rclcpp::get_logger("armor_tracker"),
+        static rclcpp::Clock warn_clock(RCL_SYSTEM_TIME);
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("armor_tracker"), warn_clock, 2000,
             "No active trackers available. Initializing new trackers if possible.");
     }
 
@@ -83,7 +87,7 @@ void TrackerManager::update(
                     rclcpp::get_logger("armor_tracker"),
                     "Tracker %s successfully matched armors with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
             }
-            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, is_main_camera);
+            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, miss_match_time_thres_,is_main_camera);
         } else if (has_tracker && !has_armors) {
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
@@ -92,7 +96,7 @@ void TrackerManager::update(
                 rclcpp::get_logger("armor_tracker"),
                 "No armors for tracker %s with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
             bool matched = trackers_[id]->update(empty_msg, is_main_camera);
-            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, is_main_camera);
+            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, miss_match_time_thres_,is_main_camera);
         } else if (!has_tracker && has_armors) {
             // 如果追踪器不存在但当前帧中有装甲板，初始化新的追踪器
             if(!is_main_camera){
@@ -114,7 +118,8 @@ void TrackerManager::initNewTracker(
     const std::string & id, const std::vector<auto_aim_interfaces::msg::Armor> & armors,
     rclcpp::Time msg_time)
 {
-    auto tracker = std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_);
+    auto tracker =
+        std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_, max_translation_speed_);
     tracker->tracking_thres = tracking_thres_;
 
     // 复制 EKF 模板
@@ -175,6 +180,9 @@ double TrackerManager::calculateScore(
             break;
         case Tracker::DETECTING:
             state_score = 0.3;
+            break;
+        case Tracker::MISS_MATCH:
+            state_score = 0.9;
             break;
         case Tracker::LOST:
             state_score = 0.0;
