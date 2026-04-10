@@ -366,13 +366,17 @@ void BallisticCalculateNode::runeTargetCallback(
     fire_msg.header = rune_target_msg->header;
     fire_msg.pitch = final_pitch;
     fire_msg.yaw = final_yaw;
-    //std::cerr<<"rune callback: pitch="<<final_pitch<<", yaw="<<final_yaw<<"\n";
+    
 
     // 新增MPC输出的控制量
     fire_msg.yaw_vel = yaw_vel;
     fire_msg.yaw_acc = yaw_acc;
     fire_msg.pitch_vel = pitch_vel;
     fire_msg.pitch_acc = pitch_acc;
+
+    // 新增目标距离信息
+    fire_msg.distance = target.norm();
+    //std::cerr<<"rune callback: pitch="<<final_pitch<<", yaw="<<final_yaw<<", distance"<<fire_msg.distance<<"\n";
 
     fire_msg.tracking = rune_target_msg->tracking;
     fire_msg.projected_x = projected_point.x;
