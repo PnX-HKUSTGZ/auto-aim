@@ -98,7 +98,7 @@ MPCResult MPCController::compute(
 
     // Solve Yaw
     Eigen::VectorXd x0_yaw(2);
-    x0_yaw << traj(0, 0), 0.0;
+    x0_yaw << traj(0, 0), traj(1, 0);
     if (x0_yaw.hasNaN() || x0_yaw.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid yaw initial state");
         return result;
@@ -121,7 +121,7 @@ MPCResult MPCController::compute(
 
     // Solve Pitch
     Eigen::VectorXd x0_pitch(2);
-    x0_pitch << traj(2, 0),  0.0;
+    x0_pitch << traj(2, 0), traj(3, 0);
     
     if (x0_pitch.hasNaN() || x0_pitch.cwiseAbs().maxCoeff() > 1e6) {
         RCLCPP_ERROR(rclcpp::get_logger("MPCController"), "Invalid pitch initial state");
