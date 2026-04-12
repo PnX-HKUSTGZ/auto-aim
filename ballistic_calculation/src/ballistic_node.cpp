@@ -236,7 +236,7 @@ void BallisticCalculateNode::carTargetCallback(
     // MPC解算前后可视化
     try {
         std_msgs::msg::Float32MultiArray yaw_tracker_msg;
-        yaw_tracker_msg.data.resize(3); // 仅存储3个标量
+        yaw_tracker_msg.data.resize(5); // 仅存储5个标量
         yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
         yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
         yaw_tracker_msg.data[2] = mpc_result.is_fire;    // 第三个元素：is_fire（是否处于阶跃期）
@@ -253,8 +253,8 @@ void BallisticCalculateNode::carTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
-        final_pitch = mpc_result.target_pitch + rpy_vec[1]; // 转换到云台坐标系
-        final_yaw = mpc_result.target_yaw - rpy_vec[2];
+        final_pitch = mpc_result.pitch + rpy_vec[1]; // 转换到云台坐标系
+        final_yaw = mpc_result.yaw - rpy_vec[2];
         
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
@@ -345,8 +345,8 @@ void BallisticCalculateNode::runeTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
-        final_pitch = mpc_result.target_pitch;
-        final_yaw = mpc_result.target_yaw;
+        final_pitch = mpc_result.pitch;
+        final_yaw = mpc_result.yaw;
         
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
