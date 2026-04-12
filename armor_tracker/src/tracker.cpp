@@ -188,14 +188,17 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
             measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
             if (matched_id == 1) {
+                matched_armor_id = matched_id;
                 target_state = ekf.update1(measurement);
                 constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
             } else if (matched_id == 2) {
+                matched_armor_id = matched_id;
                 target_state = ekf.update2(measurement);
                 constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
             } else {
+                matched_armor_id = matched_id;
                 target_state = ekf.update3(measurement);
                 constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
@@ -235,14 +238,17 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
                 measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
                 if (matched_id == 1) {
+                    matched_armor_id = matched_id;
                     target_state = ekf.update1(measurement);
                     constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
                 } else if (matched_id == 2) {
+                    matched_armor_id = matched_id;
                     target_state = ekf.update2(measurement);
                     constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
                 } else {
+                    matched_armor_id = matched_id;
                     target_state = ekf.update3(measurement);
                     constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
@@ -258,6 +264,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 // Matched armor1 found
                 tracked_armor = armors_msg->armors[0];
                 matched = true;
+                    matched_armor_id = matched_id;
                 auto p = tracked_armor.pose.position;
                 // Update EKF
                 double measured_yaw = orientationToYaw(
@@ -270,6 +277,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 // Matched armor2 found
                 tracked_armor_2 = armors_msg->armors[0];
                 matched = true;
+                    matched_armor_id = matched_id;
                 auto p = tracked_armor_2.pose.position;
                 // Update EKF
                 double measured_yaw = orientationToYaw(
@@ -306,6 +314,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 tracked_armor = armors_msg->armors[0];
                 tracked_armor_2 = armors_msg->armors[1];
                 matched = true;
+                matched_armor_id = matched_armor1;
                 auto p1 = tracked_armor.pose.position;
                 auto p2 = tracked_armor_2.pose.position;
                 // Update EKF

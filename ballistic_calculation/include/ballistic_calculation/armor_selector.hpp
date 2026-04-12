@@ -20,6 +20,11 @@ using target = auto_aim_interfaces::msg::Target;
 
 public:
     const double COST_DIFF_THRESHOLD = M_PI/18;
+
+    double getTargetPositionZ() const {
+        return target_msg.position.z;
+    }
+
     /**
      * @brief 更新目标信息
      * 
@@ -51,9 +56,11 @@ public:
     std::vector<double> predictInfantryBestArmor(
         double T, double min_v, double max_v, double v_yaw_gimble)
     {
+        const bool is_outpost = (target_msg.id == "outpost");
+
         // 三级策略：目标角速度过快时，瞄准中心点
         if (abs(target_msg.v_yaw) > max_v) {
-            return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0};
+            return {0.0, is_outpost ? target_msg.position.z : (target_msg.position.z + 0.5 * target_msg.dz), 0.0};
         }
         
         int a_n = target_msg.armors_num;  // 装甲板数量
@@ -76,8 +83,13 @@ public:
             armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
             
             // 设置装甲板高度（奇偶装甲板可能有不同高度）
-            armors[i].z =
-                (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
+            if (is_outpost) {
+                armors[i].z = target_msg.position.z;
+
+            } else {
+                armors[i].z =
+                    (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
+            }
 
             // 计算装甲板在世界坐标系中的位置
             armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
@@ -119,7 +131,6 @@ public:
         // 根据运动方向调整放弃角度的符号
         yaw = chosen_armor.cost > 0 ? abs(yaw) : -abs(yaw);
         double set_yaw = gun_to_center_angle + yaw;
-        
         return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
 
