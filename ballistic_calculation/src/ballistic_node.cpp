@@ -356,8 +356,16 @@ void BallisticCalculateNode::runeTargetCallback(
     //     RCLCPP_WARN(this->get_logger(), "MPC failed to solve for rune. Skipping publish.");
     //     return; // 直接返回，不发布
     // }
-    final_pitch = iteration_result.first; 
-    final_yaw = std::atan2(target[1], target[0]); 
+
+    // 1. 获取经过子弹飞行时间 rune_t 预测后的目标三维坐标（解决因为大符运动导致的 Yaw 丢失提前量的问题）
+    Eigen::Vector3d predicted_target = rune_info_->getGunTarget(rune_t);
+
+    // 2. 仿照装甲板解算，统一坐标系转换与符号问题
+    //    翻转仰角符号适配云台 REP-103 标准(向下为正)，并补偿相机到枪管的 Pitch 偏置
+    final_pitch = iteration_result.first + rpy_vec[1]; 
+    //    利用预测点计算 Yaw 以跟随符文运动方向，并补偿相机到枪管的 Yaw 偏置
+    final_yaw = std::atan2(predicted_target[1], predicted_target[0]) - rpy_vec[2]; 
+
     // 将 odom 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
     cv::Point2f projected_point = projectPointToImage(rune_info_->getOdomTarget(rune_t));
 

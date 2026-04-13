@@ -225,7 +225,7 @@ public:
         // 计算装甲板在能量机关坐标系中的位置
         // 考虑角度变化和初始roll角
         Eigen::Vector3d p_rune =
-            eulerToMatrix(Eigen::Vector3d{-(angle_diff + target_msg.roll), 0, target_msg.yaw}) *
+            eulerToMatrix(Eigen::Vector3d{angle_diff + target_msg.roll, 0, target_msg.yaw}) *
             Eigen::Vector3d(0, -ARM_LENGTH, 0);  // 装甲板相对中心的位置
 
         // 变换到odom坐标系
