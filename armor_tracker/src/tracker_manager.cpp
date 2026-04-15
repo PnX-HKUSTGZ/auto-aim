@@ -14,7 +14,7 @@ namespace rm_auto_aim
 // TrackerManager类的实现
 TrackerManager::TrackerManager(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
-    int tracking_thres,
+        int tracking_thres, int outpost_match_count_threshold,
     double lost_time_thres,double miss_match_time_thres, double switch_cooldown)
 : trackers_(),
   current_tracked_id_(""),
@@ -23,6 +23,7 @@ TrackerManager::TrackerManager(
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
   max_translation_speed_(max_translation_speed),
+    outpost_match_count_threshold_(outpost_match_count_threshold),
   tracking_thres_(tracking_thres),
   lost_time_thres_(lost_time_thres),
   miss_match_time_thres_(miss_match_time_thres),
@@ -118,12 +119,13 @@ void TrackerManager::initNewTracker(
     const std::string & id, const std::vector<auto_aim_interfaces::msg::Armor> & armors,
     rclcpp::Time msg_time)
 {
-    auto tracker =
-        std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_, max_translation_speed_);
+    auto tracker = std::make_shared<Tracker>(
+        max_match_distance_, max_match_yaw_diff_, max_translation_speed_);
     tracker->tracking_thres = tracking_thres_;
 
     // 复制 EKF 模板
     tracker->ekf = ekf_template_;
+    tracker->setOutpostEkfInitTemplate(ekf_template_);
 
     // 创建仅含特定ID装甲板的消息
     auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();

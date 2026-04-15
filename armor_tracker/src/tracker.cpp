@@ -40,6 +40,10 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff, double ma
   max_translation_speed_(max_translation_speed),
   detect_count_(0)
 {
+    outpost_match_counts_ = {0, 0, 0};
+    outpost_z_mismatch_count_ = 0;
+    outpost_last_mismatch_is_z_ = false;
+    outpost_ekf_template_ready_ = false;
 }
 //初始化追踪器
 void Tracker::init(const Armors::SharedPtr & armors_msg)
@@ -52,6 +56,15 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         return;
     }
     if (armors_msg->armors[0].number == "outpost") {
+        outpost_match_counts_ = {0, 0, 0};
+        outpost_z_mismatch_count_ = 0;
+        outpost_last_mismatch_is_z_ = false;
+        if (!outpost_ekf_template_ready_) {
+            outpost_ekf_init_template_ = ekf;
+            outpost_ekf_template_ready_ = true;
+        }
+        // 回到“第一次观测前”的 EKF 基线（模板由 TrackerManager 在新建 tracker 时注入）
+        ekf = outpost_ekf_init_template_;
         // 单块板初始化：填充实测坐标+默认高差/半径
         tracked_armor = armors_msg->armors[0];
         twoD_distance = tracked_armor.distance_to_image_center;
@@ -98,6 +111,7 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         target_state(YAW3) = yaw + 4 * M_PI / 3;
         target_state(R_OUTPOST) = r_outpost;
         ekf.setState(target_state);
+        matched_armor_id = 1;  // 默认与1号板匹配
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Init EKF for outpost (3 armors)!");
         std::cerr<< "前哨战被初始化" << std::endl;
     } else {
@@ -189,16 +203,25 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
             if (matched_id == 1) {
                 matched_armor_id = matched_id;
+                if (outpost_match_counts_[0] < 3) {
+                    ++outpost_match_counts_[0];
+                }
                 target_state = ekf.update1(measurement);
                 constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
             } else if (matched_id == 2) {
                 matched_armor_id = matched_id;
+                if (outpost_match_counts_[1] < 3) {
+                    ++outpost_match_counts_[1];
+                }
                 target_state = ekf.update2(measurement);
                 constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
             } else {
                 matched_armor_id = matched_id;
+                if (outpost_match_counts_[2] < 3) {
+                    ++outpost_match_counts_[2];
+                }
                 target_state = ekf.update3(measurement);
                 constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
@@ -218,7 +241,16 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
         if (best_it != armors_msg->armors.end()) {
             update_outpost_with_single_armor(*best_it);
             if (!matched) {
-                init(armors_msg);
+                if (outpost_last_mismatch_is_z_ &&
+                    outpost_z_mismatch_count_ < outpost_z_mismatch_reinit_rounds_)
+                {
+                    RCLCPP_WARN(
+                        rclcpp::get_logger("armor_tracker"),
+                        "Outpost z mismatch count %d/%d, postpone reinit.",
+                        outpost_z_mismatch_count_, outpost_z_mismatch_reinit_rounds_);
+                } else {
+                    init(armors_msg);
+                }
                 return matched;
             }
         }
@@ -239,24 +271,42 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
                 if (matched_id == 1) {
                     matched_armor_id = matched_id;
+                    if (outpost_match_counts_[0] < 3) {
+                        ++outpost_match_counts_[0];
+                    }
                     target_state = ekf.update1(measurement);
                     constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
                 } else if (matched_id == 2) {
                     matched_armor_id = matched_id;
+                    if (outpost_match_counts_[1] < 3) {
+                        ++outpost_match_counts_[1];
+                    }
                     target_state = ekf.update2(measurement);
                     constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
                 } else {
                     matched_armor_id = matched_id;
+                    if (outpost_match_counts_[2] < 3) {
+                        ++outpost_match_counts_[2];
+                    }
                     target_state = ekf.update3(measurement);
                     constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update3 (outpost)");
                 
                 } 
             }else {
-                    RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset outpost tracker by single armor!");
-                    init(armors_msg);
+                    if (outpost_last_mismatch_is_z_ &&
+                        outpost_z_mismatch_count_ < outpost_z_mismatch_reinit_rounds_)
+                    {
+                        RCLCPP_WARN(
+                            rclcpp::get_logger("armor_tracker"),
+                            "Outpost z mismatch count %d/%d, postpone reinit.",
+                            outpost_z_mismatch_count_, outpost_z_mismatch_reinit_rounds_);
+                    } else {
+                        RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset outpost tracker by single armor!");
+                        init(armors_msg);
+                    }
                     return matched;
             }
         } else {
@@ -498,11 +548,55 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
         double yaw_diff_2 = calYawDiff(yaw, ekf_prediction(YAW2));
         double yaw_diff_3 = calYawDiff(yaw, ekf_prediction(YAW3));  // 第三块板
 
+        auto all_outpost_seen_two_rounds = [this]() {
+            return outpost_match_counts_[0] >= 3 && outpost_match_counts_[1] >= 3 &&
+                   outpost_match_counts_[2] >= 3;
+        };
+        auto z_check_or_lost =
+            [this, &position_vec, &ekf_prediction, &all_outpost_seen_two_rounds](int armor_id) {
+                if (!all_outpost_seen_two_rounds()) {
+                    outpost_last_mismatch_is_z_ = false;
+                    outpost_z_mismatch_count_ = 0;
+                    return true;
+                }
+                int z_idx = (armor_id == 1) ? ZC1 : ((armor_id == 2) ? ZC2 : ZC3);
+                double z_diff = std::abs(position_vec.z() - ekf_prediction(z_idx));
+                if (z_diff > outpost_z_lost_threshold_) {
+                    outpost_last_mismatch_is_z_ = true;
+                    if (outpost_z_mismatch_count_ < outpost_z_mismatch_reinit_rounds_) {
+                        ++outpost_z_mismatch_count_;
+                    }
+                    if (outpost_z_mismatch_count_ >= outpost_z_mismatch_reinit_rounds_) {
+                        tracker_state = LOST;
+                        RCLCPP_WARN(
+                            rclcpp::get_logger("tracker"),
+                            "Outpost z mismatch %d/%d, trigger reinit. armor_id=%d, measured_z=%.3f, predicted_z=%.3f, diff=%.3f, threshold=%.3f",
+                            outpost_z_mismatch_count_, outpost_z_mismatch_reinit_rounds_, armor_id,
+                            position_vec.z(), ekf_prediction(z_idx), z_diff,
+                            outpost_z_lost_threshold_);
+                    } else {
+                        RCLCPP_WARN(
+                            rclcpp::get_logger("tracker"),
+                            "Outpost z mismatch %d/%d, keep tracking. armor_id=%d, measured_z=%.3f, predicted_z=%.3f, diff=%.3f, threshold=%.3f",
+                            outpost_z_mismatch_count_, outpost_z_mismatch_reinit_rounds_, armor_id,
+                            position_vec.z(), ekf_prediction(z_idx), z_diff,
+                            outpost_z_lost_threshold_);
+                    }
+                    return false;
+                }
+                outpost_last_mismatch_is_z_ = false;
+                outpost_z_mismatch_count_ = 0;
+                return true;
+            };
+
         // 优先匹配最小差值
         double min_diff = std::min({yaw_diff_1, yaw_diff_2, yaw_diff_3});
         if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_+0.5 //&&
             //position_diff_1 < max_match_distance_
             ) {
+            if (!z_check_or_lost(1)) {
+                return 0;
+            }
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_1);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_1);
@@ -512,6 +606,9 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_+0.5 //&&
             //position_diff_2 < max_match_distance_
             ) {
+            if (!z_check_or_lost(2)) {
+                return 0;
+            }
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_2);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_2);
@@ -521,12 +618,17 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_+0.5 //&&
             //position_diff_3 < max_match_distance_
             ) {
+            if (!z_check_or_lost(3)) {
+                return 0;
+            }
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_3);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_3);
             //std::cerr<<"匹配了3";
             return 3;  // 第三块板匹配
         }else{
+            outpost_last_mismatch_is_z_ = false;
+            outpost_z_mismatch_count_ = 0;
             double a =min_diff-max_match_yaw_diff_;
             // double b =std::min({position_diff_1-max_match_distance_,position_diff_2-max_match_distance_,position_diff_3-max_match_distance_});
             // if (b == position_diff_1 - max_match_distance_){std::cerr<<"距离用了1";}else if (b == position_diff_2 - max_match_distance_){std::cerr<<"距离用了2";}

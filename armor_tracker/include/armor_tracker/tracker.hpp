@@ -96,6 +96,12 @@ public:
         bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
         double lost_time_thres, int tracking_thres, double miss_match_time_thres, bool is_main_camera);
 
+    void setOutpostEkfInitTemplate(const ExtendedKalmanFilter & ekf_template)
+    {
+        outpost_ekf_init_template_ = ekf_template;
+        outpost_ekf_template_ready_ = true;
+    }
+
     ExtendedKalmanFilter ekf;
 
     int tracking_thres;
@@ -229,6 +235,13 @@ private:
 
     double max_match_distance_;
     double max_match_yaw_diff_;
+    std::array<int, 3> outpost_match_counts_{{0, 0, 0}};
+    double outpost_z_lost_threshold_ = 0.1;
+    int outpost_z_mismatch_reinit_rounds_ = 3;
+    int outpost_z_mismatch_count_ = 0;
+    bool outpost_last_mismatch_is_z_ = false;
+    ExtendedKalmanFilter outpost_ekf_init_template_;
+    bool outpost_ekf_template_ready_ = false;
 
     // // 前哨站初始化轮转板序号：1 -> 2 -> 3 -> 1
     // int r_ = 1;

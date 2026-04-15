@@ -44,6 +44,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         this->declare_parameter("tracker.max_match_yaw_diff", 1.0),
         this->declare_parameter("tracker.max_translation_speed", 5.0),
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
+        this->declare_parameter("tracker.outpost_match_count_threshold", 2),
         this->declare_parameter("tracker.lost_time_thres", 0.3),
         this->declare_parameter("tracker.miss_match_time_thres", 0.4), // 新增错匹配时间阈值
         this->declare_parameter("tracker.switch_cooldown", 1.0));
@@ -460,7 +461,7 @@ void ArmorTrackerNode::processArmors(
                 
                 tf2::doTransform(ps, ps, fallback_transform);
                 armor.pose = ps.pose;
-                RCLCPP_WARN(get_logger(), "can't use target_frame for TF, use newest instead: %s", ex.what());
+                //RCLCPP_WARN(get_logger(), "can't use target_frame for TF, use newest instead: %s", ex.what());
             } catch (const tf2::TransformException & fallback_ex) {
                 RCLCPP_ERROR(get_logger(), "Fallback transform failed: %s", fallback_ex.what());
                 return;
