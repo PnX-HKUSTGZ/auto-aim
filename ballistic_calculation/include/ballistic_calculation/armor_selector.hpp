@@ -83,13 +83,9 @@ public:
             armors[i].r = (i % 2 == 0) ? target_msg.radius_1 : target_msg.radius_2;
             
             // 设置装甲板高度（奇偶装甲板可能有不同高度）
-            if (is_outpost) {
-                armors[i].z = target_msg.position.z;
-
-            } else {
-                armors[i].z =
-                    (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
-            }
+            armors[i].z =
+                (i % 2 == 0) ? target_msg.position.z : target_msg.position.z + target_msg.dz;
+            
 
             // 计算装甲板在世界坐标系中的位置
             armors[i].x = newxc - armors[i].r * cos(armors[i].yaw);
@@ -98,6 +94,18 @@ public:
             // 计算装甲板到枪口的最短角度距离（代价函数）
             armors[i].cost = angles::shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
         }
+        if (is_outpost) {
+                armors[0].z = target_msg.position.z;
+                armors[1].z = target_msg.z2;
+                armors[2].z = target_msg.z3;
+                // if (target_msg.v_yaw >= 0){
+                //     armors[1].z = target_msg.position.z + target_msg.dz;
+                // }
+                // else{
+                //     armors[2].z = target_msg.position.z + target_msg.dz;
+                // }
+
+            }
 
         // 按角度距离排序，找到最容易击中的装甲板
         std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {

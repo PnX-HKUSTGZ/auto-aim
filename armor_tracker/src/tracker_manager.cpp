@@ -305,19 +305,7 @@ bool TrackerManager::getIDTarget(
     target_msg.velocity.x = state(VXC);
     target_msg.position.y = state(YC);
     target_msg.velocity.y = state(VYC);
-    if (tracker->tracked_id == "outpost") {
-        if (tracker->matched_armor_id == 1) {
-            target_msg.position.z = state(ZC1);
-        } else if (tracker->matched_armor_id == 2) {
-            target_msg.position.z = state(ZC2);
-        } else if (tracker->matched_armor_id == 3) {
-            target_msg.position.z = state(ZC3);
-        } else {
-            target_msg.position.z = state(ZC1);
-        }
-    } else {
-        target_msg.position.z = state(ZC1);
-    }
+    target_msg.position.z = state(ZC1);
     target_msg.velocity.z = state(VZC);
 
     // 角度和旋转信息
@@ -329,8 +317,19 @@ bool TrackerManager::getIDTarget(
     target_msg.radius_2 = state(R2);
 
     // 装甲板高度差
-    target_msg.dz = state(ZC2) - state(ZC1);
-
+    if (tracker->tracked_id == "outpost"){
+        if (tracker->matched_armor_id == 1){
+            target_msg.dz = state(ZC2) - state(ZC1);
+        }else if (tracker->matched_armor_id == 2){
+            target_msg.dz = state(ZC3) - state(ZC2);
+        }else{
+            target_msg.dz = state(ZC1) - state(ZC3);
+        }
+    }else{
+        target_msg.dz = state(ZC2) - state(ZC1);
+    }
+    target_msg.z2 = state(ZC2);
+    target_msg.z3 = state(ZC3);
     return true;
 }
 
