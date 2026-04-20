@@ -11,3 +11,5 @@ float64 radius_2
 float64 dz
 float64 z2
 float64 z3
+bool is_outpost_tracking
+bool is_outpost_tracked

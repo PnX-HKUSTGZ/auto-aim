@@ -276,6 +276,7 @@ bool TrackerManager::getIDTarget(
     std::string input_tracked_id_, auto_aim_interfaces::msg::Target & target_msg) const
 {
     target_msg.tracking = false;
+    target_msg.is_outpost_tracked = false;
 
     // 如果没有正在追踪的目标，返回空消息
     if (input_tracked_id_.empty() || trackers_.find(input_tracked_id_) == trackers_.end()) {
@@ -330,6 +331,9 @@ bool TrackerManager::getIDTarget(
     }
     target_msg.z2 = state(ZC2);
     target_msg.z3 = state(ZC3);
+    if (tracker->tracked_id == "outpost") {
+        target_msg.is_outpost_tracked = tracker->isOutpostZTracked();
+    }
     return true;
 }
 
