@@ -334,30 +334,50 @@ public:
                 break;
             }
 
-            // 计算飞行时间（考虑空气阻力）
-            double exp_arg = std::clamp(k * dist_horizon, -MAX_EXP_ARG, MAX_EXP_ARG);
-            fly_time = (std::exp(exp_arg) - 1) / (k * vx);
-            if (!std::isfinite(fly_time) || fly_time <= MIN_T) {
-                fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
-                break;
+           
+            // -------------------------------------------------------------
+            // 使用完全二次阻力模型的数值积分（欧拉法）取代解析公式
+            // 阻力模型: a = -k * v_total * v
+            // -------------------------------------------------------------
+            double current_x = 0.0;
+            double current_y = 0.0;
+            double current_vx = vx;
+            double current_vy = vy;
+            double dt = 0.005; // 积分时间步长 5ms，平衡精度和算力
+            fly_time = 0.0;
+            
+            int max_steps = 1000; // 最多模拟 5 秒，防止数值爆炸或死循环
+            for (int step = 0; step < max_steps; ++step) {
+                double v = std::hypot(current_vx, current_vy);
+                
+                // 二次空气阻力加速度(X轴、Y轴各自的实际分量)
+                double ax = -k * v * current_vx;
+                double ay = -9.8 - k * v * current_vy;
+                
+                double next_x = current_x + current_vx * dt;
+                
+                // 如果下一步将跨越目标水平位置，进行最后一段的线性插值并退出
+                if (next_x >= dist_horizon) {
+                    double fraction = (dist_horizon - current_x) / std::max(current_vx, MIN_DENOM);
+                    fly_time += fraction;
+                    real_height = current_y + current_vy * fraction; // 最终到达目标瞬间的准确高度
+                    current_x = dist_horizon;
+                    break;
+                }
+                
+                // 欧拉法状态更新
+                current_x = next_x;
+                current_y += current_vy * dt;
+                current_vx += ax * dt;
+                current_vy += ay * dt;
+                fly_time += dt;
             }
             
-            // 折中方案：构造 Y 轴等效阻力系数 (伪 k)
-            // 真实二次阻力在 Y 轴的投影为 f_y = -k * v_total * v_y
-            // 而当前指数积分公式对应的微分方程为 a_y = -g - k_model * v_y
-            // 因此等效的 k_model 应该近似等于 k * v_total。这里用 vx 近似 v_total，
-            // 并在低速时进行保护，防止除以极小的 ky 导致数值爆炸。
-            double ky = k * std::max(std::abs(vx), 5.0); // 5.0 为经验下限保护
-
-            // 计算实际高度（使用伪 ky 替代原本的 k，考虑重力和放大的等效空气阻力）
-            double term = vy + 9.8 / ky;
-            double decay_arg = std::clamp(-ky * fly_time, -MAX_EXP_ARG, MAX_EXP_ARG);
-            real_height = term * (1.0 - std::exp(decay_arg)) / ky - (9.8 * fly_time) / ky;
-            if (!std::isfinite(real_height)) {
+            // 保护机制：如果模拟跑完了还没到水平位置（如被风阻吹停），或者发生数值异常，进行兜底
+            if (current_x < dist_horizon || !std::isfinite(real_height) || !std::isfinite(fly_time) || fly_time <= MIN_T) {
                 fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
-                break;
+                real_height = current_y; // 强行拉取最后测算到的高度进行补偿反馈
             }
-            
             // 计算高度误差并修正
             delta_height = target_height - real_height;
             tmp_height += delta_height;
