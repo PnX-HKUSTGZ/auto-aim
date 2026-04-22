@@ -342,10 +342,17 @@ public:
                 break;
             }
             
-            // 计算实际高度（考虑重力和空气阻力）
-            double term = vy + 9.8 / k;
-            double decay_arg = std::clamp(-k * fly_time, -MAX_EXP_ARG, MAX_EXP_ARG);
-            real_height = term * (1.0 - std::exp(decay_arg)) / k - (9.8 * fly_time) / k;
+            // 折中方案：构造 Y 轴等效阻力系数 (伪 k)
+            // 真实二次阻力在 Y 轴的投影为 f_y = -k * v_total * v_y
+            // 而当前指数积分公式对应的微分方程为 a_y = -g - k_model * v_y
+            // 因此等效的 k_model 应该近似等于 k * v_total。这里用 vx 近似 v_total，
+            // 并在低速时进行保护，防止除以极小的 ky 导致数值爆炸。
+            double ky = k * std::max(std::abs(vx), 5.0); // 5.0 为经验下限保护
+
+            // 计算实际高度（使用伪 ky 替代原本的 k，考虑重力和放大的等效空气阻力）
+            double term = vy + 9.8 / ky;
+            double decay_arg = std::clamp(-ky * fly_time, -MAX_EXP_ARG, MAX_EXP_ARG);
+            real_height = term * (1.0 - std::exp(decay_arg)) / ky - (9.8 * fly_time) / ky;
             if (!std::isfinite(real_height)) {
                 fly_time = std::max(MIN_T, dist_horizon / std::max(bulletV, MIN_DENOM));
                 break;
