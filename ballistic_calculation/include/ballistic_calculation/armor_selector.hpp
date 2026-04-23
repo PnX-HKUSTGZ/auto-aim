@@ -21,6 +21,18 @@ using target = auto_aim_interfaces::msg::Target;
 public:
     const double COST_DIFF_THRESHOLD = M_PI/18;
 
+    void setCenterAngleThreshold(double threshold_rad) {
+        center_angle_threshold_rad_ = std::max(0.0, threshold_rad);
+    }
+
+    bool isCenterAngleWithinThreshold() const {
+        return center_angle_within_threshold_;
+    }
+
+    double getCenterAngleRad() const {
+        return center_angle_rad_;
+    }
+
     double getTargetPositionZ() const {
         return target_msg.position.z;
     }
@@ -60,6 +72,8 @@ public:
 
         // 三级策略：目标角速度过快时，瞄准中心点
         if (abs(target_msg.v_yaw) > max_v) {
+            center_angle_within_threshold_ = false;
+            center_angle_rad_ = M_PI;
             return {0.0, is_outpost ? target_msg.position.z : (target_msg.position.z + 0.5 * target_msg.dz), 0.0};
         }
         
@@ -93,6 +107,7 @@ public:
             
             // 计算装甲板到枪口的最短角度距离（代价函数）
             armors[i].cost = angles::shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
+            armors[i].center_angle = calculateCenterAngle(newxc, newyc, armors[i].x, armors[i].y);
         }
         if (is_outpost) {
                 armors[0].z = target_msg.position.z;
@@ -104,20 +119,22 @@ public:
                 // else{
                 //     armors[2].z = target_msg.position.z + target_msg.dz;
                 // }
+                //return {armors[0].yaw - target_msg.v_yaw * T, armors[0].z, armors[0].r};
 
+            }else{
+
+                // 按角度距离排序，找到最容易击中的装甲板
+                std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
+                    return std::abs(a.cost) < std::abs(b.cost);
+                });
             }
-
-        // 按角度距离排序，找到最容易击中的装甲板
-        std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
-            return std::abs(a.cost) < std::abs(b.cost);
-        });
-        
         Armor chosen_armor = armors[0];  // 选择角度距离最小的装甲板
         // 一级策略：低速或MPC控制或最优装甲板角度小于放弃角度时，直接选择最优装甲板        
         if (abs(target_msg.v_yaw) < min_v) {
             if(abs(armors[0].cost - armors[1].cost) < COST_DIFF_THRESHOLD){
                 chosen_armor = armors[0].cost < 0 ? armors[0] : armors[1];
             }
+            updateCenterAngleJudge(chosen_armor);
             return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
         }
         
@@ -127,6 +144,7 @@ public:
             chosen_armor.r, target_msg.armors_num);
             
         if (std::isnan(yaw) || abs(armors[0].cost) <= yaw) {
+            updateCenterAngleJudge(chosen_armor);
             return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
         }
         
@@ -139,6 +157,7 @@ public:
         // 根据运动方向调整放弃角度的符号
         yaw = chosen_armor.cost > 0 ? abs(yaw) : -abs(yaw);
         double set_yaw = gun_to_center_angle + yaw;
+        updateCenterAngleJudge(chosen_armor);
         return {set_yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
     }
 
@@ -158,7 +177,36 @@ private:
         double yaw;   // 偏航角
         double r;     // 半径
         double cost;  // 装甲板和枪口的角度差（代价）
+        double center_angle; // 中心顶点夹角：中心->装甲板 与 中心->云台
     };
+
+    double center_angle_threshold_rad_ = M_PI / 6.0;
+    bool center_angle_within_threshold_ = false;
+    double center_angle_rad_ = M_PI;
+
+    static double calculateCenterAngle(double center_x, double center_y, double armor_x, double armor_y)
+    {
+        const double ca_x = armor_x - center_x;
+        const double ca_y = armor_y - center_y;
+        const double cg_x = -center_x;
+        const double cg_y = -center_y;
+
+        const double ca_norm = std::hypot(ca_x, ca_y);
+        const double cg_norm = std::hypot(cg_x, cg_y);
+        if (ca_norm <= 1e-6 || cg_norm <= 1e-6) {
+            return M_PI;
+        }
+
+        const double ca_angle = std::atan2(ca_y, ca_x);
+        const double cg_angle = std::atan2(cg_y, cg_x);
+        return std::abs(angles::shortest_angular_distance(ca_angle, cg_angle));
+    }
+
+    void updateCenterAngleJudge(const Armor & armor)
+    {
+        center_angle_rad_ = armor.center_angle;
+        center_angle_within_threshold_ = center_angle_rad_ <= center_angle_threshold_rad_;
+    }
     
     /**
      * @brief 通过优化求解放弃角度

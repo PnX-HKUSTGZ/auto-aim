@@ -78,6 +78,9 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     armor_info_ = std::make_unique<ArmorInfo>(odom2gunxyz, odom2gunrpy);
     rune_info_ = std::make_unique<RuneInfo>(odom2gunxyz, odom2gunrpy);
     armor_selector_ = std::make_shared<ArmorSelector>();
+    const double center_angle_threshold_deg =
+        this->declare_parameter("center_angle_threshold_deg", 30.0);
+    armor_selector_->setCenterAngleThreshold(center_angle_threshold_deg * M_PI / 180.0);
 
     //初始化MPC控制器
     mpc_controller_ = std::make_unique<rm_auto_aim::MPCController>(this);
@@ -292,7 +295,8 @@ void BallisticCalculateNode::carTargetCallback(
     //     ifFireK += abs(car_target_msg->v_yaw) * 0.004;
     // }
     // if (fire_msg.iffire) last_fire_time = this->now();
-    fire_msg.iffire = mpc_result.is_fire;
+    fire_msg.iffire =
+        mpc_result.is_fire && armor_selector_->isCenterAngleWithinThreshold();
     // // Publish a 1/0 float for rqt plotting of iffire
     // try { 
     //     std_msgs::msg::Float32 ifmsg;
