@@ -21,7 +21,6 @@
 #include <memory>
 #include <string>
 #include "armor_tracker/types.hpp"
-#include "armor_tracker/types.hpp"
 
 namespace rm_auto_aim
 
@@ -77,43 +76,13 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         double r_outpost = 0.275;  // 前哨站固定半径
         target_state(XC) = p.x + r_outpost * cos(yaw);
         target_state(YC) = p.y + r_outpost * sin(yaw);
-        // if (z_slots_[0] == 0 && z_slots_[1] == 0 && z_slots_[2] == 0.0){
-        //     target_state(ZC1) = target_state(ZC2) = target_state(ZC3)=p.z;
-        //     z_slots_[0] = z_slots_[1] = z_slots_[2] = p.z;
-        // }else{
-        //     target_state(ZC1) = z_slots_[0];
-        //     target_state(ZC2) = z_slots_[1];
-        //     target_state(ZC3) = z_slots_[2];
-        // }
         target_state(ZC1) = target_state(ZC2) = target_state(ZC3) = p.z;
-        // // 按轮转序号r_指定当前识别到的板号，将观测z写入对应槽位
-        // int current_idx = r_ - 1;  // 0/1/2 对应 1/2/3号板
-        // if (current_idx < 0 || current_idx > 2) {
-        //     current_idx = 0;
-        // }
-
-        // // 轮转r_前，判断z_slots_新旧槽位高度差，若小于阈值则不轮转
-        // int old_r = r_;
-        // int new_r = (r_ == 1) ? 2 : ((r_ == 2) ? 3 : 1);
-        // double old_z = z_slots_[old_r - 1];
-        // if (std::abs(old_z - p.z) > 0.0514) {
-        //     r_ = new_r;
-        // } // 否则保持原r_
-
-        //z_slots_[current_idx] = p.z;
-
-        // // 非当前板的z从缓存容器恢复
-        // target_state(ZC1) = z_slots_[0];
-        // target_state(ZC2) = z_slots_[1];
-        // target_state(ZC3) = z_slots_[2];
-
         target_state(R1) = target_state(R2) = target_state(R3) = r_outpost;
         target_state(YAW1) = yaw;
         target_state(YAW2) = yaw + 2 * M_PI / 3;  // 3块板间隔120°
         target_state(YAW3) = yaw + 4 * M_PI / 3;
         target_state(R_OUTPOST) = r_outpost;
         ekf.setState(target_state);
-        matched_armor_id = 1;  // 默认与1号板匹配
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Init EKF for outpost (3 armors)!");
         std::cerr<< "前哨战被初始化" << std::endl;
     } else {
@@ -205,7 +174,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
             measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
             if (matched_id == 1) {
-                matched_armor_id = matched_id;
                 if (outpost_match_counts_[0] < outpost_match_count_threshold_) {
                     ++outpost_match_counts_[0];
                 }
@@ -213,7 +181,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
             } else if (matched_id == 2) {
-                matched_armor_id = matched_id;
                 if (outpost_match_counts_[1] < outpost_match_count_threshold_) {
                     ++outpost_match_counts_[1];
                 }
@@ -221,7 +188,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
             } else {
-                matched_armor_id = matched_id;
                 if (outpost_match_counts_[2] < outpost_match_count_threshold_) {
                     ++outpost_match_counts_[2];
                 }
@@ -273,7 +239,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
 
                 measurement = Eigen::Vector4d(p.x, p.y, p.z, measured_yaw);
                 if (matched_id == 1) {
-                    matched_armor_id = matched_id;
                     if (outpost_match_counts_[0] < outpost_match_count_threshold_) {
                         ++outpost_match_counts_[0];
                     }
@@ -281,7 +246,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                     constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update1 (outpost)");
                 } else if (matched_id == 2) {
-                    matched_armor_id = matched_id;
                     if (outpost_match_counts_[1] < outpost_match_count_threshold_) {
                         ++outpost_match_counts_[1];
                     }
@@ -289,7 +253,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                     constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
                     RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2 (outpost)");
                 } else {
-                    matched_armor_id = matched_id;
                     if (outpost_match_counts_[2] < outpost_match_count_threshold_) {
                         ++outpost_match_counts_[2];
                     }
@@ -317,7 +280,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 // Matched armor1 found
                 tracked_armor = armors_msg->armors[0];
                 matched = true;
-                    matched_armor_id = matched_id;
                 auto p = tracked_armor.pose.position;
                 // Update EKF
                 double measured_yaw = orientationToYaw(
@@ -330,7 +292,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 // Matched armor2 found
                 tracked_armor_2 = armors_msg->armors[0];
                 matched = true;
-                    matched_armor_id = matched_id;
                 auto p = tracked_armor_2.pose.position;
                 // Update EKF
                 double measured_yaw = orientationToYaw(
@@ -340,9 +301,12 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 target_state = ekf.update2(measurement);
                 RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "EKF update2");
             } else {
-                RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset tracker by single armor!");
-                init(armors_msg);
-                return matched;
+                RCLCPP_WARN(
+                rclcpp::get_logger("armor_tracker"),
+                "Single armor miss, keep prediction and enter MISS_MATCH instead of reset.");
+                if (tracker_state == TRACKING || tracker_state == DETECTING) {
+                    tracker_state = MISS_MATCH;
+                }
             }
         }
     
@@ -367,7 +331,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                 tracked_armor = armors_msg->armors[0];
                 tracked_armor_2 = armors_msg->armors[1];
                 matched = true;
-                matched_armor_id = matched_armor1;
                 auto p1 = tracked_armor.pose.position;
                 auto p2 = tracked_armor_2.pose.position;
                 // Update EKF

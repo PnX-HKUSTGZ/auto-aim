@@ -318,17 +318,8 @@ bool TrackerManager::getIDTarget(
     target_msg.radius_2 = state(R2);
 
     // 装甲板高度差
-    if (tracker->tracked_id == "outpost"){
-        if (tracker->matched_armor_id == 1){
-            target_msg.dz = state(ZC2) - state(ZC1);
-        }else if (tracker->matched_armor_id == 2){
-            target_msg.dz = state(ZC3) - state(ZC2);
-        }else{
-            target_msg.dz = state(ZC1) - state(ZC3);
-        }
-    }else{
-        target_msg.dz = state(ZC2) - state(ZC1);
-    }
+    // outpost 的装甲板高度在下游主要通过 z2/z3 使用，dz 不再依赖“匹配到哪块板”的信息。
+    target_msg.dz = state(ZC2) - state(ZC1);
     target_msg.z2 = state(ZC2);
     target_msg.z3 = state(ZC3);
     if (tracker->tracked_id == "outpost") {

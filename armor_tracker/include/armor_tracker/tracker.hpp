@@ -118,7 +118,6 @@ public:
     std::string tracked_id;
     Armor tracked_armor;
     Armor tracked_armor_2;
-    int matched_armor_id = 1;
     ArmorsNum tracked_armors_num = ArmorsNum::NORMAL_4;
 
     double info_position_diff;
