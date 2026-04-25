@@ -242,6 +242,8 @@ void BallisticCalculateNode::carTargetCallback(
         yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
         yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
         yaw_tracker_msg.data[2] = mpc_result.is_fire;    // 第三个元素：is_fire（是否处于阶跃期）
+        yaw_tracker_msg.data[3] = mpc_result.target_pitch;
+        yaw_tracker_msg.data[4] = mpc_result.pitch;
         mpc_yaw_tracker_pub_->publish(yaw_tracker_msg);
     } catch (...) {
         RCLCPP_WARN(this->get_logger(), "Failed to publish MPC yaw tracker");
@@ -284,6 +286,10 @@ void BallisticCalculateNode::carTargetCallback(
         fire_msg.distance = std::hypot(target_gun.x(), target_gun.y());
     }
 
+    // 新增目标距离信息
+    fire_msg.distance = target.norm();
+    // std::cerr << "Target distance: " << fire_msg.distance << " meters\n";
+    
     fire_msg.tracking = car_target_msg->tracking;
     fire_msg.id = car_target_msg->id;
     fire_msg.projected_x = projected_point.x;
