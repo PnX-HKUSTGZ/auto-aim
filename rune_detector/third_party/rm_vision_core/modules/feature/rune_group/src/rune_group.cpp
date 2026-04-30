@@ -289,7 +289,7 @@ inline unordered_set<size_t> getAbnormalFrames(const vector<TrackingFeatureNode_
         for (auto &r : types[f])
             if (r == RuneType::PENDING_STRUCK)
                 cnt++;
-        if (cnt == 0 || cnt > 1)
+        if (cnt == 0 || cnt > 2)
             abn.insert(f);
     }
 
