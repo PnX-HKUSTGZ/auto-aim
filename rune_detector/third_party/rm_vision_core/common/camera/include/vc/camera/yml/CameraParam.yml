@@ -18,13 +18,14 @@ cameraMatrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: f
-   data: [ 2.38407593e+03, 0., 7.19500000e+02, 0., 2.38407593e+03,
-       5.39500000e+02, 0., 0., 1. ]
+   data: [ 2.36655249e+03, 0., 7.88901794e+02, 0., 2.36589429e+03,
+       5.97281250e+02, 0., 0., 1. ]
 distCoeff: !!opencv-matrix
    rows: 5
    cols: 1
    dt: f
-   data: [ 1.52836945e-02, -6.00926280e-01, 0., 0., 3.79522634e+00 ]
+   data: [ -7.01920018e-02, 3.18425000e-01, -1.00999998e-04,
+       6.33999996e-04, 0. ]
 camera2joint_euler_angle: !!opencv-matrix
    rows: 3
    cols: 1
@@ -39,7 +40,7 @@ cam2joint_tvec: !!opencv-matrix
    rows: 3
    cols: 1
    dt: f
-   data: [ 60., 40., -120. ]
+   data: [ 0., 95., -10. ]
 lut_vec: []
 serial_number: DA5555072
 image_width: 1440
