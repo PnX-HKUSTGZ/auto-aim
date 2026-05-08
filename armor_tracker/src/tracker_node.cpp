@@ -355,16 +355,41 @@ void ArmorTrackerNode::initializeEKF()
     r_radius = declare_parameter("ekf.r_radius", 0.02);
     auto u_r = [this](const Eigen::VectorXd & z) {
         Eigen::DiagonalMatrix<double, 4> r;
-        double x = r_xyz_factor;
-        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw;
+        
+        // 借鉴同济：计算装甲板在相机坐标系下的真实偏角 (当前观测Yaw - 装甲板相对相机的方位角)
+        double center_yaw = std::atan2(z[1], z[0]); // atan2(y, x)
+        double delta_angle = std::abs(z[3] - center_yaw);
+        // 归一化到 [-pi, pi] 以求得最小视差
+        while(delta_angle > M_PI) delta_angle -= 2.0 * M_PI;
+        while(delta_angle < -M_PI) delta_angle += 2.0 * M_PI;
+        delta_angle = std::abs(delta_angle);
+
+        // 视差越大（越侧面），深度方向 (Z, x,y同受影响但主要放大深度不信任度) 噪声越高
+        double depth_noise = std::abs(r_xyz_factor * z[0]) * (log(delta_angle + 1.0) + 1.0);
+
+        r.diagonal() << depth_noise, depth_noise, abs(r_xyz_factor * z[2]), r_yaw;
         return r;
     };
     auto u_r_two = [this](const Eigen::VectorXd & z) {
         Eigen::DiagonalMatrix<double, 10> r;
-        double x = r_xyz_factor;
+        
+        double center_yaw1 = std::atan2(z[1], z[0]); 
+        double delta_angle1 = std::abs(z[3] - center_yaw1);
+        while(delta_angle1 > M_PI) delta_angle1 -= 2.0 * M_PI;
+        while(delta_angle1 < -M_PI) delta_angle1 += 2.0 * M_PI;
+        delta_angle1 = std::abs(delta_angle1);
+        double depth_noise1 = std::abs(r_xyz_factor * z[0]) * (log(delta_angle1 + 1.0) + 1.0);
+
+        double center_yaw2 = std::atan2(z[5], z[4]); 
+        double delta_angle2 = std::abs(z[7] - center_yaw2);
+        while(delta_angle2 > M_PI) delta_angle2 -= 2.0 * M_PI;
+        while(delta_angle2 < -M_PI) delta_angle2 += 2.0 * M_PI;
+        delta_angle2 = std::abs(delta_angle2);
+        double depth_noise2 = std::abs(r_xyz_factor * z[4]) * (log(delta_angle2 + 1.0) + 1.0);
+
         // 装甲板1/2的XYZ噪声 + YAW噪声 + R1/R2噪声
-        r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw, abs(x * z[4]),
-            abs(x * z[5]), abs(x * z[6]), r_yaw, r_radius, r_radius;
+        r.diagonal() << depth_noise1, depth_noise1, abs(r_xyz_factor * z[2]), r_yaw, depth_noise2,
+            depth_noise2, abs(r_xyz_factor * z[6]), r_yaw, r_radius, r_radius;
         return r;
     };
     // P - error estimate covariance matrix
