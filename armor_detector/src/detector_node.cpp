@@ -23,6 +23,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 
+#include <std_msgs/msg/float32.hpp>
+
 // STD
 #include <algorithm>
 #include <map>
@@ -93,6 +95,9 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     // 初始化Armors Publisher
     armors_pub_ = this->create_publisher<auto_aim_interfaces::msg::Armors>(
         result_topic_, rclcpp::SensorDataQoS());
+
+    // Always publish debug distance topic so rqt_plot can subscribe without enabling debug
+    distance_pub_ = this->create_publisher<std_msgs::msg::Float32>("/detector/distance", 10);
 
     //tf2
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -316,6 +321,14 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     }
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
+
+    // Publish distance (meters) from armor center to camera center
+    if (distance_pub_ && !armors_msg_.armors.empty()) {
+        std_msgs::msg::Float32 dmsg;
+        auto &p = armors_msg_.armors[0].pose.position;
+        dmsg.data = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        distance_pub_->publish(dmsg);
+    }
 
     // ...existing code...
     if (debug_) {
@@ -693,6 +706,7 @@ void ArmorDetectorNode::createDebugPublishers()
     binary_img_pub_ = image_transport::create_publisher(this, "/detector/binary_img");
     number_img_pub_ = image_transport::create_publisher(this, "/detector/number_img");
     result_img_pub_ = image_transport::create_publisher(this, "/detector/result_img" );
+    distance_pub_ = this->create_publisher<std_msgs::msg::Float32>("/detector/distance", 10);
 }
 
 void ArmorDetectorNode::destroyDebugPublishers()
@@ -702,6 +716,7 @@ void ArmorDetectorNode::destroyDebugPublishers()
     binary_img_pub_.shutdown();
     number_img_pub_.shutdown();
     result_img_pub_.shutdown();
+    distance_pub_.reset();
 }
 
 void ArmorDetectorNode::publishMarkers()

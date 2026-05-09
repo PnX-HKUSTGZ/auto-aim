@@ -598,7 +598,7 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
 
         // 优先匹配最小差值
         double min_diff = std::min({yaw_diff_1, yaw_diff_2, yaw_diff_3});
-        if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_+0.5 //&&
+        if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_+0.3 //&&
             //position_diff_1 < max_match_distance_
             ) {
             if (!z_check_or_lost(1)) {
@@ -610,7 +610,7 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             //std::cerr<<"匹配了1";
             return 1;
         } else if (
-            min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_+0.5 //&&
+            min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_+0.3 //&&
             //position_diff_2 < max_match_distance_
             ) {
             if (!z_check_or_lost(2)) {
@@ -622,7 +622,7 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             //std::cerr<<"匹配了2";
             return 2;
         } else if (
-            min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_+0.5 //&&
+            min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_+0.3 //&&
             //position_diff_3 < max_match_distance_
             ) {
             if (!z_check_or_lost(3)) {
@@ -814,6 +814,14 @@ void Tracker::updateArmorsNum()
     } else {
         tracked_armors_num = ArmorsNum::NORMAL_4;
     }
+}
+
+void Tracker::setOutpostParams(int match_count_threshold, double z_lost_threshold,
+                               int z_mismatch_reinit_rounds)
+{
+    outpost_match_count_threshold_ = match_count_threshold;
+    outpost_z_lost_threshold_ = z_lost_threshold;
+    outpost_z_mismatch_reinit_rounds_ = z_mismatch_reinit_rounds;
 }
 double Tracker::orientationToYaw(
     const geometry_msgs::msg::Quaternion & q, geometry_msgs::msg::Point & position,

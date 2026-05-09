@@ -14,8 +14,9 @@ namespace rm_auto_aim
 // TrackerManager类的实现
 TrackerManager::TrackerManager(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
-        int tracking_thres, int outpost_match_count_threshold,
-    double lost_time_thres,double miss_match_time_thres, double switch_cooldown)
+    int tracking_thres, int outpost_match_count_threshold, double outpost_z_lost_threshold,
+    int outpost_z_mismatch_reinit_rounds, double lost_time_thres, double miss_match_time_thres,
+    double switch_cooldown)
 : trackers_(),
   current_tracked_id_(""),
   last_switch_time_(rclcpp::Clock().now()),
@@ -23,7 +24,9 @@ TrackerManager::TrackerManager(
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
   max_translation_speed_(max_translation_speed),
-    outpost_match_count_threshold_(outpost_match_count_threshold),
+  outpost_z_lost_threshold_(outpost_z_lost_threshold),
+  outpost_z_mismatch_reinit_rounds_(outpost_z_mismatch_reinit_rounds),
+  outpost_match_count_threshold_(outpost_match_count_threshold),
   tracking_thres_(tracking_thres),
   lost_time_thres_(lost_time_thres),
   miss_match_time_thres_(miss_match_time_thres),
@@ -135,6 +138,10 @@ void TrackerManager::initNewTracker(
 
     // 初始化追踪器
     tracker->init(id_armors_msg);
+
+    // 传递前哨站相关可配置参数到 tracker
+    tracker->setOutpostParams(outpost_match_count_threshold_, outpost_z_lost_threshold_,
+                              outpost_z_mismatch_reinit_rounds_);
 
     trackers_[id] = tracker;
 }

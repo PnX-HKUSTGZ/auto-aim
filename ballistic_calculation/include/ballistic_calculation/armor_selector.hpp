@@ -120,7 +120,9 @@ public:
                 //     armors[2].z = target_msg.position.z + target_msg.dz;
                 // }
                 //return {armors[0].yaw - target_msg.v_yaw * T, armors[0].z, armors[0].r};
-
+                std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
+                    return std::abs(a.z) < std::abs(b.z);
+                });
             }else{
 
                 // 按角度距离排序，找到最容易击中的装甲板

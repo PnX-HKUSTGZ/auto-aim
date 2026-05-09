@@ -50,6 +50,8 @@ private:
     double max_match_distance_;
     double max_match_yaw_diff_;
     double max_translation_speed_;
+    double outpost_z_lost_threshold_;
+    int outpost_z_mismatch_reinit_rounds_;
     int outpost_match_count_threshold_;
     int tracking_thres_;
     double lost_time_thres_;
@@ -121,8 +123,9 @@ public:
      */
     TrackerManager(
         double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
-        int tracking_thres, int outpost_match_count_threshold,
-        double lost_time_thres, double miss_match_time_thres,  double switch_cooldown = 1.0);
+        int tracking_thres, int outpost_match_count_threshold, double outpost_z_lost_threshold,
+        int outpost_z_mismatch_reinit_rounds, double lost_time_thres, double miss_match_time_thres,
+        double switch_cooldown = 1.0);
 
     /**
      * @brief 更新所有追踪器

@@ -103,6 +103,12 @@ public:
         outpost_ekf_template_ready_ = true;
     }
 
+    /**
+     * @brief 设置前哨站相关参数（允许外部传入以便运行时配置）
+     */
+    void setOutpostParams(int match_count_threshold, double z_lost_threshold,
+                          int z_mismatch_reinit_rounds);
+
     ExtendedKalmanFilter ekf;
 
     int tracking_thres;
@@ -237,7 +243,7 @@ private:
     double max_match_distance_;
     double max_match_yaw_diff_;
     std::array<int, 3> outpost_match_counts_{{0, 0, 0}};
-    int outpost_match_count_threshold_ = 3;
+    int outpost_match_count_threshold_ = 9;
     double outpost_z_lost_threshold_ = 0.1;
     int outpost_z_mismatch_reinit_rounds_ = 3;
     int outpost_z_mismatch_count_ = 0;
