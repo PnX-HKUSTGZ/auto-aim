@@ -242,9 +242,9 @@ private:
     double max_match_distance_;
     double max_match_yaw_diff_;
     std::array<int, 3> outpost_match_counts_{{0, 0, 0}};
-    int outpost_match_count_threshold_ = 9;
-    double outpost_z_lost_threshold_ = 0.1;
-    int outpost_z_mismatch_reinit_rounds_ = 3;
+    int outpost_match_count_threshold_ = 3;
+    double outpost_z_lost_threshold_ = 0.05;
+    int outpost_z_mismatch_reinit_rounds_ = 1;
     int outpost_z_mismatch_count_ = 0;
     bool outpost_last_mismatch_is_z_ = false;
     bool outpost_z_checked_and_valid_ = false;

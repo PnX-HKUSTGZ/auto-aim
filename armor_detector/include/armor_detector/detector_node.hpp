@@ -181,6 +181,10 @@ private:
     image_transport::Publisher binary_img_pub_;
     image_transport::Publisher number_img_pub_;
     image_transport::Publisher result_img_pub_;
+
+    // -------------------- 深度过滤参数 --------------------
+    double min_depth_;
+    double max_depth_;
     
     /**
     * @brief 装甲板可视化标记

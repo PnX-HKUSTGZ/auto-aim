@@ -197,6 +197,9 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             }
         } else {
             RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset outpost tracker by single armor!");
+            if (tracker_state == TRACKING || tracker_state == DETECTING) {
+                tracker_state = MISS_MATCH;
+            }
         }
     };
 
@@ -218,7 +221,9 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                         "Outpost z mismatch count %d/%d, postpone reinit.",
                         outpost_z_mismatch_count_, outpost_z_mismatch_reinit_rounds_);
                 } else {
-                    init(armors_msg);
+                    if (tracker_state == TRACKING || tracker_state == DETECTING) {
+                        tracker_state = MISS_MATCH;
+                    }
                 }
                 return matched;
             }
@@ -271,7 +276,9 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                             outpost_z_mismatch_count_, outpost_z_mismatch_reinit_rounds_);
                     } else {
                         RCLCPP_WARN(rclcpp::get_logger("armor_tracker"), "Reset outpost tracker by single armor!");
-                        init(armors_msg);
+                        if (tracker_state == TRACKING || tracker_state == DETECTING) {
+                            tracker_state = MISS_MATCH;
+                        }
                     }
                     return matched;
             }
@@ -372,6 +379,10 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
     }
     if (tracked_armors_num == ArmorsNum::OUTPOST_3) {
         target_state(R1) = target_state(R2) = 0.275;  // 固定半径
+        // 锁住前哨站的XYZ位置
+        target_state(VXC) = 0.0;
+        target_state(VYC) = 0.0;
+        target_state(VZC) = 0.0;
         // 约束速度
         double outpost_yaw_speed_const = 4*M_PI/5;
         if (std::abs(std::abs(target_state(VYAW)) - outpost_yaw_speed_const) < 0.2 * M_PI) {
@@ -536,7 +547,7 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
                         ++outpost_z_mismatch_count_;
                     }
                     if (outpost_z_mismatch_count_ >= outpost_z_mismatch_reinit_rounds_) {
-                        tracker_state = LOST;
+                        tracker_state = MISS_MATCH;
                         RCLCPP_WARN(
                             rclcpp::get_logger("tracker"),
                             "Outpost z mismatch %d/%d, trigger reinit. armor_id=%d, measured_z=%.3f, predicted_z=%.3f, diff=%.3f, threshold=%.3f",
@@ -560,8 +571,8 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             };
 
         // 优先匹配最小差值
-        double min_diff = std::min({yaw_diff_1, yaw_diff_2, yaw_diff_3});
-        if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_+0.3 //&&
+        double min_diff = std::min({yaw_diff_1, yaw_diff_2, yaw_diff_3}); //yaw_diff是我观测到的yaw和ekf预测的yaw的差值
+        if (min_diff == yaw_diff_1 && yaw_diff_1 < max_match_yaw_diff_ + 0.5 //&& //yaw_diff推出他是1号板并且差值要小于差值的阈值
             //position_diff_1 < max_match_distance_
             ) {
             if (!z_check_or_lost(1)) {
@@ -570,10 +581,11 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_1);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_1);
-            //std::cerr<<"匹配了1";
+            std::cerr<<"匹配了1" << std::endl;
+            std::cerr << position_vec.z() << std::endl;
             return 1;
         } else if (
-            min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_+0.3 //&&
+            min_diff == yaw_diff_2 && yaw_diff_2 < max_match_yaw_diff_ + 0.5 //&&
             //position_diff_2 < max_match_distance_
             ) {
             if (!z_check_or_lost(2)) {
@@ -582,10 +594,11 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_2);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_2);
-            //std::cerr<<"匹配了2";
+            std::cerr<<"匹配了2" << std::endl;
+            std::cerr << position_vec.z() << std::endl;
             return 2;
         } else if (
-            min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_+0.3 //&&
+            min_diff == yaw_diff_3 && yaw_diff_3 < max_match_yaw_diff_ + 0.5 //&&
             //position_diff_3 < max_match_distance_
             ) {
             if (!z_check_or_lost(3)) {
@@ -594,19 +607,22 @@ int Tracker::matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_predict
             twoD_distance = fmin(armor.distance_to_image_center, twoD_distance);
             info_position_diff = fmin(info_position_diff, position_diff_3);
             info_yaw_diff = fmin(info_yaw_diff, yaw_diff_3);
-            //std::cerr<<"匹配了3";
+            std::cerr<<"匹配了3" << std::endl;
+            std::cerr << position_vec.z() << std::endl;
             return 3;  // 第三块板匹配
         }else{
             outpost_last_mismatch_is_z_ = false;
             outpost_z_mismatch_count_ = 0;
             outpost_z_checked_and_valid_ = false;
-            double a =min_diff-max_match_yaw_diff_;
+            //double a =min_diff-max_match_yaw_diff_;
             // double b =std::min({position_diff_1-max_match_distance_,position_diff_2-max_match_distance_,position_diff_3-max_match_distance_});
             // if (b == position_diff_1 - max_match_distance_){std::cerr<<"距离用了1";}else if (b == position_diff_2 - max_match_distance_){std::cerr<<"距离用了2";}
             // else if (b == position_diff_3 - max_match_distance_){std::cerr<<"距离用了3";}
-            if (min_diff == yaw_diff_1){std::cerr<<"角度用了1"<<"距离差为"<<position_diff_1-max_match_distance_;}else if (min_diff == yaw_diff_2){std::cerr<<"角度用了2"<<"距离差为"<<position_diff_2-max_match_distance_;;}
-            else if (min_diff == yaw_diff_3){std::cerr<<"角度用了3"<<"距离差为"<<position_diff_3-max_match_distance_;;}
-            std::cerr<<"没匹配上，角度差为:"<<a;
+            //std::cerr << "max_match_distance_: " << max_match_distance_ << std::endl; //max_match_distance_ = 0.5
+            if (min_diff == yaw_diff_1){std::cerr<<"角度用了1"<<"距离差与阈值的差为"<<position_diff_1-max_match_distance_ << std::endl << "position_diff_1: " << position_diff_1 << std::endl << "max_match_distance_: " << max_match_distance_ << std::endl;}
+            else if (min_diff == yaw_diff_2){std::cerr<<"角度用了2"<<"距离差与阈值的差为"<<position_diff_2-max_match_distance_<< std::endl << "position_diff_2: " << position_diff_2 << std::endl << "max_match_distance_: " << max_match_distance_ << std::endl;}
+            else if (min_diff == yaw_diff_3){std::cerr<<"角度用了3"<<"距离差与阈值的差为"<<position_diff_3-max_match_distance_<< std::endl << "position_diff_3: " << position_diff_3 << std::endl << "max_match_distance_: " << max_match_distance_ << std::endl;}
+            std::cerr<<"没匹配上，角度差为:"<< min_diff;
             return 0;
         }
     } else {
