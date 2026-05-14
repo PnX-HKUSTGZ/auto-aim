@@ -178,7 +178,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                     ++outpost_match_counts_[0];
                 }
                 target_state = ekf.update1(measurement);
-                constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
+                constrainOutpostHeights(p.z, target_state(ZC2), target_state(ZC3));
                 checkOutpostZHeight(1, p.z, target_state);
                 // Propagate observed yaw to the other two outpost panels
                 {
@@ -194,7 +194,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                     ++outpost_match_counts_[1];
                 }
                 target_state = ekf.update2(measurement);
-                constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
+                constrainOutpostHeights(p.z, target_state(ZC1), target_state(ZC3));
                 checkOutpostZHeight(2, p.z, target_state);
                 // Propagate observed yaw to the other two outpost panels
                 {
@@ -210,7 +210,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                     ++outpost_match_counts_[2];
                 }
                 target_state = ekf.update3(measurement);
-                constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
+                constrainOutpostHeights(p.z, target_state(ZC2), target_state(ZC1));
                 checkOutpostZHeight(3, p.z, target_state);
                 // Propagate observed yaw to the other two outpost panels
                 {
@@ -275,7 +275,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                         ++outpost_match_counts_[0];
                     }
                     target_state = ekf.update1(measurement);
-                    constrainOutpostHeights(target_state(ZC1), target_state(ZC2), target_state(ZC3));
+                    constrainOutpostHeights(p.z, target_state(ZC2), target_state(ZC3));
                     checkOutpostZHeight(1, p.z, target_state);
                     // Propagate observed yaw to the other two outpost panels
                     {
@@ -291,7 +291,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                         ++outpost_match_counts_[1];
                     }
                     target_state = ekf.update2(measurement);
-                    constrainOutpostHeights(target_state(ZC2), target_state(ZC1), target_state(ZC3));
+                    constrainOutpostHeights(p.z, target_state(ZC1), target_state(ZC3));
                     checkOutpostZHeight(2, p.z, target_state);
                     // Propagate observed yaw to the other two outpost panels
                     {
@@ -307,7 +307,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
                         ++outpost_match_counts_[2];
                     }
                     target_state = ekf.update3(measurement);
-                    constrainOutpostHeights(target_state(ZC3), target_state(ZC2), target_state(ZC1));
+                    constrainOutpostHeights(p.z, target_state(ZC2), target_state(ZC1));
                     checkOutpostZHeight(3, p.z, target_state);
                     // Propagate observed yaw to the other two outpost panels
                     {
@@ -989,11 +989,7 @@ void Tracker::limitTranslationVelocity(Eigen::VectorXd & state) const
 
 double Tracker::calYawDiff(double yaw1, double yaw2)
 {
-    // yaw存在180°翻转二义性时（例如姿态解算/装甲板法向方向切换），允许额外比较 yaw+pi
-    // 注意：这里不能用 4*pi/N（N=3会导致把120°差值错误地折叠成0°，从而频繁错配）
-    double diff = std::min(
-        abs(angles::shortest_angular_distance(yaw1, yaw2)),
-        abs(angles::shortest_angular_distance(yaw1 + M_PI, yaw2)));
+    double diff =abs(angles::shortest_angular_distance(yaw1, yaw2));
     return diff;
 }
 
