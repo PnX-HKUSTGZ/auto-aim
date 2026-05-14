@@ -109,31 +109,31 @@ public:
             armors[i].cost = angles::shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
             armors[i].center_angle = calculateCenterAngle(newxc, newyc, armors[i].x, armors[i].y);
         }
-        if (is_outpost) {
-                armors[0].z = target_msg.position.z;
-                armors[1].z = target_msg.z2;
-                armors[2].z = target_msg.z3;
-                // if (target_msg.v_yaw >= 0){
-                //     armors[1].z = target_msg.position.z + target_msg.dz;
-                // }
-                // else{
-                //     armors[2].z = target_msg.position.z + target_msg.dz;
-                // }
-                //return {armors[0].yaw - target_msg.v_yaw * T, armors[0].z, armors[0].r};
-                std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
-                    return std::abs(a.z) < std::abs(b.z);
-                });
-            }else{
+        if (is_outpost && target_msg.v_yaw > 1.0) {
+            armors[0].z = target_msg.position.z;
+            armors[1].z = target_msg.z2;
+            armors[2].z = target_msg.z3;
+            // if (target_msg.v_yaw >= 0){
+            //     armors[1].z = target_msg.position.z + target_msg.dz;
+            // }
+            // else{
+            //     armors[2].z = target_msg.position.z + target_msg.dz;
+            // }
+            //return {armors[0].yaw - target_msg.v_yaw * T, armors[0].z, armors[0].r};
+            std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
+                return std::abs(a.z) < std::abs(b.z);
+            });
+        }else{
 
-                // 按角度距离排序，找到最容易击中的装甲板
-                std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
-                    return std::abs(a.cost) < std::abs(b.cost);
-                });
-            }
+            // 按角度距离排序，找到最容易击中的装甲板
+            std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
+                return std::abs(a.cost) < std::abs(b.cost);
+            });
+        }
         Armor chosen_armor = armors[0];  // 选择角度距离最小的装甲板
         // 一级策略：低速或MPC控制或最优装甲板角度小于放弃角度时，直接选择最优装甲板  
         //std::cerr << "chosen_armor.z: " << chosen_armor.z << std::endl;   
-        std::cerr << armors[0].z << std::endl << armors[1].z << std::endl << armors[2].z << std::endl;
+        //std::cerr << armors[0].z << std::endl << armors[1].z << std::endl << armors[2].z << std::endl;
         if (abs(target_msg.v_yaw) < min_v) {
             if(abs(armors[0].cost - armors[1].cost) < COST_DIFF_THRESHOLD){
                 chosen_armor = armors[0].cost < 0 ? armors[0] : armors[1];
