@@ -210,6 +210,19 @@ private:
     int matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_prediction);
 
     /**
+     * @brief 检查前哨站观测装甲板的Z轴高度一致性
+     *
+     * 对于前哨站（3块板），在每块板都被观测过足够次数后，验证测量Z坐标与EKF预测Z坐标
+     * 是否在阈值范围内。若超出阈值，增加不匹配计数；若达到容限次数，触发重新初始化。
+     *
+     * @param armor_id 装甲板ID（1、2或3）
+     * @param measured_z 测量得到的装甲板Z坐标
+     * @param ekf_prediction EKF预测的状态向量
+     * @return true 高度检查通过或处于预热阶段，继续匹配；false 高度检查失败且达到容限，停止匹配
+     */
+    bool checkOutpostZHeight(int armor_id, double measured_z, const Eigen::VectorXd & ekf_prediction);
+
+    /**
      * @brief 对 outpost 单装甲观测场景下的未观测装甲板高度进行硬约束
      *
      * 第一个参数为当前观测到的装甲板高度，后两个参数为未观测装甲板高度。
@@ -221,7 +234,7 @@ private:
      */
     void constrainOutpostHeights(
         double observed_armor_z, double & unobserved_armor_z_1, double & unobserved_armor_z_2,
-        double height_diff = 0.102, double height_diff_threshold = 0.03);
+        double height_diff = 0.102, double height_diff_threshold = 0.05);
 
     /**
      * @brief 从状态向量计算装甲板位置
@@ -242,9 +255,9 @@ private:
     double max_match_distance_;
     double max_match_yaw_diff_;
     std::array<int, 3> outpost_match_counts_{{0, 0, 0}};
-    int outpost_match_count_threshold_ = 3;
+    int outpost_match_count_threshold_ = 9;
     double outpost_z_lost_threshold_ = 0.05;
-    int outpost_z_mismatch_reinit_rounds_ = 1;
+    int outpost_z_mismatch_reinit_rounds_ = 3;
     int outpost_z_mismatch_count_ = 0;
     bool outpost_last_mismatch_is_z_ = false;
     bool outpost_z_checked_and_valid_ = false;
