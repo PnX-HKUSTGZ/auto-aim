@@ -109,7 +109,7 @@ public:
             armors[i].cost = angles::shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
             armors[i].center_angle = calculateCenterAngle(newxc, newyc, armors[i].x, armors[i].y);
         }
-        if (is_outpost && target_msg.v_yaw > 1.0) {
+        if (is_outpost && abs(target_msg.v_yaw) > 1.0) {
             armors[0].z = target_msg.position.z;
             armors[1].z = target_msg.z2;
             armors[2].z = target_msg.z3;
