@@ -256,8 +256,8 @@ void BallisticCalculateNode::carTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
-        final_pitch = mpc_result.target_pitch + rpy_vec[1]; // 转换到云台坐标系
-        final_yaw = mpc_result.target_yaw - rpy_vec[2];
+        final_pitch = mpc_result.pitch + rpy_vec[1]; // 转换到云台坐标系
+        final_yaw = mpc_result.yaw - rpy_vec[2];
         
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
@@ -296,7 +296,7 @@ void BallisticCalculateNode::carTargetCallback(
     // }
     // if (fire_msg.iffire) last_fire_time = this->now();
     fire_msg.iffire =
-        mpc_result.is_fire && armor_selector_->isCenterAngleWithinThreshold();
+        mpc_result.is_fire ;//&& armor_selector_->isCenterAngleWithinThreshold();
     // // Publish a 1/0 float for rqt plotting of iffire
     // try { 
     //     std_msgs::msg::Float32 ifmsg;
@@ -349,8 +349,8 @@ void BallisticCalculateNode::runeTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
-        final_pitch = mpc_result.target_pitch;
-        final_yaw = mpc_result.target_yaw;
+        final_pitch = mpc_result.pitch;
+        final_yaw = mpc_result.yaw;
         
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;

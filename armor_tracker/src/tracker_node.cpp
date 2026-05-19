@@ -547,6 +547,7 @@ void ArmorTrackerNode::processArmors(
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
             
             auto_aim_interfaces::msg::Target target_msg;
+            target_msg.tracking = false;
             bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
             if (!success) {
                 target_msg.tracking = false;
@@ -597,6 +598,7 @@ void ArmorTrackerNode::publishCallback()
     auto current_target_id = tracker_manager_->getCurrentTargetID();
     auto_aim_interfaces::msg::Target target_msg;
         target_msg.header.frame_id = target_frame_;
+        target_msg.tracking = false;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
 
     if (!success) {
