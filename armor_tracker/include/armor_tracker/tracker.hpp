@@ -122,6 +122,7 @@ public:
 
     rclcpp::Time last_update_time_;  // 上次有匹配的更新时间，也作为EKF时间基准
     rclcpp::Time last_main_update_time_; // 上次主相机更新时间
+    bool should_stop_tracking_ = false;  // 标记是否应在消息中将tracking设为false
 
 private:
     /**

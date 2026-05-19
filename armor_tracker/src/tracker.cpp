@@ -32,6 +32,7 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff, double ma
   target_state(Eigen::VectorXd::Zero(9)),
   last_update_time_(0.0),
   last_main_update_time_(0.0),
+  should_stop_tracking_(false),
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
   max_translation_speed_(max_translation_speed),
@@ -263,6 +264,10 @@ void Tracker::updateState(
 
     double time_since_update = (msg_time - last_update_time_).seconds();
     if (time_since_update < 0) time_since_update = 0.0;
+    const double EARLY_TERMINATION_THRESHOLD = 0.05;
+    
+    // 重置tracking停止标志
+    should_stop_tracking_ = false;
 
     switch (tracker_state) {
         case DETECTING:
@@ -294,16 +299,18 @@ void Tracker::updateState(
             if (matched) {
                 tracker_state = TRACKING;
                 resetDetectCount();
-            } else if (time_since_update > lost_time_thres) {
-                tracker_state = LOST;
+            } else if (time_since_update > temp_lost_time - EARLY_TERMINATION_THRESHOLD) {
+                // 积累到阈值差0.05时，标记应停止tracking，但不转为LOST
+                should_stop_tracking_ = true;
             }
             break;
         case MISS_MATCH:
             if (matched) {
                 tracker_state = TRACKING;
                 resetDetectCount();
-            } else if (time_since_update > miss_match_time_thres) {
-                tracker_state = LOST;  // 较短时间未匹配上，直接转为LOST
+            } else if (time_since_update > miss_match_time_thres - EARLY_TERMINATION_THRESHOLD) {
+                // 积累到阈值差0.05时，标记应停止tracking
+                should_stop_tracking_ = true;
             }
             break;
         case LOST:
