@@ -397,7 +397,7 @@ void ArmorTrackerNode::processArmors(
                 
                 tf2::doTransform(ps, ps, fallback_transform);
                 armor.pose = ps.pose;
-                RCLCPP_WARN(get_logger(), "can't use target_frame for TF, use newest instead: %s", ex.what());
+                RCLCPP_WARN_THROTTLE(get_logger(), *this->get_clock(), 5000, "can't use target_frame for TF, use newest instead: %s", ex.what());
             } catch (const tf2::TransformException & fallback_ex) {
                 RCLCPP_ERROR(get_logger(), "Fallback transform failed: %s", fallback_ex.what());
                 return;
