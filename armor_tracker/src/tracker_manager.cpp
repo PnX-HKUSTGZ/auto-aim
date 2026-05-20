@@ -292,15 +292,10 @@ bool TrackerManager::getIDTarget(
     // 根据追踪状态填充消息
     if (tracker->tracker_state == Tracker::DETECTING) {
         target_msg.tracking = false;
-    } else if (tracker->tracker_state == Tracker::TRACKING) {
-        // TRACKING状态下，检查是否应停止tracking
-        target_msg.tracking = !tracker->should_stop_tracking_;
-    } else if (tracker->tracker_state == Tracker::TEMP_LOST) {
-        // TEMP_LOST状态下，检查是否应停止tracking
-        target_msg.tracking = !tracker->should_stop_tracking_;
-    } else if (tracker->tracker_state == Tracker::MISS_MATCH ||
-               tracker->tracker_state == Tracker::LOST) {
-        target_msg.tracking = false;
+    } else if (
+        tracker->tracker_state == Tracker::TRACKING ||
+        tracker->tracker_state == Tracker::TEMP_LOST) {
+        target_msg.tracking = true;
     }
     // 填充目标消息
     const auto & state = tracker->target_state;

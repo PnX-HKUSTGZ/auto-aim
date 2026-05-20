@@ -34,7 +34,6 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff, double ma
     target_state(Eigen::VectorXd::Zero(16)),
   last_update_time_(0.0),
   last_main_update_time_(0.0),
-    should_stop_tracking_(false),
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
     max_translation_speed_(max_translation_speed),
@@ -437,10 +436,6 @@ void Tracker::updateState(
 
     double time_since_update = (msg_time - last_update_time_).seconds();
     if (time_since_update < 0) time_since_update = 0.0;
-    const double EARLY_TERMINATION_THRESHOLD = 0.05;
-    
-    // 重置tracking停止标志
-    should_stop_tracking_ = false;
 
     switch (tracker_state) {
         case DETECTING:
@@ -474,9 +469,6 @@ void Tracker::updateState(
                 resetDetectCount();
             } else if (time_since_update > lost_time_thres) {
                 tracker_state = LOST;
-            } else if (time_since_update > temp_lost_time - EARLY_TERMINATION_THRESHOLD) {
-                // 积累到阈值差0.05时，标记应停止tracking，但不转为LOST
-                should_stop_tracking_ = true;
             }
             break;
         case MISS_MATCH:
@@ -485,9 +477,6 @@ void Tracker::updateState(
                 resetDetectCount();
             } else if (time_since_update > miss_match_time_thres) {
                 tracker_state = LOST;  // 较短时间未匹配上，直接转为LOST
-            } else if (time_since_update > miss_match_time_thres - EARLY_TERMINATION_THRESHOLD) {
-                // 积累到阈值差0.05时，标记应停止tracking
-                should_stop_tracking_ = true;
             }
             break;
         case LOST:
@@ -793,7 +782,9 @@ void Tracker::limitTranslationVelocity(Eigen::VectorXd & state) const
 
 double Tracker::calYawDiff(double yaw1, double yaw2)
 {
-    double diff =abs(angles::shortest_angular_distance(yaw1, yaw2));
+    double diff = std::min(
+        abs(angles::shortest_angular_distance(yaw1, yaw2)),
+        abs(angles::shortest_angular_distance(yaw1 + 4 * M_PI / double(tracked_armors_num), yaw2)));
     return diff;
 }
 

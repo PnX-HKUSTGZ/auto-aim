@@ -40,8 +40,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // 初始化tracker管理器
     tracker_manager_ = std::make_unique<TrackerManager>(
-        this->declare_parameter("tracker.max_match_distance", 0.15),
-        this->declare_parameter("tracker.max_match_yaw_diff", 0.3),
+        this->declare_parameter("tracker.max_match_distance", 0.3),
+        this->declare_parameter("tracker.max_match_yaw_diff", 0.5),
         this->declare_parameter("tracker.max_translation_speed", 5.0),
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
         this->declare_parameter("tracker.lost_time_thres", 0.3),
@@ -547,7 +547,6 @@ void ArmorTrackerNode::processArmors(
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
             
             auto_aim_interfaces::msg::Target target_msg;
-            target_msg.tracking = false;
             bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
             if (!success) {
                 target_msg.tracking = false;
@@ -598,12 +597,12 @@ void ArmorTrackerNode::publishCallback()
     auto current_target_id = tracker_manager_->getCurrentTargetID();
     auto_aim_interfaces::msg::Target target_msg;
         target_msg.header.frame_id = target_frame_;
-        target_msg.tracking = false;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
 
     if (!success) {
         target_msg.tracking = false;
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
+        target_pub_->publish(target_msg);
     }
     else{
         target_pub_->publish(target_msg);
