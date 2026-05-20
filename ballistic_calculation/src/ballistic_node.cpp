@@ -155,6 +155,14 @@ void BallisticCalculateNode::carTargetCallback(
     car_info_->updateTarget(*car_target_msg);
     armor_selector_->updateTarget(*car_target_msg);
 
+    if(car_target_msg->tracking == false){
+        firemsg fire_msg;
+        fire_msg = auto_aim_interfaces::msg::Firecontrol();
+        fire_msg.tracking = false;
+        publisher_->publish(fire_msg);
+        return;
+    }
+
     //进入第一次大迭代
     Eigen::Vector3d target = car_info_->getGunTarget(0.0);
 

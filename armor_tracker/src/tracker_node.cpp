@@ -512,6 +512,8 @@ void ArmorTrackerNode::publishCallback()
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
 
     if (!success) {
+        target_msg = auto_aim_interfaces::msg::Target(); // 清零所有字段
+        target_msg.header.frame_id = target_frame_;
         target_msg.tracking = false;
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
         target_pub_->publish(target_msg);
