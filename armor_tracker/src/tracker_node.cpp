@@ -514,6 +514,7 @@ void ArmorTrackerNode::publishCallback()
     if (!success) {
         target_msg.tracking = false;
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
+        target_pub_->publish(target_msg);
     }
     else{
         target_pub_->publish(target_msg);
