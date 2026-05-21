@@ -120,8 +120,8 @@ public:
      */
     TrackerManager(
         double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
-        int tracking_thres,
-        double lost_time_thres, double miss_match_time_thres,  double switch_cooldown = 1.0);
+        int tracking_thres,double lost_time_thres, double miss_match_time_thres,
+        double switch_cooldown = 1.0);
 
     /**
      * @brief 更新所有追踪器

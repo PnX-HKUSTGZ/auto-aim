@@ -60,7 +60,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
     K1 = this->declare_parameter("iteration_coeffcient_first", 0.1);
     K2 = this->declare_parameter("iteration_coeffcient_second", 0.05);
-    K = this->declare_parameter("air_resistence", 0.1);
+    K = this->declare_parameter("air_resistence", 0.019);
     BULLET_V = this->declare_parameter("bullet_speed", 23.0);
     min_v = this->declare_parameter("switch_stategy_1", 5.0) * M_PI / 30;
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
@@ -244,7 +244,7 @@ void BallisticCalculateNode::carTargetCallback(
     // MPC解算前后可视化
     try {
         std_msgs::msg::Float32MultiArray yaw_tracker_msg;
-        yaw_tracker_msg.data.resize(3); // 仅存储3个标量
+        yaw_tracker_msg.data.resize(5); // 存储5个标量
         yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
         yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
         yaw_tracker_msg.data[2] = mpc_result.is_fire;    // 第三个元素：is_fire（是否处于阶跃期）
@@ -261,8 +261,8 @@ void BallisticCalculateNode::carTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
-        final_pitch = mpc_result.target_pitch + rpy_vec[1]; // 转换到云台坐标系
-        final_yaw = mpc_result.target_yaw - rpy_vec[2];
+        final_pitch = mpc_result.pitch + rpy_vec[1]; // 转换到云台坐标系
+        final_yaw = mpc_result.yaw - rpy_vec[2];
         
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
@@ -351,20 +351,7 @@ void BallisticCalculateNode::runeTargetCallback(
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
 
-    // if (use_mpc_default && mpc_result.is_valid) {
-    //     RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
-    //     final_pitch = mpc_result.target_pitch;
-    //     final_yaw = mpc_result.target_yaw;
-        
-    //     yaw_vel = mpc_result.yaw_vel;
-    //     yaw_acc = mpc_result.yaw_acc;
-    //     pitch_vel = mpc_result.pitch_vel;
-    //     pitch_acc = mpc_result.pitch_acc;
-    // } else {
-    //     RCLCPP_WARN(this->get_logger(), "MPC failed to solve for rune. Skipping publish.");
-    //     return; // 直接返回，不发布
-    // }
-
+    // Rune mode: MPC currently not used for rune; use iterative result and predicted target
     // 1. 获取经过子弹飞行时间 rune_t 预测后的目标三维坐标（解决因为大符运动导致的 Yaw 丢失提前量的问题）
     Eigen::Vector3d predicted_target = rune_info_->getGunTarget(rune_t);
 

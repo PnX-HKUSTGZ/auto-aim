@@ -13,6 +13,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 // STD
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -95,6 +96,10 @@ public:
         bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
         double lost_time_thres, int tracking_thres, double miss_match_time_thres, bool is_main_camera);
 
+
+    /**
+     * @brief 设置前哨站相关参数（允许外部传入以便运行时配置）
+     */
     ExtendedKalmanFilter ekf;
 
     int tracking_thres;
@@ -195,6 +200,7 @@ private:
      */
     int matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_prediction);
 
+
     /**
      * @brief 从状态向量计算装甲板位置
      * 
@@ -213,6 +219,9 @@ private:
 
     double max_match_distance_;
     double max_match_yaw_diff_;
+    ExtendedKalmanFilter outpost_ekf_init_template_;
+    bool outpost_ekf_template_ready_ = false;
+
     double max_translation_speed_;
 
     int detect_count_;

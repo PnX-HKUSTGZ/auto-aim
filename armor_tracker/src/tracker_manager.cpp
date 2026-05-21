@@ -15,7 +15,8 @@ namespace rm_auto_aim
 TrackerManager::TrackerManager(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
     int tracking_thres,
-    double lost_time_thres,double miss_match_time_thres, double switch_cooldown)
+    double lost_time_thres, double miss_match_time_thres,
+    double switch_cooldown)
 : trackers_(),
   current_tracked_id_(""),
   last_switch_time_(rclcpp::Clock().now()),
@@ -118,8 +119,8 @@ void TrackerManager::initNewTracker(
     const std::string & id, const std::vector<auto_aim_interfaces::msg::Armor> & armors,
     rclcpp::Time msg_time)
 {
-    auto tracker =
-        std::make_shared<Tracker>(max_match_distance_, max_match_yaw_diff_, max_translation_speed_);
+    auto tracker = std::make_shared<Tracker>(
+        max_match_distance_, max_match_yaw_diff_, max_translation_speed_);
     tracker->tracking_thres = tracking_thres_;
 
     // 复制 EKF 模板
@@ -133,6 +134,8 @@ void TrackerManager::initNewTracker(
 
     // 初始化追踪器
     tracker->init(id_armors_msg);
+
+    // 传递前哨站相关可配置参数到 tracker
 
     trackers_[id] = tracker;
 }
@@ -315,8 +318,10 @@ bool TrackerManager::getIDTarget(
     target_msg.radius_2 = state(R2);
 
     // 装甲板高度差
+    // outpost 的装甲板高度在下游主要通过 z2/z3 使用，dz 不再依赖“匹配到哪块板”的信息。
     target_msg.dz = state(ZC2) - state(ZC1);
-
+    target_msg.z2 = state(ZC2);
+    target_msg.z3 = state(ZC3);
     return true;
 }
 

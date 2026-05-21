@@ -51,6 +51,8 @@ public:
     std::vector<double> predictInfantryBestArmor(
         double T, double min_v, double max_v, double v_yaw_gimble)
     {
+        const bool is_outpost = (target_msg.id == "outpost");
+
         // 三级策略：目标角速度过快时，瞄准中心点
         if (abs(target_msg.v_yaw) > max_v) {
             return {0.0, target_msg.position.z + 0.5 * target_msg.dz, 0.0};
@@ -86,19 +88,32 @@ public:
             // 计算装甲板到枪口的最短角度距离（代价函数）
             armors[i].cost = angles::shortest_angular_distance(gun_to_center_angle, armors[i].yaw);
         }
-
+        if (is_outpost && abs(target_msg.v_yaw) > 1.0) {
+            armors[0].z = target_msg.position.z;
+            armors[1].z = target_msg.z2;
+            armors[2].z = target_msg.z3;
+            // if (target_msg.v_yaw >= 0){
+            //     armors[1].z = target_msg.position.z + target_msg.dz;
+            // }
+            // else{
+            //     armors[2].z = target_msg.position.z + target_msg.dz;
+            // }
+            //return {armors[0].yaw - target_msg.v_yaw * T, armors[0].z, armors[0].r};
+            // std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
+            //     return std::abs(a.z) < std::abs(b.z);
+            // });
+        }
         // 按角度距离排序，找到最容易击中的装甲板
         std::sort(armors.begin(), armors.end(), [](const Armor & a, const Armor & b) {
             return std::abs(a.cost) < std::abs(b.cost);
         });
-        
         Armor chosen_armor = armors[0];  // 选择角度距离最小的装甲板
-        // 一级策略：低速或MPC控制或最优装甲板角度小于放弃角度时，直接选择最优装甲板        
+        // 一级策略：低速或MPC控制或最优装甲板角度小于放弃角度时，直接选择最优装甲板  
         if (abs(target_msg.v_yaw) < min_v) {
             if(abs(armors[0].cost - armors[1].cost) < COST_DIFF_THRESHOLD){
                 chosen_armor = armors[0].cost < 0 ? armors[0] : armors[1];
             }
-            return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
+                        return {chosen_armor.yaw - target_msg.v_yaw * T, chosen_armor.z, chosen_armor.r};
         }
         
         // 计算放弃角度（用于二级策略判断）
@@ -139,7 +154,7 @@ private:
         double yaw;   // 偏航角
         double r;     // 半径
         double cost;  // 装甲板和枪口的角度差（代价）
-    };
+            };
     
     /**
      * @brief 通过优化求解放弃角度

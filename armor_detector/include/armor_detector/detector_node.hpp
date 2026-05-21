@@ -17,6 +17,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <std_msgs/msg/float32.hpp>
 
 // STD
 #include <Eigen/Core>
@@ -162,6 +163,7 @@ private:
     auto_aim_interfaces::msg::Armors armors_msg_;
     rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr distance_pub_;
 
     // -------------------- 服务 --------------------
     rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_mode_srv_;
@@ -179,6 +181,10 @@ private:
     image_transport::Publisher binary_img_pub_;
     image_transport::Publisher number_img_pub_;
     image_transport::Publisher result_img_pub_;
+
+    // -------------------- 深度过滤参数 --------------------
+    double min_depth_;
+    double max_depth_;
     
     /**
     * @brief 装甲板可视化标记
