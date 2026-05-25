@@ -39,7 +39,6 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff, double ma
     max_translation_speed_(max_translation_speed),
     detect_count_(0)
 {
-    outpost_ekf_template_ready_ = false;
 }
 //初始化追踪器
 void Tracker::init(const Armors::SharedPtr & armors_msg)
@@ -52,12 +51,6 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         return;
     }
     if (armors_msg->armors[0].number == "outpost") {
-        if (!outpost_ekf_template_ready_) {
-            outpost_ekf_init_template_ = ekf;
-            outpost_ekf_template_ready_ = true;
-        }
-        // 回到“第一次观测前”的 EKF 基线（模板由 TrackerManager 在新建 tracker 时注入）
-        ekf = outpost_ekf_init_template_;
         // 单块板初始化：填充实测坐标+默认高差/半径
         tracked_armor = armors_msg->armors[0];
         twoD_distance = tracked_armor.distance_to_image_center;

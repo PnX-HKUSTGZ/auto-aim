@@ -219,8 +219,6 @@ private:
 
     double max_match_distance_;
     double max_match_yaw_diff_;
-    ExtendedKalmanFilter outpost_ekf_init_template_;
-    bool outpost_ekf_template_ready_ = false;
 
     double max_translation_speed_;
 
