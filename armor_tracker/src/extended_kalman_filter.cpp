@@ -44,7 +44,7 @@ ExtendedKalmanFilter::ExtendedKalmanFilter(
 
 void ExtendedKalmanFilter::setTimeInterval(double dt)
 {
-    // 更新状态转移函数，适配16维状态向量
+    // 更新状态转移函数，适配15维状态向量
     f = [dt](const Eigen::VectorXd & x) {
         Eigen::VectorXd x_new = x;
         // 更新位置: 位置 + 速度 * 时间
@@ -58,15 +58,13 @@ void ExtendedKalmanFilter::setTimeInterval(double dt)
         x_new(12) += x(8) * dt;  // yaw1 = yaw1 + v_yaw * dt
         x_new(13) += x(8) * dt;  // yaw2 = yaw2 + v_yaw * dt
         x_new(14) += x(8) * dt;  // yaw3 = yaw3 + v_yaw * dt
-        // 前哨站半径约束：固定基准半径
-        x_new(15) = 0.275;  // 前哨站固定半径值
 
         return x_new;
     };
 
     // 同时更新对应的雅可比矩阵函数
     jacobian_f = [dt](const Eigen::VectorXd &) {
-        Eigen::MatrixXd f = Eigen::MatrixXd::Identity(16, 16);
+        Eigen::MatrixXd f = Eigen::MatrixXd::Identity(15, 15);
         f(XC, VXC) = dt;
         f(YC, VYC) = dt;
         f(ZC1, VZC) = dt;

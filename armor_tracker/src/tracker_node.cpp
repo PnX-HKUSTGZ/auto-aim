@@ -146,8 +146,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 void ArmorTrackerNode::initializeEKF()
 {
     // EKF
-    // 状态向量为16维：
-    // state: xc, v_xc, yc, v_yc, zc1, zc2, zc3, v_zc, v_yaw, r1, r2, r3, yaw1, yaw2, yaw3, r_outpost
+    // 状态向量为15维：
+    // state: xc, v_xc, yc, v_yc, zc1, zc2, zc3, v_zc, v_yaw, r1, r2, r3, yaw1, yaw2, yaw3
     // measurement: xa, ya, za, yaw
     // f - Process function
     auto f = [this](const Eigen::VectorXd & x) {
@@ -160,12 +160,11 @@ void ArmorTrackerNode::initializeEKF()
         x_new(YAW1) += x(VYAW) * dt_;
         x_new(YAW2) += x(VYAW) * dt_;
         x_new(YAW3) += x(VYAW) * dt_;
-        x_new(R_OUTPOST) = 0.275;
         return x_new;
     };
     // J_f - Jacobian of process function
     auto j_f = [this](const Eigen::VectorXd &) {
-        Eigen::MatrixXd f = Eigen::MatrixXd::Identity(16, 16);
+        Eigen::MatrixXd f = Eigen::MatrixXd::Identity(15, 15);
         f(XC, VXC) = dt_;
         f(YC, VYC) = dt_;
         f(ZC1, VZC) = dt_;
@@ -188,7 +187,7 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h1 - Jacobian of observation function for armor 1
     auto j_h1 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 16);
+        Eigen::MatrixXd h(4, 15);
         h.setZero();
         double yaw = x(YAW1), r = x(R1);
         h(0, XC) = 1;
@@ -213,7 +212,7 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h2 - Jacobian of observation function for armor 2
     auto j_h2 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 16);
+        Eigen::MatrixXd h(4, 15);
         h.setZero();
         double yaw = x(YAW2), r = x(R2);
         h(0, XC) = 1;
@@ -238,7 +237,7 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h3 - Jacobian of observation function for armor 3
     auto j_h3 = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(4, 16);
+        Eigen::MatrixXd h(4, 15);
         h.setZero();
         double yaw = x(YAW3), r = x(R3);
         h(0, XC) = 1;
@@ -269,7 +268,7 @@ void ArmorTrackerNode::initializeEKF()
     };
     // J_h_two - Jacobian of observation function for 2 armors
     auto j_h_two = [](const Eigen::VectorXd & x) {
-        Eigen::MatrixXd h(10, 16);
+        Eigen::MatrixXd h(10, 15);
         h.setZero();
         double yaw1 = x(YAW1), yaw2 = x(YAW2);
         double r1 = x(R1), r2 = x(R2);
@@ -301,7 +300,7 @@ void ArmorTrackerNode::initializeEKF()
     s2qyaw_ = declare_parameter("ekf.sigma2_q_yaw", 100.0);
     s2qr_ = declare_parameter("ekf.sigma2_q_r", 800.0);
     auto u_q = [this]() {
-        Eigen::MatrixXd q(16, 16);
+        Eigen::MatrixXd q(15, 15);
         q.setZero();
         double t = dt_, x = s2qxy_, z = s2qz_, y = s2qyaw_, r = s2qr_;
         double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x, q_vx_vx = pow(t, 2) * x;
@@ -345,7 +344,6 @@ void ArmorTrackerNode::initializeEKF()
         q(R1, R1) = q_r;
         q(R2, R2) = q_r;
         q(R3, R3) = q_r;
-        q(R_OUTPOST, R_OUTPOST) = 1e-6;
         return q;
     };
     // update_R - measurement noise covariance matrix
@@ -367,7 +365,7 @@ void ArmorTrackerNode::initializeEKF()
         return r;
     };
     // P - error estimate covariance matrix
-    Eigen::DiagonalMatrix<double, 16> p0;
+    Eigen::DiagonalMatrix<double, 15> p0;
     p0.setIdentity();
     // 创建 EKF 并设置到 TrackerManager 中
     ExtendedKalmanFilter ekf{f, h1, h2, h3, h_two, j_f, j_h1, j_h2, j_h3, j_h_two, u_q, u_r,

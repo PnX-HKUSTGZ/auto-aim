@@ -31,7 +31,7 @@ Tracker::Tracker(double max_match_distance, double max_match_yaw_diff, double ma
 : tracker_state(LOST),
   tracked_id(std::string("")),
   measurement(Eigen::VectorXd::Zero(4)),
-    target_state(Eigen::VectorXd::Zero(16)),
+        target_state(Eigen::VectorXd::Zero(15)),
   last_update_time_(0.0),
   last_main_update_time_(0.0),
   max_match_distance_(max_match_distance),
@@ -56,7 +56,7 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         twoD_distance = tracked_armor.distance_to_image_center;
         auto p = tracked_armor.pose.position;
         double yaw = orientationToYaw(tracked_armor.pose.orientation);
-        // 16维状态初始化
+        // 15维状态初始化
         target_state.setZero();
         double r_outpost = 0.275;  // 前哨站固定半径
         target_state(XC) = p.x + r_outpost * cos(yaw);
@@ -66,7 +66,6 @@ void Tracker::init(const Armors::SharedPtr & armors_msg)
         target_state(YAW1) = yaw;
         target_state(YAW2) = yaw + 2 * M_PI / 3;  // 3块板间隔120°
         target_state(YAW3) = yaw + 4 * M_PI / 3;
-        target_state(R_OUTPOST) = r_outpost;
         ekf.setState(target_state);
         RCLCPP_DEBUG(rclcpp::get_logger("armor_tracker"), "Init EKF for outpost (3 armors)!");
     } else {
@@ -575,7 +574,7 @@ void Tracker::initEKF(const Armor & a)
     auto p = a.pose.position;
     double yaw = orientationToYaw(a.pose.orientation);
     if (yaw < 0) {
-        target_state = Eigen::VectorXd::Zero(16);
+        target_state = Eigen::VectorXd::Zero(15);
         double r = 0.2765;
         double xc = p.x + r * cos(yaw);
         double yc = p.y + r * sin(yaw);
@@ -589,11 +588,10 @@ void Tracker::initEKF(const Armor & a)
         target_state(VYAW) = 0;
         target_state(R3) = r;                                              // 第三块板半径
         target_state(YAW3) = yaw + 4 * M_PI / double(tracked_armors_num);  // 第三块板偏航角
-        target_state(R_OUTPOST) = 0.275;                                  // 前哨站半径（默认值）
         limitTranslationVelocity(target_state);
         ekf.setState(target_state);
     } else {
-        target_state = Eigen::VectorXd::Zero(16);
+        target_state = Eigen::VectorXd::Zero(15);
         double r = 0.2765;
         double xc = p.x + r * cos(yaw);
         double yc = p.y + r * sin(yaw);
@@ -608,7 +606,6 @@ void Tracker::initEKF(const Armor & a)
         target_state(VYAW) = 0;
         target_state(R3) = r;                                              // 第三块板半径
         target_state(YAW3) = yaw - 4 * M_PI / double(tracked_armors_num);  // 第三块板偏航角
-        target_state(R_OUTPOST) = 0.275;
         limitTranslationVelocity(target_state);
         ekf.setState(target_state);
     }
@@ -635,7 +632,7 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
         return;
     }
 
-    target_state = Eigen::VectorXd::Zero(16);
+    target_state = Eigen::VectorXd::Zero(15);
     double r1 = (sin(yaw_b) * (xb - xa) - cos(yaw_b) * (yb - ya));
     double r2 = (sin(yaw_a) * (xb - xa) - cos(yaw_a) * (yb - ya));
     double xc = xa + r1 * cos(yaw_a);
@@ -660,7 +657,6 @@ void Tracker::initEKFTwo(const Armor & a, const Armor & b)
     target_state(ZC3) = (za + zb) / 2;  // 第三块板z坐标（取均值，有问题）
     target_state(R3) = 0.2765;          // 第三块板半径
     target_state(YAW3) = yaw_b + 2 * M_PI / double(tracked_armors_num);  // 第三块板偏航角
-    target_state(R_OUTPOST) = 0.275;                                     // 前哨站半径
     limitTranslationVelocity(target_state);
     ekf.setState(target_state);
 }
