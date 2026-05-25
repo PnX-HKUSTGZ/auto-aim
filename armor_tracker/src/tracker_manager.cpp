@@ -16,7 +16,8 @@ TrackerManager::TrackerManager(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
         int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
     int tracking_thres,
-    double lost_time_thres,double miss_match_time_thres, double switch_cooldown)
+    double lost_time_thres, double miss_match_time_thres,
+    double switch_cooldown)
 : trackers_(),
   current_tracked_id_(""),
   last_switch_time_(rclcpp::Clock().now()),
@@ -138,6 +139,7 @@ void TrackerManager::initNewTracker(
 
     // 初始化成功后再注册，避免未初始化状态进入后续更新流程
     if (tracker->init(id_armors_msg)) {
+        // 传递前哨站相关可配置参数到 tracker
         trackers_[id] = tracker;
     } else {
         RCLCPP_WARN(
@@ -326,8 +328,10 @@ bool TrackerManager::getIDTarget(
     target_msg.radius_2 = state(R2);
 
     // 装甲板高度差
+    // outpost 的装甲板高度在下游主要通过 z2/z3 使用，dz 不再依赖“匹配到哪块板”的信息。
     target_msg.dz = state(ZC2) - state(ZC1);
-
+    target_msg.z2 = state(ZC2);
+    target_msg.z3 = state(ZC3);
     return true;
 }
 

@@ -13,6 +13,7 @@
 #include <opencv2/core/types.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -192,6 +193,7 @@ private:
 
     // Tracker info publisher
     rclcpp::Publisher<auto_aim_interfaces::msg::TrackerInfo>::SharedPtr info_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr info_pub_graph;
 
     // Publisher
     rclcpp::Publisher<auto_aim_interfaces::msg::Target>::SharedPtr target_pub_;

@@ -13,29 +13,29 @@
 // limitations under the License.
 
 #include "rune_detector/rune_detector_node.hpp"
+// ament
+#include <ament_index_cpp/get_package_share_directory.hpp>
 // ros2
 #include <cv_bridge/cv_bridge.h>
 #include <rmw/qos_profiles.h>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-#include <opencv2/highgui.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
 // std
 #include <algorithm>
 #include <array>
-#include <filesystem>
+#include <cmath>
 #include <numeric>
 #include <vector>
-// third party
-#include <fmt/core.h>
 
 #include <opencv2/imgproc.hpp>
 // project
 #include "auto_aim_interfaces/msg/rune.hpp"
 #include "auto_aim_interfaces/srv/set_mode.hpp"
-#include "rune_detector/rune_detector.hpp"
-#include "rune_detector/types.hpp"
 
 namespace rm_auto_aim
 {
@@ -43,29 +43,38 @@ namespace rm_auto_aim
 RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions & options)
 : Node("rune_detector", options), is_rune_(false)
 {
-    RCLCPP_INFO(this->get_logger(), "Starting RuneDetectorNode!");
+    RCLCPP_INFO(this->get_logger(), "Starting RuneDetectorNode with Tiger Core!");
 
-    // 声明参数
-    frame_id_ = declare_parameter("frame_id", "camera_optical_frame");
-    detect_r_tag_ = declare_parameter("detect_r_tag", true);
-    binary_thresh_ = declare_parameter("min_lightness", 100);
-    declare_parameter("detect_color", 1);
+    // TF2 for gyro extraction from odom -> gimbal_link
+    tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
 
-    // 初始化检测器
-    rune_detector_ = initDetector();
-    // 创建 Rune 目标发布者
+    frame_id_ = declare_parameter("frame_id", "camera_main_optical_frame");
+    binary_thresh_ = declare_parameter("binary_thresh", 100);
+    detect_color_ = declare_parameter("detect_color", 0) == 0 ? PixChannel::RED : PixChannel::BLUE;
+
+    tiger_detector_ = initDetector();
+
     rune_pub_ = this->create_publisher<auto_aim_interfaces::msg::Rune>(
         "rune_detector/rune", rclcpp::SensorDataQoS());
 
-    // 创建调试发布者
-    this->debug_ = declare_parameter("debug", true);
-    if (this->debug_) {
+    debug_ = declare_parameter("debug", true);
+    debug_marker_ = declare_parameter("debug_marker", true);
+    if (debug_) {
         createDebugPublishers();
     }
+    if (debug_marker_) {
+        marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+            "rune_detector/marker", rclcpp::QoS(10));
+    }
+
     auto qos = rclcpp::SensorDataQoS();
     qos.keep_last(1);
     img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
         "image_raw", qos, std::bind(&RuneDetectorNode::imageCallback, this, std::placeholders::_1));
+    cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+        "camera_info", qos, std::bind(&RuneDetectorNode::cameraInfoCallback, this, std::placeholders::_1));
+
     set_rune_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
         "rune_detector/set_mode", std::bind(
                                       &RuneDetectorNode::setModeCallback, this,
@@ -73,147 +82,414 @@ RuneDetectorNode::RuneDetectorNode(const rclcpp::NodeOptions & options)
 }
 
 // 初始化检测器
-std::unique_ptr<RuneDetector> RuneDetectorNode::initDetector()
+std::unique_ptr<::RuneDetector> RuneDetectorNode::initDetector()
 {
-    // 设置动态参数回调
     rcl_interfaces::msg::SetParametersResult onSetParameters(
         std::vector<rclcpp::Parameter> parameters);
     on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
         std::bind(&RuneDetectorNode::onSetParameters, this, std::placeholders::_1));
-    max_iterations_ = declare_parameter("max_iterations", 99);
-    distance_threshold_ = declare_parameter("distance_threshold", 2.0);
-    prob_threshold_ = declare_parameter("prob_threshold", 0.6);
 
-    // 创建检测器
-    auto rune_detector =
-        std::make_unique<RuneDetector>(max_iterations_, distance_threshold_, prob_threshold_);
+    return ::RuneDetector::make_detector();
+}
 
-    return rune_detector;
+void RuneDetectorNode::rectLongEndpoints(const cv::RotatedRect & r, cv::Point2f & a, cv::Point2f & b)
+{
+    cv::Point2f pts[4];
+    r.points(pts);
+    double d01 = cv::norm(pts[0] - pts[1]);
+    double d12 = cv::norm(pts[1] - pts[2]);
+    if (d01 > d12) {
+        a = (pts[0] + pts[3]) / 2;
+        b = (pts[1] + pts[2]) / 2;
+    } else {
+        a = (pts[0] + pts[1]) / 2;
+        b = (pts[2] + pts[3]) / 2;
+    }
+}
+
+void RuneDetectorNode::cameraInfoCallback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg)
+{
+    cv::Matx33f camera_matrix(
+        static_cast<float>(msg->k[0]), static_cast<float>(msg->k[1]), static_cast<float>(msg->k[2]),
+        static_cast<float>(msg->k[3]), static_cast<float>(msg->k[4]), static_cast<float>(msg->k[5]),
+        static_cast<float>(msg->k[6]), static_cast<float>(msg->k[7]), static_cast<float>(msg->k[8]));
+
+    cv::Matx<float, 5, 1> dist_coeffs(
+        static_cast<float>(msg->d[0]), static_cast<float>(msg->d[1]), static_cast<float>(msg->d[2]),
+        static_cast<float>(msg->d[3]), static_cast<float>(msg->d[4]));
+
+    camera_param.cameraMatrix = camera_matrix;
+    camera_param.distCoeff = dist_coeffs;
+    camera_param.image_width = static_cast<int>(msg->width);
+    camera_param.image_height = static_cast<int>(msg->height);
+
+    has_camera_info_ = true;
+    cam_info_sub_.reset();
+}
+
+GyroData RuneDetectorNode::getGyroData(const rclcpp::Time & stamp)
+{
+    GyroData gyro;
+
+    try {
+        auto latest_tf = tf2_buffer_->lookupTransform("odom", "gimbal_link", tf2::TimePointZero);
+        const rclcpp::Time latest_time = latest_tf.header.stamp;
+
+        geometry_msgs::msg::TransformStamped tf_msg;
+        if (stamp > latest_time) {
+            tf_msg = latest_tf;
+        } else {
+            try {
+                tf_msg = tf2_buffer_->lookupTransform(
+                    "odom", "gimbal_link", stamp,
+                    rclcpp::Duration::from_nanoseconds(1000000));
+            } catch (const tf2::TransformException & ex) {
+                tf_msg = latest_tf;
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 1000,
+                    "rune_detector gyro TF exact-time lookup failed, fallback to latest: %s",
+                    ex.what());
+            }
+        }
+
+        tf2::Quaternion q(
+            tf_msg.transform.rotation.x, tf_msg.transform.rotation.y,
+            tf_msg.transform.rotation.z, tf_msg.transform.rotation.w);
+        double roll = 0.0, pitch = 0.0, yaw = 0.0;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+
+        // Tiger Core expects degree units:
+        // yaw: left negative, right positive
+        // pitch: up negative, down positive
+        constexpr double RAD2DEG = 180.0 / 3.14159265358979323846;
+        gyro.rotation.yaw = static_cast<float>(-yaw * RAD2DEG);
+        gyro.rotation.pitch = static_cast<float>(-pitch * RAD2DEG);
+        gyro.rotation.roll = static_cast<float>(roll * RAD2DEG);
+    } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
+            "rune_detector gyro TF lookup failed, use zero gyro: %s", ex.what());
+    }
+
+    return gyro;
+}
+
+void RuneDetectorNode::clearRune3DMarkers(const rclcpp::Time & stamp)
+{
+    if (!marker_pub_) {
+        return;
+    }
+    visualization_msgs::msg::MarkerArray marker_array;
+    visualization_msgs::msg::Marker clear_marker;
+    clear_marker.header.frame_id = "odom";
+    clear_marker.header.stamp = stamp;
+    clear_marker.action = visualization_msgs::msg::Marker::DELETEALL;
+    marker_array.markers.push_back(clear_marker);
+    marker_pub_->publish(marker_array);
+}
+
+void RuneDetectorNode::publishRune3DMarkers(
+    const rclcpp::Time & stamp, const std::string & camera_frame,
+    const PoseNode & rune_to_camera,
+    const PoseNode * pending_target_to_camera)
+{
+    if (!marker_pub_) {
+        return;
+    }
+
+    try {
+        auto latest_tf = tf2_buffer_->lookupTransform("odom", camera_frame, tf2::TimePointZero);
+        const rclcpp::Time latest_time = latest_tf.header.stamp;
+
+        geometry_msgs::msg::TransformStamped odom_to_cam_tf;
+        if (stamp > latest_time) {
+            odom_to_cam_tf = latest_tf;
+        } else {
+            try {
+                odom_to_cam_tf = tf2_buffer_->lookupTransform(
+                    "odom", camera_frame, stamp,
+                    rclcpp::Duration::from_nanoseconds(1000000));
+            } catch (const tf2::TransformException & ex) {
+                odom_to_cam_tf = latest_tf;
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 1000,
+                    "rune_detector marker TF exact-time lookup failed, fallback to latest: %s",
+                    ex.what());
+            }
+        }
+
+        tf2::Quaternion q_odom_cam(
+            odom_to_cam_tf.transform.rotation.x, odom_to_cam_tf.transform.rotation.y,
+            odom_to_cam_tf.transform.rotation.z, odom_to_cam_tf.transform.rotation.w);
+        tf2::Vector3 t_odom_cam(
+            odom_to_cam_tf.transform.translation.x, odom_to_cam_tf.transform.translation.y,
+            odom_to_cam_tf.transform.translation.z);
+        tf2::Transform odom_T_cam(tf2::Matrix3x3(q_odom_cam), t_odom_cam);
+
+        const auto r = rune_to_camera.rmat();
+        const auto t = rune_to_camera.tvec();
+        constexpr double kMillimeterToMeter = 1e-3;
+        tf2::Matrix3x3 cam_R_rune(
+            r(0, 0), r(0, 1), r(0, 2),
+            r(1, 0), r(1, 1), r(1, 2),
+            r(2, 0), r(2, 1), r(2, 2));
+        tf2::Vector3 cam_t_rune(
+            t(0) * kMillimeterToMeter,
+            t(1) * kMillimeterToMeter,
+            t(2) * kMillimeterToMeter);
+        tf2::Transform cam_T_rune(cam_R_rune, cam_t_rune);
+
+        tf2::Transform odom_T_rune = odom_T_cam * cam_T_rune;
+
+        visualization_msgs::msg::MarkerArray marker_array;
+
+        if (pending_target_to_camera != nullptr) {
+            const auto r_target = pending_target_to_camera->rmat();
+            const auto t_target = pending_target_to_camera->tvec();
+            tf2::Matrix3x3 cam_R_target(
+                r_target(0, 0), r_target(0, 1), r_target(0, 2),
+                r_target(1, 0), r_target(1, 1), r_target(1, 2),
+                r_target(2, 0), r_target(2, 1), r_target(2, 2));
+            tf2::Vector3 cam_t_target(
+                t_target(0) * kMillimeterToMeter,
+                t_target(1) * kMillimeterToMeter,
+                t_target(2) * kMillimeterToMeter);
+            tf2::Transform cam_T_target(cam_R_target, cam_t_target);
+            tf2::Transform odom_T_target = odom_T_cam * cam_T_target;
+
+            visualization_msgs::msg::Marker target_marker;
+            target_marker.header.frame_id = "odom";
+            target_marker.header.stamp = stamp;
+            target_marker.ns = "pending_target_center";
+            target_marker.id = 10;
+            target_marker.type = visualization_msgs::msg::Marker::SPHERE;
+            target_marker.action = visualization_msgs::msg::Marker::ADD;
+            target_marker.scale.x = target_marker.scale.y = target_marker.scale.z = 0.09;
+            target_marker.color.a = 1.0;
+            target_marker.color.r = 1.0;
+            target_marker.color.g = 0.0;
+            target_marker.color.b = 1.0;
+            target_marker.pose.position.x = odom_T_target.getOrigin().x();
+            target_marker.pose.position.y = odom_T_target.getOrigin().y();
+            target_marker.pose.position.z = odom_T_target.getOrigin().z();
+            marker_array.markers.push_back(target_marker);
+        }
+
+        visualization_msgs::msg::Marker center_marker;
+        center_marker.header.frame_id = "odom";
+        center_marker.header.stamp = stamp;
+        center_marker.ns = "rune_center";
+        center_marker.id = 0;
+        center_marker.type = visualization_msgs::msg::Marker::SPHERE;
+        center_marker.action = visualization_msgs::msg::Marker::ADD;
+        center_marker.scale.x = center_marker.scale.y = center_marker.scale.z = 0.12;
+        center_marker.color.a = 1.0;
+        center_marker.color.r = 1.0;
+        center_marker.color.g = 0.6;
+        center_marker.color.b = 0.0;
+        center_marker.pose.position.x = odom_T_rune.getOrigin().x();
+        center_marker.pose.position.y = odom_T_rune.getOrigin().y();
+        center_marker.pose.position.z = odom_T_rune.getOrigin().z();
+        marker_array.markers.push_back(center_marker);
+
+        auto make_axis_arrow = [&](int id, const std::string & ns, const tf2::Vector3 & axis,
+                                   float r_c, float g_c, float b_c) {
+            visualization_msgs::msg::Marker axis_marker;
+            axis_marker.header.frame_id = "odom";
+            axis_marker.header.stamp = stamp;
+            axis_marker.ns = ns;
+            axis_marker.id = id;
+            axis_marker.type = visualization_msgs::msg::Marker::ARROW;
+            axis_marker.action = visualization_msgs::msg::Marker::ADD;
+            axis_marker.scale.x = 0.02;
+            axis_marker.scale.y = 0.04;
+            axis_marker.color.a = 1.0;
+            axis_marker.color.r = r_c;
+            axis_marker.color.g = g_c;
+            axis_marker.color.b = b_c;
+
+            geometry_msgs::msg::Point p0, p1;
+            const tf2::Vector3 origin = odom_T_rune.getOrigin();
+            const tf2::Vector3 axis_end = odom_T_rune * (axis * 0.2);
+            p0.x = origin.x();
+            p0.y = origin.y();
+            p0.z = origin.z();
+            p1.x = axis_end.x();
+            p1.y = axis_end.y();
+            p1.z = axis_end.z();
+            axis_marker.points.push_back(p0);
+            axis_marker.points.push_back(p1);
+            marker_array.markers.push_back(axis_marker);
+        };
+
+        make_axis_arrow(1, "rune_axis_x", tf2::Vector3(1.0, 0.0, 0.0), 1.0, 0.0, 0.0);
+        make_axis_arrow(2, "rune_axis_y", tf2::Vector3(0.0, 1.0, 0.0), 0.0, 1.0, 0.0);
+        make_axis_arrow(3, "rune_axis_z", tf2::Vector3(0.0, 0.0, 1.0), 0.0, 0.0, 1.0);
+
+        marker_pub_->publish(marker_array);
+    } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
+            "rune_detector marker TF lookup failed, clear markers: %s", ex.what());
+        clearRune3DMarkers(stamp);
+    }
 }
 
 // 图像回调函数
 void RuneDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
 {
-    if (!is_rune_) {
+    if (!is_rune_ || !has_camera_info_) {
         return;
     }
 
     timestamp = rclcpp::Time(msg->header.stamp);
     frame_id_ = msg->header.frame_id;
-    auto src_img = cv_bridge::toCvCopy(msg, "rgb8")->image;
-    cv::cvtColor(src_img, src_img, cv::COLOR_BGR2RGB);
 
-    // 将图像推送到检测器
-    rune_detector_->detect_color = static_cast<EnemyColor>(get_parameter("detect_color").as_int());
-    std::vector<RuneObject> objs = rune_detector_->detectRune(src_img, binary_thresh_);
-
-    // 用于绘制调试信息
-    cv::Mat debug_img;
-    if (debug_) {
-        debug_img = src_img.clone();
+    cv::Mat src_img;
+    try {
+        src_img = cv_bridge::toCvCopy(msg, "bgr8")->image;
+    } catch (const cv_bridge::Exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
+        return;
     }
+
+    DetectorInput input;
+    input.setImage(src_img);
+    input.setTick(rclcpp::Time(msg->header.stamp).nanoseconds());
+    input.setGyroData(getGyroData(timestamp));
+    input.setColor(detect_color_);
+    input.setColorThresh(static_cast<uint8_t>(binary_thresh_));
+    input.setFeatureNodes(rune_groups_);
+
+    DetectorOutput output;
+    try {
+        tiger_detector_->detect(input, output);
+    } catch (const std::exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "Tiger Core detect error: %s", e.what());
+        return;
+    }
+
+    rune_groups_ = output.getFeatureNodes();
 
     auto_aim_interfaces::msg::Rune rune_msg;
     rune_msg.header.frame_id = frame_id_;
     rune_msg.header.stamp = timestamp;
+    rune_msg.is_lost = true;
+    std::shared_ptr<RuneGroup> current_rune_group = nullptr;
+    bool has_pending_target_pose = false;
+    PoseNode pending_target_to_camera;
 
-    if (!objs.empty()) {
-        cv::Point2f r_tag;
-        cv::Mat binary_roi = cv::Mat::zeros(1, 1, CV_8UC3);
-        if (detect_r_tag_) {
-            // 使用传统方法检测 R 标签
-            cv::Point2f prior = std::accumulate(
-                objs.begin(), objs.end(), cv::Point2f(0, 0),
-                [n = static_cast<float>(objs.size())](cv::Point2f p, auto & o) {
-                    return p + o.pts.getRCenter() / n;
-                });
-            std::tie(r_tag, binary_roi) = rune_detector_->detectRTag(src_img, prior);
-        } else {
-            // 使用所有对象的平均中心作为 R 标签的中心
-            r_tag = std::accumulate(
-                objs.begin(), objs.end(), cv::Point2f(0, 0),
-                [n = static_cast<float>(objs.size())](cv::Point2f p, auto & o) {
-                    return p + o.pts.getRCenter() / n;
-                });
-        }
-        // 将 R 标签的中心分配给所有对象
-        std::for_each(
-            objs.begin(), objs.end(), [r = r_tag](RuneObject & obj) { obj.pts.r_center = r; });
-
-        // 绘制二值化 ROI
-        if (debug_ && !debug_img.empty()) {
-            cv::Rect roi =
-                cv::Rect(debug_img.cols - binary_roi.cols, 0, binary_roi.cols, binary_roi.rows);
-            binary_roi.copyTo(debug_img(roi));
-            cv::rectangle(debug_img, roi, cv::Scalar(150, 150, 150), 2);
+    if (!rune_groups_.empty())
+    {
+        auto rune_group = RuneGroup::cast(rune_groups_.front());
+        current_rune_group = rune_group;
+        FeatureNode_ptr target_tracker = nullptr;
+        for (auto & tr : rune_group->getTrackers())
+        {
+            auto tracker = TrackingFeatureNode::cast(tr);
+            if (!tracker || tracker->getHistoryNodes().empty())
+                continue;
+            auto combo = RuneCombo::cast(tracker->getHistoryNodes().front());
+            if (!combo)
+                continue;
+            auto type = combo->getRuneType();
+            if (type == ::RuneType::PENDING_STRUCK)
+            {
+                target_tracker = tr;
+                break;
+            }
         }
 
-        // 最终目标是未激活的符文
-        auto result_it = std::find_if(objs.begin(), objs.end(), [](const auto & obj) -> bool {
-            return obj.type == RuneType::ACTIVATED;
-        });
+        if (target_tracker)
+        {
+            auto tracker = TrackingFeatureNode::cast(target_tracker);
+            auto combo = RuneCombo::cast(tracker->getHistoryNodes().front());
+            auto target = RuneTarget::cast(combo->getChildFeatures().at(FeatureNode::ChildFeatureType::RUNE_TARGET));
+            auto center = RuneCenter::cast(combo->getChildFeatures().at(FeatureNode::ChildFeatureType::RUNE_CENTER));
+            auto fan = RuneFan::cast(combo->getChildFeatures().at(FeatureNode::ChildFeatureType::RUNE_FAN));
 
-        if (result_it != objs.end()) {
-            RCLCPP_DEBUG(this->get_logger(), "Detected!");
-            rune_msg.is_lost = false;
-            rune_msg.pts[0].x = result_it->pts.r_center.x;
-            rune_msg.pts[0].y = result_it->pts.r_center.y;
-            rune_msg.pts[1].x = result_it->pts.arm_bottom.x;
-            rune_msg.pts[1].y = result_it->pts.arm_bottom.y;
-            rune_msg.pts[2].x = result_it->pts.arm_top.x;
-            rune_msg.pts[2].y = result_it->pts.arm_top.y;
-            rune_msg.pts[3].x = result_it->pts.hit_bottom.x;
-            rune_msg.pts[3].y = result_it->pts.hit_bottom.y;
-            rune_msg.pts[4].x = result_it->pts.hit_left.x;
-            rune_msg.pts[4].y = result_it->pts.hit_left.y;
-            rune_msg.pts[5].x = result_it->pts.hit_top.x;
-            rune_msg.pts[5].y = result_it->pts.hit_top.y;
-            rune_msg.pts[6].x = result_it->pts.hit_right.x;
-            rune_msg.pts[6].y = result_it->pts.hit_right.y;
-        } else {
-            // 所有符文都已激活
-            rune_msg.is_lost = true;
+            if (target &&
+                target->getPoseCache().getPoseNodes().count(CoordFrame::CAMERA) > 0) {
+                pending_target_to_camera =
+                    target->getPoseCache().getPoseNodes().at(CoordFrame::CAMERA);
+                has_pending_target_pose = true;
+            }
+
+            if (target && center && fan && target->getImageCache().isSetCorners())
+            {
+                const auto & corners = target->getImageCache().getCorners();
+                if (corners.size() >= 8)
+                {
+                    rune_msg.is_lost = false;
+                    rune_msg.pts[0].x = center->getImageCache().getCenter().x;
+                    rune_msg.pts[0].y = center->getImageCache().getCenter().y;
+
+                    cv::Point2f a, b;
+                    rectLongEndpoints(fan->getRotatedRect(), a, b);
+                    const auto r_center = center->getImageCache().getCenter();
+                    if (cv::norm(a - r_center) < cv::norm(b - r_center))
+                    {
+                        rune_msg.pts[1].x = a.x; rune_msg.pts[1].y = a.y;
+                        rune_msg.pts[2].x = b.x; rune_msg.pts[2].y = b.y;
+                    }
+                    else
+                    {
+                        rune_msg.pts[1].x = b.x; rune_msg.pts[1].y = b.y;
+                        rune_msg.pts[2].x = a.x; rune_msg.pts[2].y = a.y;
+                    }
+
+                    // 1/3/5/7 -> top/right/bottom/left
+                    rune_msg.pts[3].x = corners[5].x; rune_msg.pts[3].y = corners[5].y; // bottom
+                    rune_msg.pts[4].x = corners[7].x; rune_msg.pts[4].y = corners[7].y; // left
+                    rune_msg.pts[5].x = corners[1].x; rune_msg.pts[5].y = corners[1].y; // top
+                    rune_msg.pts[6].x = corners[3].x; rune_msg.pts[6].y = corners[3].y; // right
+                }
+            }
         }
-    } else {
-        // 所有符文都不是目标颜色
-        rune_msg.is_lost = true;
     }
 
     rune_pub_->publish(rune_msg);
 
-    if (debug_) {
-        if (debug_img.empty()) {
-            // 避免在处理过程中更改 debug_mode
-            return;
+    if (debug_marker_) {
+        bool published_marker = false;
+        if (current_rune_group) {
+            PoseNode rune_to_camera;
+            if (current_rune_group->getCamPnpDataFromFilter(rune_to_camera)) {
+                publishRune3DMarkers(
+                    timestamp, frame_id_, rune_to_camera,
+                    has_pending_target_pose ? &pending_target_to_camera : nullptr);
+                published_marker = true;
+            }
+        }
+        if (!published_marker) {
+            clearRune3DMarkers(timestamp);
+        }
+    }
+
+    if (debug_ && !rune_groups_.empty())
+    {
+        cv::Mat debug_img = src_img.clone();
+        auto rune_group = RuneGroup::cast(rune_groups_.front());
+        rune_group->drawFeature(debug_img);
+
+        // visualize polygon through r_center (0) and inactive corners (4,5,6)
+        if (!rune_msg.is_lost)
+        {
+            std::vector<cv::Point> poly;
+            const int indices[4] = {0, 4, 5, 6};
+            for (int idx : indices)
+            {
+                poly.emplace_back(static_cast<int>(rune_msg.pts[idx].x), static_cast<int>(rune_msg.pts[idx].y));
+            }
+            cv::polylines(debug_img, poly, true, cv::Scalar(0, 255, 255), 2);
+            cv::line(
+                debug_img,
+                cv::Point(static_cast<int>(rune_msg.pts[1].x), static_cast<int>(rune_msg.pts[1].y)),
+                cv::Point(static_cast<int>(rune_msg.pts[2].x), static_cast<int>(rune_msg.pts[2].y)),
+                cv::Scalar(255, 0, 255), 2);
         }
 
-        // 绘制检测结果
-        for (auto & obj : objs) {
-            auto pts = obj.pts.toVector2f();
-            cv::Point2f aim_point =
-                std::accumulate(pts.begin() + 3, pts.end(), cv::Point2f(0, 0)) / 4;
-
-            cv::Scalar line_color = obj.type == RuneType::ACTIVATED ? cv::Scalar(50, 255, 50)
-                                                                    : cv::Scalar(255, 50, 255);
-            cv::polylines(debug_img, obj.pts.toVector2i(), true, line_color, 2);
-            cv::circle(debug_img, aim_point, 5, line_color, -1);
-
-            std::string rune_type = obj.type == RuneType::ACTIVATED ? "_HIT" : "_OK";
-            std::string rune_color = enemyColorToString(detect_color_);
-            cv::putText(
-                debug_img, rune_color + rune_type, cv::Point2i(pts[2]), cv::FONT_HERSHEY_SIMPLEX,
-                0.8, line_color, 2);
-        }
-
-        auto end = this->get_clock()->now();
-        auto duration = end.seconds() - timestamp.seconds();
-        std::string letency = fmt::format("Latency: {:.3f}ms", duration * 1000);
-        cv::putText(
-            debug_img, letency, cv::Point2i(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-            cv::Scalar(0, 255, 255), 2);
-        cv::cvtColor(debug_img, debug_img, cv::COLOR_BGR2RGB);
-        result_img_pub_.publish(
-            cv_bridge::CvImage(rune_msg.header, "rgb8", debug_img).toImageMsg());
+        result_img_pub_.publish(cv_bridge::CvImage(rune_msg.header, "bgr8", debug_img).toImageMsg());
     }
 }
 
@@ -225,6 +501,9 @@ rcl_interfaces::msg::SetParametersResult RuneDetectorNode::onSetParameters(
     for (const auto & param : parameters) {
         if (param.get_name() == "binary_thresh") {
             binary_thresh_ = param.as_int();
+        }
+        if (param.get_name() == "detect_color") {
+            detect_color_ = param.as_int() == 0 ? PixChannel::RED : PixChannel::BLUE;
         }
     }
     result.successful = true;

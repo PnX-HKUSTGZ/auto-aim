@@ -60,7 +60,7 @@ BallisticCalculateNode::BallisticCalculateNode(const rclcpp::NodeOptions & optio
     RCLCPP_INFO(this->get_logger(), "start ballistic calculation!");
     K1 = this->declare_parameter("iteration_coeffcient_first", 0.1);
     K2 = this->declare_parameter("iteration_coeffcient_second", 0.05);
-    K = this->declare_parameter("air_resistence", 0.1);
+    K = this->declare_parameter("air_resistence", 0.019);
     BULLET_V = this->declare_parameter("bullet_speed", 23.0);
     min_v = this->declare_parameter("switch_stategy_1", 5.0) * M_PI / 30;
     max_v = this->declare_parameter("switch_stategy_2", 30.0) * M_PI / 30;
@@ -157,6 +157,14 @@ void BallisticCalculateNode::carTargetCallback(
     car_info_->updateTarget(*car_target_msg);
     armor_selector_->updateTarget(*car_target_msg);
 
+    if(car_target_msg->tracking == false){
+        firemsg fire_msg;
+        fire_msg = auto_aim_interfaces::msg::Firecontrol();
+        fire_msg.tracking = false;
+        publisher_->publish(fire_msg);
+        return;
+    }
+
     //进入第一次大迭代
     Eigen::Vector3d target = car_info_->getGunTarget(0.0);
 
@@ -238,7 +246,7 @@ void BallisticCalculateNode::carTargetCallback(
     // MPC解算前后可视化
     try {
         std_msgs::msg::Float32MultiArray yaw_tracker_msg;
-        yaw_tracker_msg.data.resize(3); // 仅存储3个标量
+        yaw_tracker_msg.data.resize(5); // 存储5个标量
         yaw_tracker_msg.data[0] = mpc_result.target_yaw; // 第一个元素：目标yaw
         yaw_tracker_msg.data[1] = mpc_result.yaw;         // 第二个元素：输出MPC解算后的yaw
         yaw_tracker_msg.data[2] = mpc_result.is_fire;    // 第三个元素：is_fire（是否处于阶跃期）
@@ -255,8 +263,8 @@ void BallisticCalculateNode::carTargetCallback(
 
     if (use_mpc_default && mpc_result.is_valid) {
         RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully.");
-        final_pitch = mpc_result.target_pitch + rpy_vec[1]; // 转换到云台坐标系
-        final_yaw = mpc_result.target_yaw - rpy_vec[2];
+        final_pitch = mpc_result.pitch + rpy_vec[1]; // 转换到云台坐标系
+        final_yaw = mpc_result.yaw - rpy_vec[2];
         
         yaw_vel = mpc_result.yaw_vel;
         yaw_acc = mpc_result.yaw_acc;
@@ -341,64 +349,65 @@ void BallisticCalculateNode::runeTargetCallback(
     auto [init_pitch, init_t] = makeSafeInitialGuess(target, BULLET_V);
 
     double rune_t = init_t;
-    // std::pair<double, double> iteration_result =
-    //     this->calculator->iteration(THRES2, init_pitch, init_t, *rune_info_, rune_t);
+    std::pair<double, double> iteration_result =
+    this->calculator->iteration(THRES2, init_pitch, init_t, *rune_info_, rune_t);
 
     // MPC 优化部分
-    Eigen::Vector3d target_odom = rune_info_->getOdomTarget(rune_t);
-    double current_bullet_speed = BULLET_V;
+    // Eigen::Vector3d target_odom = rune_info_->getOdomTarget(rune_t);
+    // double current_bullet_speed = BULLET_V;
 
-    Eigen::Vector2d target_vel(0.0, 0.0); // 暂时先设为0.0
-    RCLCPP_ERROR(this->get_logger(), "暂时没有开发完成，以后记得改\n");
-    auto_aim_interfaces::msg::Target mpc_target;
-    mpc_target.position.x = target_odom.x();
-    mpc_target.position.y = target_odom.y();
-    mpc_target.position.z = target_odom.z();
-    mpc_target.velocity.x = target_vel.x();
-    mpc_target.velocity.y = target_vel.y();
-    MPCResult mpc_result = mpc_controller_->compute(mpc_target, current_bullet_speed, rune_t);
+    // Eigen::Vector2d target_vel(0.0, 0.0); // 暂时先设为0.0
+    // RCLCPP_ERROR(this->get_logger(), "暂时没有开发完成，以后记得改\n");
+    // auto_aim_interfaces::msg::Target mpc_target;
+    // mpc_target.position.x = target_odom.x();
+    // mpc_target.position.y = target_odom.y();
+    // mpc_target.position.z = target_odom.z();
+    // mpc_target.velocity.x = target_vel.x();
+    // mpc_target.velocity.y = target_vel.y();
+    // MPCResult mpc_result = mpc_controller_->compute(mpc_target, current_bullet_speed, rune_t);
 
     double final_pitch, final_yaw;
     double yaw_vel = 0.0, yaw_acc = 0.0, pitch_vel = 0.0, pitch_acc = 0.0;
 
-    if (use_mpc_default && mpc_result.is_valid) {
-        RCLCPP_DEBUG(this->get_logger(), "MPC solved successfully for rune.");
-        final_pitch = mpc_result.target_pitch;
-        final_yaw = mpc_result.target_yaw;
-        
-        yaw_vel = mpc_result.yaw_vel;
-        yaw_acc = mpc_result.yaw_acc;
-        pitch_vel = mpc_result.pitch_vel;
-        pitch_acc = mpc_result.pitch_acc;
-    } else {
-        RCLCPP_WARN(this->get_logger(), "MPC failed to solve for rune. Skipping publish.");
-        return; // 直接返回，不发布
-    }
-    
-    // 将 odom_aim 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
+    // Rune mode: MPC currently not used for rune; use iterative result and predicted target
+    // 1. 获取经过子弹飞行时间 rune_t 预测后的目标三维坐标（解决因为大符运动导致的 Yaw 丢失提前量的问题）
+    Eigen::Vector3d predicted_target = rune_info_->getGunTarget(rune_t);
+
+    // 2. 仿照装甲板解算，统一坐标系转换与符号问题
+    //    翻转仰角符号适配云台 REP-103 标准(向下为正)，并补偿相机到枪管的 Pitch 偏置
+    final_pitch = iteration_result.first + rpy_vec[1]; 
+    //    利用预测点计算 Yaw 以跟随符文运动方向，并补偿相机到枪管的 Yaw 偏置
+    final_yaw = std::atan2(predicted_target[1], predicted_target[0]) - rpy_vec[2]; 
+
+    // 将 odom 坐标系中的点投影到图像上（使用计算出的瞄准时间 iteration_result.second）
     cv::Point2f projected_point = projectPointToImage(rune_info_->getOdomTarget(rune_t));
 
     //发布消息
     firemsg fire_msg;
-    fire_msg.header = _target_msg->header;
+    fire_msg.header = rune_target_msg->header;
     fire_msg.pitch = final_pitch;
     fire_msg.yaw = final_yaw;
+    
 
     // 新增MPC输出的控制量
     fire_msg.yaw_vel = yaw_vel;
     fire_msg.yaw_acc = yaw_acc;
     fire_msg.pitch_vel = pitch_vel;
     fire_msg.pitch_acc = pitch_acc;
+    
+
+    // 新增目标距离信息
     {
         const Eigen::Vector3d target_gun = rune_info_->getGunTarget(rune_t);
         fire_msg.distance = std::hypot(target_gun.x(), target_gun.y());
     }
+    //std::cerr<<"rune callback: pitch="<<final_pitch<<", yaw="<<final_yaw<<", distance"<<fire_msg.distance<<"\n";
 
-    fire_msg.tracking = _target_msg->tracking;
+    fire_msg.tracking = rune_target_msg->tracking;
     fire_msg.projected_x = projected_point.x;
     fire_msg.projected_y = projected_point.y;
     fire_msg.id = "rune";
-    fire_msg.iffire = 0; // 符文模式下暂不使用MPC开火决策
+    fire_msg.iffire = 1; // 符文模式下暂不使用MPC开火决策
     // Publish iffire as 0 for rune mode to allow plotting
     try {
         std_msgs::msg::Float32 ifmsg;

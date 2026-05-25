@@ -27,14 +27,29 @@
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <visualization_msgs/msg/marker_array.hpp>
 // 3rd party
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
+// Tiger Core
+#include "vc/camera/camera_param.h"
+#include "vc/core/type_expansion.hpp"
+#include "vc/detector/detector.h"
+#include "vc/detector/rune_detector.h"
+#include "vc/feature/feature_node_child_feature_type.h"
+#include "vc/feature/rune_center.h"
+#include "vc/feature/rune_combo.h"
+#include "vc/feature/rune_fan.h"
+#include "vc/feature/rune_group.h"
+#include "vc/feature/rune_target.h"
+#include "vc/feature/tracking_feature_node.h"
 // project
 #include "auto_aim_interfaces/msg/rune.hpp"
 #include "auto_aim_interfaces/srv/set_mode.hpp"
-#include "rune_detector/rune_detector.hpp"
 #include "rune_detector/types.hpp"
 
 namespace rm_auto_aim
@@ -45,9 +60,18 @@ public:
     RuneDetectorNode(const rclcpp::NodeOptions & options);
 
 private:
-    std::unique_ptr<RuneDetector> initDetector();
+    std::unique_ptr<::RuneDetector> initDetector();
+
+    static void rectLongEndpoints(const cv::RotatedRect & r, cv::Point2f & a, cv::Point2f & b);
+    GyroData getGyroData(const rclcpp::Time & stamp);
+    void publishRune3DMarkers(
+        const rclcpp::Time & stamp, const std::string & camera_frame,
+        const PoseNode & rune_to_camera,
+        const PoseNode * pending_target_to_camera = nullptr);
+    void clearRune3DMarkers(const rclcpp::Time & stamp);
 
     void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
+    void cameraInfoCallback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
 
     void createDebugPublishers();
     void destroyDebugPublishers();
@@ -64,30 +88,33 @@ private:
 
     // Image subscription
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
 
     //Target publisher
     std::string frame_id_;
     rclcpp::Publisher<auto_aim_interfaces::msg::Rune>::SharedPtr rune_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 
     // Enable/Disable Rune Detector
     rclcpp::Service<auto_aim_interfaces::srv::SetMode>::SharedPtr set_rune_mode_srv_;
 
-    // Rune detector
-    std::unique_ptr<RuneDetector> rune_detector_;
+    // Tiger Core detector与特征缓存
+    std::unique_ptr<::RuneDetector> tiger_detector_;
+    std::vector<FeatureNode_ptr> rune_groups_{};
 
-    // Rune params
-    int max_iterations_;         // 最大迭代次数(RANSAC)
-    double distance_threshold_;  // 距离阈值(RANSAC)
-    double prob_threshold_;      // 可信度阈值(匹配)
-    EnemyColor detect_color_;    // 检测颜色
-    bool is_rune_;
+    // TF for gyro data
+    std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf2_listener_;
 
-    // For R tag detection
-    bool detect_r_tag_;
-    int binary_thresh_;
+    // Params
+    PixChannel detect_color_;    // 检测颜色
+    bool is_rune_{};
+    bool has_camera_info_{};
+    int binary_thresh_{};
 
     // Debug infomation
-    bool debug_;
+    bool debug_{};
+    bool debug_marker_{};
     image_transport::Publisher result_img_pub_;
 
     rclcpp::Time timestamp;

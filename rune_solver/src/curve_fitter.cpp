@@ -315,6 +315,6 @@ bool CurveFitter::statusVerified()
 }
 
 std::array<double, 5> CurveFitter::getFittingParam() const { return fitting_param_; }
-bool CurveFitter::getDirection() const { return direction_; }
+bool CurveFitter::getDirection() const { return direction_ == Direction::ANTI_CLOCKWISE; }
 
 }  //namespace rm_auto_aim

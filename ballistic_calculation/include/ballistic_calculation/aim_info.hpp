@@ -208,15 +208,16 @@ public:
     
     Eigen::Vector3d getOdomTarget(double time) override
     {
+        int sign = target_msg.direction ? 1 : -1;
         // 根据能量机关类型选择相应的拟合曲线
         double angle_diff =
             target_msg.is_big ? BIG_RUNE_CURVE(
                                     time, target_msg.fitting_curve[0], target_msg.fitting_curve[1],
                                     target_msg.fitting_curve[2], target_msg.fitting_curve[3],
-                                    target_msg.fitting_curve[4], target_msg.direction)
+                                    target_msg.fitting_curve[4], sign)
                               : SMALL_RUNE_CURVE(
                                     time, target_msg.fitting_curve[0], target_msg.fitting_curve[1],
-                                    target_msg.fitting_curve[2], target_msg.direction);
+                                    target_msg.fitting_curve[2], sign);
 
         // 能量机关中心在odom坐标系中的位置
         Eigen::Vector3d t_odom_2_rune =
@@ -225,7 +226,7 @@ public:
         // 计算装甲板在能量机关坐标系中的位置
         // 考虑角度变化和初始roll角
         Eigen::Vector3d p_rune =
-            eulerToMatrix(Eigen::Vector3d{-(angle_diff + target_msg.roll), 0, target_msg.yaw}) *
+            eulerToMatrix(Eigen::Vector3d{target_msg.roll - angle_diff, 0, target_msg.yaw}) *
             Eigen::Vector3d(0, -ARM_LENGTH, 0);  // 装甲板相对中心的位置
 
         // 变换到odom坐标系
