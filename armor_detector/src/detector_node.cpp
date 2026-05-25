@@ -52,9 +52,6 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     // 是否使用 AI detector 参数
     use_ai_detector_ = this->declare_parameter("use_ai_detector", false);
 
-    // 深度范围参数，用于过滤异常PnP解
-    min_depth_ = this->declare_parameter<double>("min_depth", 0.5);
-    max_depth_ = this->declare_parameter<double>("max_depth", 10.0);
 
     //设置需要探测的颜色
     declare_parameter("detect_color", RED);
@@ -244,13 +241,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         bool success =
             pnp_solver_->solvePnP(armors[i], rvec, tvec);  //通过pnp解算获得两个装甲板位姿解
         if (success) {
-            // 检查深度是否在合理范围内，过滤异常PnP解
-            double depth = tvec.at<double>(2);
-            if (depth < min_depth_ || depth > max_depth_) {
-                RCLCPP_WARN(this->get_logger(), "PnP depth %.3f out of range [%.3f, %.3f], skipping armor",
-                           depth, min_depth_, max_depth_);
-                continue;
-            }
+            
             if (armor_num_map[armors[i].number].first == -1)
                 continue;  // 如果发生了解算失败，这一帧的装甲板数据宁可放弃
             // 装甲板先验可知roll为0，pitch为15度
