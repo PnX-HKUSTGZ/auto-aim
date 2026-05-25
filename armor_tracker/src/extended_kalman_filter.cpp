@@ -137,11 +137,6 @@ Eigen::VectorXd ExtendedKalmanFilter::update3(const Eigen::VectorXd & z)
 {
     Eigen::MatrixXd H3 = jacobian_h3(x_pri);
     R.noalias() = update_R(z);
-    // 前哨站专属：给Δz/r设极小观测噪声（软约束）
-    if (x_post(R_OUTPOST) > 0) {
-        R(2, 2) = 0.001;  // Z轴观测噪声极小
-        R(3, 3) = 0.001;  // Yaw观测噪声极小
-    }
     K.noalias() = computeKalmanGain(H3, R);
     updateStateAndCovariance(z, H3, h3, K);
     return x_post;
