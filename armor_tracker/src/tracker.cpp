@@ -197,7 +197,7 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
         }
     };
 
-    if (tracked_armors_num == ArmorsNum::OUTPOST_3 && armors_msg->armors.size() >= 1) {
+    if (tracked_armors_num == ArmorsNum::OUTPOST_3 && armors_msg->armors.size() > 1) {
         // Outpost keeps a single-armor update path to avoid unstable two-armor geometry.
         const auto best_it = std::min_element(
             armors_msg->armors.begin(), armors_msg->armors.end(),
@@ -777,7 +777,7 @@ double Tracker::calYawDiff(double yaw1, double yaw2)
 {
     double diff = std::min(
         abs(angles::shortest_angular_distance(yaw1, yaw2)),
-        abs(angles::shortest_angular_distance(yaw1 + 4 * M_PI / double(tracked_armors_num), yaw2)));
+        abs(angles::shortest_angular_distance(yaw1 + M_PI, yaw2)));
     return diff;
 }
 
