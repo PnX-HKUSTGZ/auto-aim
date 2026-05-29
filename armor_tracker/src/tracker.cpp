@@ -400,10 +400,6 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
             target_state(YAW2) -= 4 * M_PI / double(tracked_armors_num);
             ekf.setState(target_state);
         }
-        if(tracker_state == DETECTING){
-        target_state(VXC) = 0.0;
-        target_state(VYC) = 0.0;
-        target_state(VZC) = 0.0;}
         double yaw_average = (target_state(YAW1) + target_state(YAW2)) / 2;
         target_state(YAW1) = yaw_average - M_PI / double(tracked_armors_num);
         target_state(YAW2) = yaw_average + M_PI / double(tracked_armors_num);
@@ -436,6 +432,14 @@ void Tracker::updateState(
 
     double time_since_update = (msg_time - last_update_time_).seconds();
     if (time_since_update < 0) time_since_update = 0.0;
+
+    // If we're about to cross the lost threshold, move to TEMP_LOST early
+    // so downstream can publish a tracking=false update before the tracker is removed.
+    if (!matched && time_since_update < lost_time_thres &&
+        (lost_time_thres - time_since_update) <= 0.01 &&
+        tracker_state == TRACKING) {
+        tracker_state = TEMP_LOST;
+    }
 
     switch (tracker_state) {
         case DETECTING:
@@ -782,7 +786,9 @@ void Tracker::limitTranslationVelocity(Eigen::VectorXd & state) const
 
 double Tracker::calYawDiff(double yaw1, double yaw2)
 {
-    double diff =abs(angles::shortest_angular_distance(yaw1, yaw2));
+    double diff = std::min(
+        abs(angles::shortest_angular_distance(yaw1, yaw2)),
+        abs(angles::shortest_angular_distance(yaw1 + M_PI, yaw2)));
     return diff;
 }
 

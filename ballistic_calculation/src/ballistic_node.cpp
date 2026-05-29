@@ -296,7 +296,7 @@ void BallisticCalculateNode::carTargetCallback(
     // }
     // if (fire_msg.iffire) last_fire_time = this->now();
     fire_msg.iffire =
-        mpc_result.is_fire && armor_selector_->isCenterAngleWithinThreshold();
+        mpc_result.is_fire ;//&& armor_selector_->isCenterAngleWithinThreshold();
     // // Publish a 1/0 float for rqt plotting of iffire
     // try { 
     //     std_msgs::msg::Float32 ifmsg;

@@ -24,6 +24,7 @@
 #include <sensor_msgs/image_encodings.hpp>
 
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 // STD
 #include <algorithm>
@@ -102,6 +103,8 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
     // Always publish debug distance topic so rqt_plot can subscribe without enabling debug
     distance_pub_ = this->create_publisher<std_msgs::msg::Float32>("/detector/distance", 10);
+    // Publisher to inform serial driver whether the target is a vehicle (0) or an outpost (1)
+    target_type_pub_ = this->create_publisher<std_msgs::msg::UInt8>("/serial_driver/target_type", 10);
 
     //tf2
     tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -332,6 +335,18 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     }
     // Publishing detected armors
     armors_pub_->publish(armors_msg_);
+
+    // Publish target type to serial driver: vehicle -> 0, outpost -> 1
+    if (target_type_pub_ && !armors_msg_.armors.empty()) {
+        std_msgs::msg::UInt8 tmsg;
+        const auto & first = armors_msg_.armors[0];
+        if (first.number == "outpost") {
+            tmsg.data = 1;
+        } else {
+            tmsg.data = 0;
+        }
+        target_type_pub_->publish(tmsg);
+    }
 
     // Publish distance (meters) from armor center to camera center
     if (distance_pub_ && !armors_msg_.armors.empty()) {
