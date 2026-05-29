@@ -36,7 +36,7 @@ std::vector<Armor> Detector::detect(
     armors_ = matchLights(lights_, detect_color);
 
     if (!armors_.empty()) {
-        classifier->extractNumbers(input, armors_);
+        classifier->extractNumbers(input, armors_, detect_color);
         classifier->classify(armors_);
     }
 

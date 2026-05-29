@@ -46,7 +46,7 @@ public:
      * @param src 原始图像
      * @param armors 待提取数字的装甲板数组，函数会更新其中的number_img属性
      */
-    void extractNumbers(const cv::Mat & src, std::vector<Armor> & armors);
+    void extractNumbers(const cv::Mat & src, std::vector<Armor> & armors, int detect_color);
 
     /**
      * @brief 对装甲板上的数字进行分类

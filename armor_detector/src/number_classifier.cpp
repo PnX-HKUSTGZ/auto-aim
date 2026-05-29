@@ -38,7 +38,7 @@ NumberClassifier::NumberClassifier(
     }
 }
 
-void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & armors)
+void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & armors, int detect_color)
 {
     // Light length in image
     const int light_length = 12;
@@ -75,7 +75,19 @@ void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & 
             number_image(cv::Rect(cv::Point((warp_width - roi_size.width) / 2, 0), roi_size));
 
         // Binarize
-        cv::cvtColor(number_image, number_image, cv::COLOR_RGB2GRAY);
+        // Extract Blue + Green channel to grayscale
+        
+        if(detect_color == 0) { // red
+            std::cerr << "red" << std::endl;
+            cv::Mat channels[3];
+            cv::split(number_image, channels);
+            number_image = (channels[1] + channels[2]) / 2;  //提取绿蓝通道并平均，得到灰度图像
+        } else {
+            std::cerr << "blue" << std::endl;
+            cv::Mat channels[3];
+            cv::split(number_image, channels);
+            number_image = (channels[0] + channels[1]) / 2;  //提取绿红通道并平均，得到灰度图像
+        }
         cv::threshold(number_image, number_image, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
 
         armor.number_img = number_image;
