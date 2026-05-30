@@ -31,14 +31,21 @@ Detector::Detector(
 std::vector<Armor> Detector::detect(
     const cv::Mat & input, int detect_color)  //侦测，分类装甲板的主函数
 {
-    preprocessImage(input);  //生成二值化后的图片
-    lights_ = findLights(input, binary_img);
-    armors_ = matchLights(lights_, detect_color);
+    detectCandidates(input, detect_color);
 
     if (!armors_.empty()) {
         classifier->extractNumbers(input, armors_, detect_color);
         classifier->classify(armors_);
     }
+
+    return armors_;
+}
+
+std::vector<Armor> Detector::detectCandidates(const cv::Mat & input, int detect_color)
+{
+    preprocessImage(input);  //生成二值化后的图片
+    lights_ = findLights(input, binary_img);
+    armors_ = matchLights(lights_, detect_color);
 
     for (auto & armor : armors_) {
         lcc.correctCorners(armor, gray_img);
@@ -46,6 +53,8 @@ std::vector<Armor> Detector::detect(
 
     return armors_;
 }
+
+void Detector::setDebugArmors(const std::vector<Armor> & armors) { armors_ = armors; }
 
 void Detector::preprocessImage(const cv::Mat & rgb_img)  //生成二值化后的图片
 {

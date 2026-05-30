@@ -2,9 +2,9 @@
 
 订阅相机参数及图像流进行装甲板的识别并解算三维位置，输出识别到的装甲板在输入图像帧下的三维坐标（相机坐标系或通过坐标变换得到的世界坐标系）。
 
-支持两种检测模式：
-- **传统检测器** (`Detector`) - 基于图像处理的装甲板检测
-- **AI检测器** (`AIDetector`) - 基于深度学习模型的装甲板检测
+支持两种数字识别模式：
+- **传统模式** (`use_ai_detector=false`) - 传统灯条/装甲板候选 + MLP 数字分类
+- **AI数字识别模式** (`use_ai_detector=true`) - 传统灯条/装甲板候选 + AI 推理结果匹配后覆盖数字分类
 
 ## detector_node.cpp
 
@@ -32,7 +32,7 @@
 ### 参数 
 
 * `debug` (`bool`, default: false) - 是否开启调试模式（开启后发布调试信息）
-* `use_ai_detector` (`bool`, default: false) - 是否使用AI检测器进行装甲板检测
+* `use_ai_detector` (`bool`, default: false) - 是否使用 AI 推理结果作为数字识别方案；开启后装甲板候选仍由传统算法产生
 * `detect_color` (`int`, default: 0) - 检测颜色，0为红，1为蓝
 
 #### 传统检测器参数
@@ -45,8 +45,10 @@
 
 * `ai_model_path` (`string`, default: "/model/0526.onnx") - AI模型文件路径（相对于包的share目录）
 * `ai_device` (`string`, default: "CPU") - 推理设备 ("CPU", "GPU", etc.)
-* `ai_conf_threshold` (`double`, default: 0.65) - AI检测器的置信度阈值
+* `ai_conf_threshold` (`double`, default: 0.65) - AI 推理结果置信度阈值
 * `ai_nms_threshold` (`double`, default: 0.45) - 非极大值抑制阈值
+* `ai_match_min_iou` (`double`, default: 0.15) - AI 结果匹配传统候选所需的最小外接框 IoU
+* `ai_match_max_center_ratio` (`double`, default: 0.35) - AI 结果与传统候选中心距离的最大比例，基准为传统候选外接框对角线
 
 #### 灯条检测参数 (light) - 仅适用于传统检测器
 
@@ -75,14 +77,17 @@
 
 ## ai_detector.cpp
 
-基于OpenVINO深度学习框架的AI装甲板检测器
+基于OpenVINO深度学习框架的 AI 数字识别方案
 
 ### 主要特性
 
-- 使用ONNX模型进行端到端的装甲板检测和数字识别
+- 使用模型输出装甲板关键点和数字分类，经过 NMS 后与传统候选做几何匹配
+- 匹配方向为：每个 AI 结果按置信度从高到低，在未占用的传统候选中寻找最佳匹配
+- 匹配成功时只覆盖传统候选的数字分类结果；装甲板几何和大小类型以传统候选为准
+- 没有被 AI 结果匹配的传统候选标记为 `negative`，不进入 PnP 和 `/detector/armors`
 - 支持CPU和GPU推理
 - 集成非极大值抑制(NMS)算法
-- 自动进行坐标缩放和角点矫正
+- 自动进行坐标缩放
 
 ### 核心功能
 
@@ -102,7 +107,7 @@
 将AI检测的原始输出转换为标准的Armor结构
 
 ### 支持的数字类别
-`["outpost", "1", "2", "3", "4", "5", "guard", "base", "base"]`
+`["guard", "1", "2", "3", "4", "5", "outpost", "base", "base"]`
 
 ## detector.cpp
 

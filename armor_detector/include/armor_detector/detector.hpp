@@ -17,7 +17,6 @@
 #include "armor_detector/number_classifier.hpp"
 #include "armor_detector/types.hpp"
 
-
 namespace rm_auto_aim
 {
 /**
@@ -54,6 +53,24 @@ public:
      * @return std::vector<Armor> 检测到的装甲板数组
      */
     std::vector<Armor> detect(const cv::Mat & input, int detect_color) override;
+
+    /**
+     * @brief 只生成传统算法装甲板候选，不执行数字分类
+     *
+     * 用于 AI 数字识别模式：传统算法负责产生几何候选，AI 结果只用于匹配后覆盖分类。
+     *
+     * @param input 输入的图像
+     * @param detect_color 检测颜色 (0: red, 1: blue)
+     * @return std::vector<Armor> 传统算法生成的装甲板候选数组
+     */
+    std::vector<Armor> detectCandidates(const cv::Mat & input, int detect_color);
+
+    /**
+     * @brief 更新用于绘制调试图的装甲板列表
+     *
+     * @param armors 需要绘制的装甲板列表
+     */
+    void setDebugArmors(const std::vector<Armor> & armors);
 
     /**
      * @brief 获取所有数字图像用于调试

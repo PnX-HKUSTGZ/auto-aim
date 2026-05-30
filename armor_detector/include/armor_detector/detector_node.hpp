@@ -150,6 +150,8 @@ private:
     std::unique_ptr<Detector> detector_;
     std::unique_ptr<AIDetector> ai_detector_;
     bool use_ai_detector_ = false;
+    double ai_match_min_iou_ = 0.15;
+    double ai_match_max_center_ratio_ = 0.35;
 
     // -------------------- 相机相关 --------------------
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
@@ -182,7 +184,6 @@ private:
     image_transport::Publisher number_img_pub_;
     image_transport::Publisher result_img_pub_;
 
-    
     /**
     * @brief 装甲板可视化标记
     * 用于在RViz中显示检测到的装甲板
@@ -200,7 +201,6 @@ private:
         marker.lifetime = rclcpp::Duration::from_seconds(0.1);
         return marker;
     }();
-
 
     /**
     * @brief 文本可视化标记

@@ -96,6 +96,7 @@ if(BUILD_TESTING)
     ament_cmake_copyright
     ament_cmake_uncrustify
     ament_cmake_cpplint
+    ament_cmake_clang_format
   )
   ament_lint_auto_find_test_dependencies()
 
@@ -105,6 +106,16 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_number_cls test/test_number_cls.cpp)
   target_link_libraries(test_number_cls ${PROJECT_NAME})
+
+  ament_add_gtest(test_ai_matcher test/test_ai_matcher.cpp)
+  target_link_libraries(test_ai_matcher ${PROJECT_NAME})
+
+  set_tests_properties(
+    test_node_startup
+    test_number_cls
+    test_ai_matcher
+    PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${ABS_PREFIX_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}"
+  )
 
 endif()
 
