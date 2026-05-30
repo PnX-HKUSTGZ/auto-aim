@@ -2,6 +2,7 @@
 
 #include "armor_tracker/tracker_manager.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
@@ -14,10 +15,9 @@ namespace rm_auto_aim
 // TrackerManager类的实现
 TrackerManager::TrackerManager(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
-        int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
-    int tracking_thres,
-    double lost_time_thres, double miss_match_time_thres,
-    double switch_cooldown)
+    int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
+    bool height_limit_enabled, double min_height, double max_height, int tracking_thres,
+    double lost_time_thres, double miss_match_time_thres, double switch_cooldown)
 : trackers_(),
   current_tracked_id_(""),
   last_switch_time_(rclcpp::Clock().now()),
@@ -25,8 +25,11 @@ TrackerManager::TrackerManager(
   max_match_distance_(max_match_distance),
   max_match_yaw_diff_(max_match_yaw_diff),
   max_translation_speed_(max_translation_speed),
-    camera_switch_position_only_frames_(camera_switch_position_only_frames),
-    wide_ignore_after_main_sec_(wide_ignore_after_main_sec),
+  camera_switch_position_only_frames_(camera_switch_position_only_frames),
+  wide_ignore_after_main_sec_(wide_ignore_after_main_sec),
+  height_limit_enabled_(height_limit_enabled),
+  min_height_(std::min(min_height, max_height)),
+  max_height_(std::max(min_height, max_height)),
   tracking_thres_(tracking_thres),
   lost_time_thres_(lost_time_thres),
   miss_match_time_thres_(miss_match_time_thres),
@@ -83,27 +86,31 @@ void TrackerManager::update(
                 static rclcpp::Clock warn_clock(RCL_SYSTEM_TIME);
                 RCLCPP_WARN_THROTTLE(
                     rclcpp::get_logger("armor_tracker"), warn_clock, 1000,
-                    "Tracker %s did not match any armors with %s data.",
-                    id.c_str(), is_main_camera ? "main camera" : "wide camera");
-            }
-            else{
+                    "Tracker %s did not match any armors with %s data.", id.c_str(),
+                    is_main_camera ? "main camera" : "wide camera");
+            } else {
                 RCLCPP_DEBUG(
                     rclcpp::get_logger("armor_tracker"),
-                    "Tracker %s successfully matched armors with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
+                    "Tracker %s successfully matched armors with %s data.", id.c_str(),
+                    is_main_camera ? "main camera" : "wide camera");
             }
-            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, miss_match_time_thres_,is_main_camera);
+            trackers_[id]->updateState(
+                matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_,
+                miss_match_time_thres_, is_main_camera);
         } else if (has_tracker && !has_armors) {
             // 如果追踪器存在但当前帧中没有装甲板，使用空消息更新
             auto empty_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
             empty_msg->header = armors_msg->header;
             RCLCPP_DEBUG(
-                rclcpp::get_logger("armor_tracker"),
-                "No armors for tracker %s with %s data.", id.c_str(), is_main_camera ? "main camera" : "wide camera");
+                rclcpp::get_logger("armor_tracker"), "No armors for tracker %s with %s data.",
+                id.c_str(), is_main_camera ? "main camera" : "wide camera");
             bool matched = trackers_[id]->update(empty_msg, is_main_camera);
-            trackers_[id]->updateState(matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_, miss_match_time_thres_,is_main_camera);
+            trackers_[id]->updateState(
+                matched, msg_time, temp_lost_time, lost_time_thres_, tracking_thres_,
+                miss_match_time_thres_, is_main_camera);
         } else if (!has_tracker && has_armors) {
             // 如果追踪器不存在但当前帧中有装甲板，初始化新的追踪器
-            if(!is_main_camera){
+            if (!is_main_camera) {
                 RCLCPP_WARN(
                     rclcpp::get_logger("armor_tracker"),
                     "Initializing new tracker %s with wide camera data.", id.c_str());
@@ -117,10 +124,10 @@ void TrackerManager::initNewTracker(
     const std::string & id, const std::vector<auto_aim_interfaces::msg::Armor> & armors,
     rclcpp::Time msg_time)
 {
-    auto tracker =
-        std::make_shared<Tracker>(
-            max_match_distance_, max_match_yaw_diff_, max_translation_speed_,
-            camera_switch_position_only_frames_, wide_ignore_after_main_sec_);
+    auto tracker = std::make_shared<Tracker>(
+        max_match_distance_, max_match_yaw_diff_, max_translation_speed_,
+        camera_switch_position_only_frames_, wide_ignore_after_main_sec_, height_limit_enabled_,
+        min_height_, max_height_);
     tracker->tracking_thres = tracking_thres_;
 
     // 复制 EKF 模板
@@ -128,7 +135,7 @@ void TrackerManager::initNewTracker(
 
     // 创建仅含特定ID装甲板的消息
     auto id_armors_msg = std::make_shared<auto_aim_interfaces::msg::Armors>();
-    id_armors_msg->header.stamp = msg_time;   // 当前时间
+    id_armors_msg->header.stamp = msg_time;       // 当前时间
     id_armors_msg->header.frame_id = "odom_aim";  // 假设使用odom坐标系
     id_armors_msg->armors = armors;
 
@@ -139,8 +146,7 @@ void TrackerManager::initNewTracker(
     } else {
         RCLCPP_WARN(
             rclcpp::get_logger("armor_tracker"),
-            "Failed to initialize tracker %s, skip registration for this frame.",
-            id.c_str());
+            "Failed to initialize tracker %s, skip registration for this frame.", id.c_str());
     }
 }
 
@@ -214,7 +220,7 @@ double TrackerManager::calculateScore(
     double score =
         (w_distance_ * distance_score + w_twoD_distance_ * two_d_center_score) * state_score;
     if (tracker->last_update_time_.seconds() - tracker->last_main_update_time_.seconds() < 0.3) {
-        score  += 1.0;
+        score += 1.0;
     }
     if (id == "1" && mode_ == VisionMode::HERO) score += 2.0;
     if (id == "2" && mode_ == VisionMode::ENGINEER) score += 2.0;
@@ -273,7 +279,6 @@ void TrackerManager::selectBestTarget()
         }
     }
 }
-
 
 std::string TrackerManager::getCurrentTargetID() const { return current_tracked_id_; }
 

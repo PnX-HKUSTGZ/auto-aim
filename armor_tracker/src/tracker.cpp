@@ -23,7 +23,6 @@
 
 #include "armor_tracker/types.hpp"
 
-
 namespace rm_auto_aim
 
 // 利用扩展卡尔曼滤波器（EKF）来推算出当前目标装甲板所在的机器人的速度、角速度（偏航速度）等状态信息
@@ -31,7 +30,8 @@ namespace rm_auto_aim
 // 构造追踪器为空的状态
 Tracker::Tracker(
     double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
-    int camera_switch_position_only_frames, double wide_ignore_after_main_sec)
+    int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
+    bool height_limit_enabled, double min_height, double max_height)
 : tracker_state(LOST),
   tracked_id(std::string("")),
   measurement(Eigen::VectorXd::Zero(4)),
@@ -46,6 +46,9 @@ Tracker::Tracker(
   has_last_camera_source_(false),
   last_camera_is_main_(true),
   wide_ignore_after_main_sec_(std::max(0.0, wide_ignore_after_main_sec)),
+  height_limit_enabled_(height_limit_enabled),
+  min_height_(std::min(min_height, max_height)),
+  max_height_(std::max(min_height, max_height)),
   detect_count_(0)
 {
 }
@@ -466,9 +469,11 @@ bool Tracker::update(const Armors::SharedPtr & armors_msg, bool is_main_camera)
         target_state(YAW1) = angles::normalize_angle(target_state(YAW1));
         target_state(YAW2) = angles::normalize_angle(target_state(YAW2));
         target_state(YAW3) = angles::normalize_angle(target_state(YAW3));
-        target_state(ZC1) = std::min(1.4, std::max(0.7, target_state(ZC1))); 
-        target_state(ZC2) = std::min(1.4, std::max(0.7, target_state(ZC2))); 
-        target_state(ZC3) = std::min(1.4, std::max(0.7, target_state(ZC3))); 
+        if (height_limit_enabled_) {
+            target_state(ZC1) = std::min(max_height_, std::max(min_height_, target_state(ZC1)));
+            target_state(ZC2) = std::min(max_height_, std::max(min_height_, target_state(ZC2)));
+            target_state(ZC3) = std::min(max_height_, std::max(min_height_, target_state(ZC3)));
+        }
         ekf.setState(target_state);
     }
 
@@ -841,11 +846,10 @@ void Tracker::limitTranslationVelocity(Eigen::VectorXd & state) const
 
 double Tracker::calYawDiff(double yaw1, double yaw2)
 {
-    double diff = 0; 
-    if(tracked_id == "outpost"){
-        diff = abs(angles::shortest_angular_distance(yaw1, yaw2)); 
-    }
-    else {
+    double diff = 0;
+    if (tracked_id == "outpost") {
+        diff = abs(angles::shortest_angular_distance(yaw1, yaw2));
+    } else {
         diff = std::min(
             abs(angles::shortest_angular_distance(yaw1, yaw2)),
             abs(angles::shortest_angular_distance(yaw1 + M_PI, yaw2)));

@@ -154,10 +154,12 @@ std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
     double threshold = this->declare_parameter("classifier_threshold", 0.7);
     std::vector<std::string> ignore_classes = this->declare_parameter(
         "ignore_classes", std::vector<std::string>{"negative"});  ////这里的this并非必须
+    bool draw_ignore_classes = this->declare_parameter("draw_ignore_classes", false);
 
     //初始化 detector
     auto detector = std::make_unique<Detector>(
-        binary_thres, l_params, a_params, model_path, label_path, threshold, ignore_classes);
+        binary_thres, l_params, a_params, model_path, label_path, threshold, ignore_classes,
+        draw_ignore_classes);
 
     RCLCPP_INFO(this->get_logger(), "Detector initialized");
 

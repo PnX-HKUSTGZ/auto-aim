@@ -2,17 +2,17 @@
 #include "armor_tracker/tracker_node.hpp"
 
 // STD
-#include <auto_aim_interfaces/msg/detail/target__struct.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> 
 #include <algorithm>
+#include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <iostream>
 #include <memory>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/logging.hpp>
-#include <std_msgs/msg/float32_multi_array.hpp>
 #include <sstream>
+#include <std_msgs/msg/float32_multi_array.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <vector>
 
 #include "armor_tracker/types.hpp"
@@ -36,8 +36,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // 初始化高频发布定时器 (例如 100Hz = 10ms)
     publish_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(10),
-        std::bind(&ArmorTrackerNode::publishCallback, this), publish_cb_group_);
+        std::chrono::milliseconds(10), std::bind(&ArmorTrackerNode::publishCallback, this),
+        publish_cb_group_);
 
     // 初始化tracker管理器
     tracker_manager_ = std::make_unique<TrackerManager>(
@@ -46,9 +46,12 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
         this->declare_parameter("tracker.max_translation_speed", 5.0),
         this->declare_parameter("tracker.camera_switch_position_only_frames", 3),
         this->declare_parameter("tracker.wide_ignore_after_main_sec", 0.1),
+        this->declare_parameter("tracker.height_limit_enabled", true),
+        this->declare_parameter("tracker.min_height", 0.7),
+        this->declare_parameter("tracker.max_height", 1.4),
         this->declare_parameter("tracker.tracking_thres", 5),  // 传递tracking_thres
         this->declare_parameter("tracker.lost_time_thres", 0.3),
-        this->declare_parameter("tracker.miss_match_time_thres", 0.4), // 新增错匹配时间阈值
+        this->declare_parameter("tracker.miss_match_time_thres", 0.4),  // 新增错匹配时间阈值
         this->declare_parameter("tracker.switch_cooldown", 1.0));
 
     // 设置评分权重参数
@@ -63,9 +66,9 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     const std::string set_mode_name = "/armor_tracker/set_mode";  // 使用绝对名称，便于发现
     set_mode_srv_ = this->create_service<auto_aim_interfaces::srv::SetMode>(
         set_mode_name,
-        std::bind(&ArmorTrackerNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2),
-        rmw_qos_profile_services_default,
-        service_cb_group_);
+        std::bind(
+            &ArmorTrackerNode::setModeCallback, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default, service_cb_group_);
     RCLCPP_INFO(this->get_logger(), "SetMode service advertised at %s", set_mode_name.c_str());
     // Camera info subscription
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
@@ -121,7 +124,8 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 
     // Publishers
     info_pub_ = this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>("/tracker/info", 10);
-    info_pub_graph = this->create_publisher<std_msgs::msg::Float32MultiArray>("/tracker/info_graph", 10);
+    info_pub_graph =
+        this->create_publisher<std_msgs::msg::Float32MultiArray>("/tracker/info_graph", 10);
     target_pub_ = this->create_publisher<auto_aim_interfaces::msg::Target>(
         "/tracker/target", rclcpp::SensorDataQoS());
     tracker_img_pub_ = image_transport::create_publisher(this, "/tracker/result_img");
@@ -384,12 +388,10 @@ void ArmorTrackerNode::initializeEKF()
     Eigen::DiagonalMatrix<double, 15> p0;
     p0.setIdentity();
     // 创建 EKF 并设置到 TrackerManager 中
-    ExtendedKalmanFilter ekf{f, h1, h2, h3, h_two, j_f, j_h1, j_h2, j_h3, j_h_two, u_q, u_r,
-                             u_r_two, p0};
+    ExtendedKalmanFilter ekf{f,    h1,   h2,      h3,  h_two, j_f,     j_h1,
+                             j_h2, j_h3, j_h_two, u_q, u_r,   u_r_two, p0};
     tracker_manager_->setEKFTemplate(ekf);
 }
-
-
 
 void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 {
@@ -400,19 +402,23 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
 
     // 如果收到了空消息，且且没有任何活跃的 tracker，那么没必要再次走一遍完整逻辑
     if (armors_msg->armors.empty() && tracker_manager_->getActiveTrackerIDs().empty()) {
-        main_seq_.fetch_add(1, std::memory_order_acq_rel); 
+        main_seq_.fetch_add(1, std::memory_order_acq_rel);
         // 记得更新 main_seq 避免 wide_detector 因为没看到最新的 main_seq 而跳过
-        return; 
+        return;
     }
 
-    struct FlagGuard {
-        explicit FlagGuard(std::atomic_bool & flag) : flag_(flag) { flag_.store(true, std::memory_order_release); }
+    struct FlagGuard
+    {
+        explicit FlagGuard(std::atomic_bool & flag) : flag_(flag)
+        {
+            flag_.store(true, std::memory_order_release);
+        }
         ~FlagGuard() { flag_.store(false, std::memory_order_release); }
         std::atomic_bool & flag_;
     } guard(main_processing_);
 
     main_seq_.fetch_add(1, std::memory_order_acq_rel);
-    
+
     if (debug_) {
         // 计算帧率
         auto start_time = std::chrono::high_resolution_clock::now();
@@ -430,7 +436,8 @@ void ArmorTrackerNode::mainArmorsCallback(const ArmorsMsg::SharedPtr armors_msg)
     processArmors(armors_msg, cam_info_, cam_center_, "camera_main_link", true);
 }
 
-void ArmorTrackerNode::wideArmorsCallback(const ArmorsMsg::SharedPtr armors_msg, std::size_t cam_index)
+void ArmorTrackerNode::wideArmorsCallback(
+    const ArmorsMsg::SharedPtr armors_msg, std::size_t cam_index)
 {
     if (cam_index >= wide_cams_.size()) {
         RCLCPP_WARN(this->get_logger(), "Wide camera index %zu out of range", cam_index);
@@ -465,30 +472,26 @@ void ArmorTrackerNode::processArmors(
     const ArmorsMsg::SharedPtr & armors_msg, const sensor_msgs::msg::CameraInfo & cam_info,
     const cv::Point2f & cam_center, const std::string & frame_id, bool is_main_camera)
 {
-
-     // 手动执行坐标变换 (替代 tf2_filter)
+    // 手动执行坐标变换 (替代 tf2_filter)
     for (auto & armor : armors_msg->armors) {
         geometry_msgs::msg::PoseStamped ps;
         ps.header = armors_msg->header;
         ps.pose = armor.pose;
         try {
             // 首先尝试获取与图像时间戳严格匹配的 TF (不阻塞等待)
-            geometry_msgs::msg::TransformStamped transform = tf2_buffer_->lookupTransform(
-                target_frame_, 
-                ps.header.frame_id, 
-                ps.header.stamp);
-            
+            geometry_msgs::msg::TransformStamped transform =
+                tf2_buffer_->lookupTransform(target_frame_, ps.header.frame_id, ps.header.stamp);
+
             tf2::doTransform(ps, ps, transform);
             armor.pose = ps.pose;
         } catch (const tf2::ExtrapolationException & ex) {
-            // 如果 TF 没赶上来（请求的时间在未来），不等待，直接取最新可用的 TF 
+            // 如果 TF 没赶上来（请求的时间在未来），不等待，直接取最新可用的 TF
             try {
                 // tf2::TimePointZero 表示直接抓取 TF 树里当前缓冲的最新的那个变换
-                geometry_msgs::msg::TransformStamped fallback_transform = tf2_buffer_->lookupTransform(
-                    target_frame_, 
-                    ps.header.frame_id, 
-                    tf2::TimePointZero);
-                
+                geometry_msgs::msg::TransformStamped fallback_transform =
+                    tf2_buffer_->lookupTransform(
+                        target_frame_, ps.header.frame_id, tf2::TimePointZero);
+
                 tf2::doTransform(ps, ps, fallback_transform);
                 armor.pose = ps.pose;
                 //RCLCPP_WARN(get_logger(), "can't use target_frame for TF, use newest instead: %s", ex.what());
@@ -509,7 +512,8 @@ void ArmorTrackerNode::processArmors(
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
                 return (Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
-                       max_armor_distance_) & (armor.pose.position.z < 2.0);
+                        max_armor_distance_) &
+                       (armor.pose.position.z < 2.0);
             }),
         armors_msg->armors.end());
     // 更新/清理/选目标，主相机独占锁，广角非阻塞尝试
@@ -532,11 +536,15 @@ void ArmorTrackerNode::processArmors(
     }
 
     if (!is_main_camera) {
-        RCLCPP_DEBUG(get_logger(), "Wide TrackerManager updated with %zu armors.", armors_msg->armors.size());
+        RCLCPP_DEBUG(
+            get_logger(), "Wide TrackerManager updated with %zu armors.",
+            armors_msg->armors.size());
     } else {
-        RCLCPP_DEBUG(get_logger(), "Main TrackerManager updated with %zu armors.", armors_msg->armors.size());
+        RCLCPP_DEBUG(
+            get_logger(), "Main TrackerManager updated with %zu armors.",
+            armors_msg->armors.size());
     }
-    
+
     // 在主相机传来的图像上画图
     if (debug_ && is_main_camera) {
         // 如果跟踪状态有效，发布 TrackerInfo 消息
@@ -551,7 +559,7 @@ void ArmorTrackerNode::processArmors(
 
             // 创建一个副本用于绘制
             cv::Mat combined_image = cv_bridge::toCvCopy(armors_msg->image, "bgr8")->image;
-            
+
             auto_aim_interfaces::msg::Target target_msg;
             bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
             if (!success) {
@@ -578,7 +586,7 @@ void ArmorTrackerNode::processArmors(
             // ... (绘制延迟文本的逻辑保持不变) ...
             auto latency =
                 (this->now() - rclcpp::Time(armors_msg->image.header.stamp)).seconds() * 1000;
-            
+
             std::stringstream text;
             text << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
             cv::putText(
@@ -590,7 +598,7 @@ void ArmorTrackerNode::processArmors(
                 cv_bridge::CvImage(armors_msg->image.header, "bgr8", combined_image).toImageMsg();
             tracker_img_pub_.publish(*processed_image_msg);
 
-                    last_img_time_ = armors_msg->image.header.stamp;
+            last_img_time_ = armors_msg->image.header.stamp;
         }
     }
 }
@@ -601,29 +609,28 @@ void ArmorTrackerNode::publishCallback()
 
     // 获取并发布目标
     auto current_target_id = tracker_manager_->getCurrentTargetID();
-    
+
     auto_aim_interfaces::msg::Target target_msg;
-        target_msg.header.frame_id = target_frame_;
+    target_msg.header.frame_id = target_frame_;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
 
     if (!success) {
-        target_msg = auto_aim_interfaces::msg::Target(); // 清零所有字段
+        target_msg = auto_aim_interfaces::msg::Target();  // 清零所有字段
         target_msg.header.frame_id = target_frame_;
         target_msg.tracking = false;
         if (current_target_id != "") {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
+            RCLCPP_WARN_THROTTLE(
+                this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s",
+                current_target_id.c_str());
+        } else {
+            RCLCPP_WARN_THROTTLE(
+                this->get_logger(), *this->get_clock(), 1000, "No trackers available");
         }
-        else{
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "No trackers available");
-        }
-        
-        target_pub_->publish(target_msg);
-    }
-    else{
-        target_pub_->publish(target_msg);
-    }
-    
 
+        target_pub_->publish(target_msg);
+    } else {
+        target_pub_->publish(target_msg);
+    }
 
     // 发布 TrackerInfo (调试用)
     if (debug_ && target_msg.tracking) {
@@ -739,11 +746,9 @@ void ArmorTrackerNode::drawImgAll(
             is_current_pair = !is_current_pair;
         } else if (target_msg.id == "outpost") {
             // 前哨站3块板直接使用状态中的 ZC1/ZC2/ZC3
-            armor_z =
-                (i == 0)
-                    ? current_tracker->target_state(ZC1)
-                    : ((i == 1) ? current_tracker->target_state(ZC2)
-                                : current_tracker->target_state(ZC3));
+            armor_z = (i == 0) ? current_tracker->target_state(ZC1)
+                               : ((i == 1) ? current_tracker->target_state(ZC2)
+                                           : current_tracker->target_state(ZC3));
             r = r1;  // 前哨站半径固定
         } else {
             r = r1;
@@ -788,7 +793,7 @@ void ArmorTrackerNode::drawImgAll(
         try {
             geometry_msgs::msg::TransformStamped transform_stamped =
                 tf2_buffer_->lookupTransform(img_frame_id, "odom_aim", tf2::TimePointZero);
-            
+
             tf2::Quaternion quat(
                 transform_stamped.transform.rotation.x, transform_stamped.transform.rotation.y,
                 transform_stamped.transform.rotation.z, transform_stamped.transform.rotation.w);
@@ -808,7 +813,7 @@ void ArmorTrackerNode::drawImgAll(
                 (cv::Mat_<double>(3, 1) << transform_stamped.transform.translation.x,
                  transform_stamped.transform.translation.y,
                  transform_stamped.transform.translation.z);
-                
+
             // 调整后的平移向量
             tvec = ros_to_cv * tvec;
         } catch (tf2::TransformException & ex) {
@@ -818,15 +823,14 @@ void ArmorTrackerNode::drawImgAll(
 
         cv::projectPoints(corners_world, rvec, tvec, camera_matrix, dist_coeffs, corners_image);
         // 在图像上绘制四边形，使用不同颜色区分不同目标
-        bool is_wide_result =
-            (img_frame_id == "camera_wide_link") ||
-            (img_frame_id.find("camera_cam") != std::string::npos);
+        bool is_wide_result = (img_frame_id == "camera_wide_link") ||
+                              (img_frame_id.find("camera_cam") != std::string::npos);
         for (size_t j = 0; j < corners_image.size(); ++j) {
             cv::line(
                 image, corners_image[j], corners_image[(j + 1) % corners_image.size()], color,
                 is_primary_target ? 2 : 2  // 主要目标线条更粗
             );
-            if(!is_wide_result){
+            if (!is_wide_result) {
                 cv::circle(image, corners_image[j], 5, color, -1);
             }
         }
@@ -899,11 +903,9 @@ void ArmorTrackerNode::drawMarkers(
                 is_current_pair = !is_current_pair;
             } else if (target_msg.id == "outpost") {
                 r = r1;
-                p_a.z =
-                    (i == 0)
-                        ? current_tracker->target_state(ZC1)
-                        : ((i == 1) ? current_tracker->target_state(ZC2)
-                                    : current_tracker->target_state(ZC3));
+                p_a.z = (i == 0) ? current_tracker->target_state(ZC1)
+                                 : ((i == 1) ? current_tracker->target_state(ZC2)
+                                             : current_tracker->target_state(ZC3));
             } else {
                 r = r1;
                 p_a.z = za;

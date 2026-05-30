@@ -52,6 +52,9 @@ private:
     double max_translation_speed_;
     int camera_switch_position_only_frames_;
     double wide_ignore_after_main_sec_;
+    bool height_limit_enabled_;
+    double min_height_;
+    double max_height_;
     int tracking_thres_;
     double lost_time_thres_;
     double miss_match_time_thres_;
@@ -123,8 +126,8 @@ public:
     TrackerManager(
         double max_match_distance, double max_match_yaw_diff, double max_translation_speed,
         int camera_switch_position_only_frames, double wide_ignore_after_main_sec,
-        int tracking_thres,
-        double lost_time_thres, double miss_match_time_thres,  double switch_cooldown = 1.0);
+        bool height_limit_enabled, double min_height, double max_height, int tracking_thres,
+        double lost_time_thres, double miss_match_time_thres, double switch_cooldown = 1.0);
 
     /**
      * @brief 更新所有追踪器
@@ -135,7 +138,8 @@ public:
      * @param armors_msg 包含所有观测到装甲板的消息
      * @param is_main_camera 是否为主相机
      */
-    void update(const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, bool is_main_camera);
+    void update(
+        const auto_aim_interfaces::msg::Armors::SharedPtr & armors_msg, bool is_main_camera);
 
     /**
      * @brief 选择最佳追踪目标
@@ -174,7 +178,8 @@ public:
      * @param input_tracked_id_ 要获取的目标ID
      * @return 目标信息消息
      */
-    bool getIDTarget(std::string input_tracked_id_, auto_aim_interfaces::msg::Target & target_msg) const;
+    bool getIDTarget(
+        std::string input_tracked_id_, auto_aim_interfaces::msg::Target & target_msg) const;
 
     /**
      * @brief 获取所有活跃追踪器的ID列表

@@ -40,6 +40,7 @@
 * `binary_thres` (`int`, default: 80) - 灯条检测的二值化阈值
 * `classifier_threshold` (`double`, default: 0.7) - 数字分类的置信度阈值
 * `ignore_classes` (`vector<string>`, default: ["negative"]) - 被忽略的分类类别
+* `draw_ignore_classes` (`bool`, default: false) - 调试结果图是否绘制 `ignore_classes` 中的装甲板；不影响 `/detector/armors` 发布过滤
 
 #### AI检测器参数
 
@@ -85,6 +86,7 @@
 - 匹配方向为：每个 AI 结果按置信度从高到低，在未占用的传统候选中寻找最佳匹配
 - 匹配成功时只覆盖传统候选的数字分类结果；装甲板几何和大小类型以传统候选为准
 - 没有被 AI 结果匹配的传统候选标记为 `negative`，不进入 PnP 和 `/detector/armors`
+- `draw_ignore_classes=true` 时，调试结果图会绘制被 `ignore_classes` 过滤的候选（例如 `negative`）
 - 支持CPU和GPU推理
 - 集成非极大值抑制(NMS)算法
 - 自动进行坐标缩放

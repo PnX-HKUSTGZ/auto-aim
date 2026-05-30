@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "armor_detector/detector.hpp"
@@ -21,8 +22,8 @@ namespace rm_auto_aim
 Detector::Detector(
     const int & bin_thres, const LightParams & l, const ArmorParams & a,
     const std::string & model_path, const std::string & label_path, const float & threshold,
-    const std::vector<std::string> & ignore_classes)
-: binary_thres(bin_thres), l(l), a(a)
+    const std::vector<std::string> & ignore_classes, bool draw_ignore_classes)
+: binary_thres(bin_thres), l(l), a(a), draw_ignore_classes_(draw_ignore_classes)
 {
     this->classifier =
         std::make_unique<NumberClassifier>(model_path, label_path, threshold, ignore_classes);
@@ -35,7 +36,24 @@ std::vector<Armor> Detector::detect(
 
     if (!armors_.empty()) {
         classifier->extractNumbers(input, armors_, detect_color);
-        classifier->classify(armors_);
+        classifier->classify(armors_, false);
+
+        std::vector<Armor> valid_armors = armors_;
+        classifier->filterInvalidArmors(valid_armors);
+
+        if (draw_ignore_classes_) {
+            std::vector<Armor> debug_armors;
+            debug_armors.reserve(armors_.size());
+            for (const auto & armor : armors_) {
+                if (!classifier->isInvalidResult(armor) || classifier->isIgnoredClass(armor)) {
+                    debug_armors.push_back(armor);
+                }
+            }
+            armors_ = std::move(debug_armors);
+            return valid_armors;
+        }
+
+        armors_ = std::move(valid_armors);
     }
 
     return armors_;
@@ -54,7 +72,21 @@ std::vector<Armor> Detector::detectCandidates(const cv::Mat & input, int detect_
     return armors_;
 }
 
-void Detector::setDebugArmors(const std::vector<Armor> & armors) { armors_ = armors; }
+void Detector::setDebugArmors(const std::vector<Armor> & armors)
+{
+    if (draw_ignore_classes_) {
+        armors_ = armors;
+        return;
+    }
+
+    armors_.clear();
+    armors_.reserve(armors.size());
+    for (const auto & armor : armors) {
+        if (!classifier->isIgnoredClass(armor)) {
+            armors_.push_back(armor);
+        }
+    }
+}
 
 void Detector::preprocessImage(const cv::Mat & rgb_img)  //生成二值化后的图片
 {

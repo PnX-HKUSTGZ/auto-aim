@@ -37,11 +37,12 @@ public:
      * @param label_path 标签路径
      * @param threshold 阈值
      * @param ignore_classes 忽略的类别
+     * @param draw_ignore_classes 是否在调试图中绘制 ignore_classes 中的装甲板
      */
     Detector(
         const int & bin_thres, const LightParams & l, const ArmorParams & a,
         const std::string & model_path, const std::string & label_path, const float & threshold,
-        const std::vector<std::string> & ignore_classes);
+        const std::vector<std::string> & ignore_classes, bool draw_ignore_classes = false);
 
     /**
      * @brief 处理输入图像并检测装甲板
@@ -163,6 +164,7 @@ private:
     int binary_thres;  ///< 二值化阈值
     LightParams l;     ///< 灯条参数
     ArmorParams a;     ///< 装甲板参数
+    bool draw_ignore_classes_;
 
     std::unique_ptr<NumberClassifier> classifier;  ///< 数字分类器
     std::vector<Light> lights_;                    ///< 当前检测到的所有灯条

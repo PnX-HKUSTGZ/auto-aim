@@ -43,8 +43,8 @@ public:
      */
     Tracker(
         double max_match_distance, double max_match_yaw_diff, double max_translation_speed = 5.0,
-        int camera_switch_position_only_frames = 3,
-        double wide_ignore_after_main_sec = 0.1);
+        int camera_switch_position_only_frames = 3, double wide_ignore_after_main_sec = 0.1,
+        bool height_limit_enabled = true, double min_height = 0.7, double max_height = 1.4);
 
     using Armors = auto_aim_interfaces::msg::Armors;
     using Armor = auto_aim_interfaces::msg::Armor;
@@ -95,9 +95,8 @@ public:
         * @param is_main_camera 当前帧是否来自主相机
      */
     void updateState(
-        bool matched, const rclcpp::Time & msg_time, double temp_lost_time,
-        double lost_time_thres, int tracking_thres, double miss_match_time_thres, bool is_main_camera);
-
+        bool matched, const rclcpp::Time & msg_time, double temp_lost_time, double lost_time_thres,
+        int tracking_thres, double miss_match_time_thres, bool is_main_camera);
 
     /**
      * @brief 设置前哨站相关参数（允许外部传入以便运行时配置）
@@ -128,7 +127,7 @@ public:
     Eigen::VectorXd target_state;
 
     rclcpp::Time last_update_time_;  // 上次有匹配的更新时间，也作为EKF时间基准
-    rclcpp::Time last_main_update_time_; // 上次主相机更新时间
+    rclcpp::Time last_main_update_time_;  // 上次主相机更新时间
 
 private:
     /**
@@ -202,7 +201,6 @@ private:
      */
     int matchArmor(const Armor & armor, const Eigen::VectorXd & ekf_prediction);
 
-
     /**
      * @brief 从状态向量计算装甲板位置
      * 
@@ -228,6 +226,9 @@ private:
     bool has_last_camera_source_;
     bool last_camera_is_main_;
     double wide_ignore_after_main_sec_;
+    bool height_limit_enabled_;
+    double min_height_;
+    double max_height_;
 
     int detect_count_;
 };

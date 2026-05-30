@@ -89,7 +89,7 @@ void NumberClassifier::extractNumbers(
     }
 }
 
-void NumberClassifier::classify(std::vector<Armor> & armors)
+void NumberClassifier::classify(std::vector<Armor> & armors, bool remove_invalid)
 //对装甲板进行数字分类，更新armor对象的confidence和number
 {
     for (auto & armor : armors) {
@@ -128,31 +128,40 @@ void NumberClassifier::classify(std::vector<Armor> & armors)
                   << armor.confidence * 100.0 << "%";
         armor.classfication_result = result_ss.str();
     }
-    //移除低置信度和忽略类别的装甲板
+    if (remove_invalid) {
+        filterInvalidArmors(armors);
+    }
+}
+
+void NumberClassifier::filterInvalidArmors(std::vector<Armor> & armors) const
+{
     armors.erase(
         std::remove_if(
             armors.begin(), armors.end(),
-            [this](const Armor & armor) {
-                if (armor.confidence < threshold) {
-                    return true;
-                }
-
-                for (const auto & ignore_class : ignore_classes_) {
-                    if (armor.number == ignore_class) {
-                        return true;
-                    }
-                }
-
-                bool mismatch_armor_type = false;
-                if (armor.type == ArmorType::LARGE) {
-                    mismatch_armor_type =
-                        armor.number == "outpost" || armor.number == "2" || armor.number == "guard";
-                } else if (armor.type == ArmorType::SMALL) {
-                    mismatch_armor_type = armor.number == "1" || armor.number == "base";
-                }
-                return mismatch_armor_type;
-            }),
+            [this](const Armor & armor) { return isInvalidResult(armor); }),
         armors.end());
+}
+
+bool NumberClassifier::isIgnoredClass(const Armor & armor) const
+{
+    return std::find(ignore_classes_.begin(), ignore_classes_.end(), armor.number) !=
+           ignore_classes_.end();
+}
+
+bool NumberClassifier::isInvalidResult(const Armor & armor) const
+{
+    return armor.confidence < threshold || isIgnoredClass(armor) || isMismatchArmorType(armor);
+}
+
+bool NumberClassifier::isMismatchArmorType(const Armor & armor) const
+{
+    if (armor.type == ArmorType::LARGE) {
+        return armor.number == "outpost" || armor.number == "2" || armor.number == "guard";
+    }
+    if (armor.type == ArmorType::SMALL) {
+        return armor.number == "1" || armor.number == "base";
+    }
+    return false;
 }
 
 }  // namespace rm_auto_aim

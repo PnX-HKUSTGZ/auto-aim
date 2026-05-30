@@ -56,8 +56,34 @@ public:
      * 识别出对应的数字类别。
      * 
      * @param armors 需要分类的装甲板数组，函数会更新其中的number和confidence属性
+     * @param remove_invalid 是否在分类后移除低置信度、忽略类别和大小类型不匹配的装甲板
      */
-    void classify(std::vector<Armor> & armors);
+    void classify(std::vector<Armor> & armors, bool remove_invalid = true);
+
+    /**
+     * @brief 从装甲板数组中移除不应发布的分类结果
+     *
+     * 包括低置信度、ignore_classes 中的类别和装甲板大小类型不匹配的结果。
+     *
+     * @param armors 待过滤的装甲板数组
+     */
+    void filterInvalidArmors(std::vector<Armor> & armors) const;
+
+    /**
+     * @brief 判断分类结果是否属于 ignore_classes
+     *
+     * @param armor 已完成分类的装甲板
+     * @return true 如果该装甲板类别在 ignore_classes 中
+     */
+    bool isIgnoredClass(const Armor & armor) const;
+
+    /**
+     * @brief 判断分类结果是否不应发布
+     *
+     * @param armor 已完成分类的装甲板
+     * @return true 如果低置信度、被忽略或大小类型不匹配
+     */
+    bool isInvalidResult(const Armor & armor) const;
 
     double threshold;  ///< 分类置信度阈值
 
@@ -65,6 +91,8 @@ private:
     cv::dnn::Net net_;                         ///< 深度学习网络模型
     std::vector<std::string> class_names_;     ///< 可识别的数字类别名称
     std::vector<std::string> ignore_classes_;  ///< 需要忽略的数字类别
+
+    bool isMismatchArmorType(const Armor & armor) const;
 };
 }  // namespace rm_auto_aim
 
