@@ -36,7 +36,7 @@ std::vector<Armor> Detector::detect(
     armors_ = matchLights(lights_, detect_color);
 
     if (!armors_.empty()) {
-        classifier->extractNumbers(input, armors_);
+        classifier->extractNumbers(input, armors_, detect_color);
         classifier->classify(armors_);
     }
 
@@ -93,7 +93,7 @@ std::vector<Light> Detector::findLights(
 bool Detector::isLight(const Light & light)  //findlights中用于判断是否为灯条的bool函数
 {
     // The ratio of light (short side / long side)
-    float ratio = light.width / light.length;
+    float ratio = std::min(light.width / light.length, light.length / light.width);
     bool ratio_ok = l.min_ratio < ratio && ratio < l.max_ratio;
 
     bool angle_ok = abs(light.tilt_angle) < l.max_angle;

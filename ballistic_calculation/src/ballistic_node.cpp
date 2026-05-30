@@ -158,10 +158,6 @@ void BallisticCalculateNode::carTargetCallback(
     armor_selector_->updateTarget(*car_target_msg);
 
     if(car_target_msg->tracking == false){
-        firemsg fire_msg;
-        fire_msg = auto_aim_interfaces::msg::Firecontrol();
-        fire_msg.tracking = false;
-        publisher_->publish(fire_msg);
         return;
     }
 
@@ -327,6 +323,7 @@ void BallisticCalculateNode::carTargetCallback(
     // } catch (...) {
     //     RCLCPP_WARN(this->get_logger(), "Failed to publish iffire float message");
     // }
+    //std::cerr << "mpc_iffire: " << mpc_result.is_fire << " fire_msg_iffire: " << fire_msg.iffire << "\n"; 
     publisher_->publish(fire_msg);
     // auto func_end_time = this->now();
     // double func_duration = (func_end_time - func_start_time).seconds();

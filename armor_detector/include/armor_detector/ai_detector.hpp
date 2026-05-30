@@ -32,6 +32,16 @@ namespace rm_auto_aim
 class AIDetector : public BaseDetector
 {
 public:
+    struct TimingStats
+    {
+        double resize_ms = 0.0;
+        double infer_ms = 0.0;
+        double postprocess_ms = 0.0;
+        double total_ms = 0.0;
+        int candidate_count = 0;
+        int result_count = 0;
+    };
+
     /**
      * @brief 构造 AI 检测器
      * 
@@ -72,6 +82,8 @@ public:
      */
     std::string getDetectorType() const override { return "AIDetector"; }
 
+    const TimingStats & timingStats() const { return timing_stats_; }
+
 private:
     /**
      * @brief 执行模型推理
@@ -80,6 +92,7 @@ private:
      * @param detect_color 检测颜色
      */
     void infer(const cv::Mat & img, int detect_color);
+    void parseOutput(int detect_color);
 
     /**
      * @brief Sigmoid 激活函数
@@ -103,7 +116,7 @@ private:
     ov::CompiledModel compiled_model;                       ///< 编译后的模型
     ov::InferRequest infer_request_;                        ///< 复用的推理请求，避免频繁创建
     ov::Tensor input_tensor_;                               ///< 输入张量复用，减少分配
-    cv::Mat contiguous_input_;                              ///< 连续内存的输入缓存
+    cv::Mat resized_input_;                                 ///< 固定尺寸输入缓存
     std::unique_ptr<ov::preprocess::PrePostProcessor> ppp;  ///< 预处理器
 
     // 参数
@@ -119,6 +132,10 @@ private:
     std::vector<Object> objects_;      ///< 原始检测对象
     std::vector<Object> tmp_objects_;  ///< NMS 后的检测对象
     std::vector<float> ious_;          ///< IoU 数组
+    std::vector<cv::Rect> boxes_;      ///< NMS 输入框缓存
+    std::vector<float> confidences_;   ///< NMS 置信度缓存
+    std::vector<int> nms_indices_;     ///< NMS 结果索引缓存
+    TimingStats timing_stats_;         ///< 最近一帧耗时统计
 };
 
 }  // namespace rm_auto_aim

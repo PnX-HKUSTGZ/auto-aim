@@ -38,7 +38,8 @@ NumberClassifier::NumberClassifier(
     }
 }
 
-void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & armors)
+void NumberClassifier::extractNumbers(
+    const cv::Mat & src, std::vector<Armor> & armors, int detect_color)
 {
     // Light length in image
     const int light_length = 12;
@@ -75,7 +76,13 @@ void NumberClassifier::extractNumbers(const cv::Mat & src, std::vector<Armor> & 
             number_image(cv::Rect(cv::Point((warp_width - roi_size.width) / 2, 0), roi_size));
 
         // Binarize
-        cv::cvtColor(number_image, number_image, cv::COLOR_RGB2GRAY);
+        std::vector<cv::Mat> channels;
+        cv::split(number_image, channels);
+        if (detect_color == RED) {
+            cv::addWeighted(channels[2], 0.5, channels[1], 0.5, 0.0, number_image);
+        } else {
+            cv::addWeighted(channels[0], 0.5, channels[1], 0.5, 0.0, number_image);
+        }
         cv::threshold(number_image, number_image, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
 
         armor.number_img = number_image;

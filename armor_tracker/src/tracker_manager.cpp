@@ -109,11 +109,6 @@ void TrackerManager::update(
                     "Initializing new tracker %s with wide camera data.", id.c_str());
             }
             initNewTracker(id, armors_by_id[id], msg_time);
-            if(!is_main_camera) {
-                RCLCPP_WARN(
-                    rclcpp::get_logger("armor_tracker"),
-                    "New tracker %s initialized with wide camera data.", id.c_str());
-            }
         }
     }
 }

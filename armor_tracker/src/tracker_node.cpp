@@ -4,6 +4,7 @@
 // STD
 #include <auto_aim_interfaces/msg/detail/target__struct.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp> 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <opencv2/calib3d.hpp>
@@ -320,7 +321,7 @@ void ArmorTrackerNode::initializeEKF()
         double t = dt_, x = s2qxy_, z = s2qz_, y = s2qyaw_, r = s2qr_;
         double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x, q_vx_vx = pow(t, 2) * x;
         double q_y_y = pow(t, 4) / 4 * x, q_y_vy = pow(t, 3) / 2 * x, q_vy_vy = pow(t, 2) * x;
-        double q_z_z = pow(t, 4) / 4 * z, q_z_vz = pow(t, 3) / 2 * z, q_vz_vz = pow(t, 2) * z;
+        double q_z_z = pow(t, 4) / 4 * z;
         double q_yaw_yaw = pow(t, 4) / 4 * y, q_yaw_vyaw = pow(t, 3) / 2 * y,
                q_vyaw_vyaw = pow(t, 2) * y;
         double q_r = pow(t, 4) / 4 * r;
@@ -337,13 +338,13 @@ void ArmorTrackerNode::initializeEKF()
         q(ZC1, ZC1) = q_z_z;
         q(ZC2, ZC2) = q_z_z;
         q(ZC3, ZC3) = q_z_z;
-        q(ZC1, VZC) = q_z_vz;
-        q(ZC2, VZC) = q_z_vz;
-        q(ZC3, VZC) = q_z_vz;
-        q(VZC, ZC1) = q_z_vz;
-        q(VZC, ZC2) = q_z_vz;
-        q(VZC, ZC3) = q_z_vz;
-        q(VZC, VZC) = q_vz_vz;
+        // q(ZC1, VZC) = q_z_vz;
+        // q(ZC2, VZC) = q_z_vz;
+        // q(ZC3, VZC) = q_z_vz;
+        // q(VZC, ZC1) = q_z_vz;
+        // q(VZC, ZC2) = q_z_vz;
+        // q(VZC, ZC3) = q_z_vz;
+        // q(VZC, VZC) = q_vz_vz;
 
         q(VYAW, VYAW) = q_vyaw_vyaw;
         q(VYAW, YAW1) = q_yaw_vyaw;
@@ -507,8 +508,8 @@ void ArmorTrackerNode::processArmors(
         std::remove_if(
             armors_msg->armors.begin(), armors_msg->armors.end(),
             [this](const auto_aim_interfaces::msg::Armor & armor) {
-                return Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
-                       max_armor_distance_;
+                return (Eigen::Vector2d(armor.pose.position.x, armor.pose.position.y).norm() >
+                       max_armor_distance_) & (armor.pose.position.z < 2.0);
             }),
         armors_msg->armors.end());
     // 更新/清理/选目标，主相机独占锁，广角非阻塞尝试
@@ -600,6 +601,7 @@ void ArmorTrackerNode::publishCallback()
 
     // 获取并发布目标
     auto current_target_id = tracker_manager_->getCurrentTargetID();
+    
     auto_aim_interfaces::msg::Target target_msg;
         target_msg.header.frame_id = target_frame_;
     bool success = tracker_manager_->getIDTarget(current_target_id, target_msg);
@@ -608,7 +610,13 @@ void ArmorTrackerNode::publishCallback()
         target_msg = auto_aim_interfaces::msg::Target(); // 清零所有字段
         target_msg.header.frame_id = target_frame_;
         target_msg.tracking = false;
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
+        if (current_target_id != "") {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Failed to get target with ID: %s", current_target_id.c_str());
+        }
+        else{
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "No trackers available");
+        }
+        
         target_pub_->publish(target_msg);
     }
     else{

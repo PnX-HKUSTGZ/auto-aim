@@ -5,6 +5,7 @@
 #include <rclcpp/logging.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <vector>
 
 namespace rm_auto_aim
@@ -34,17 +35,18 @@ AIDetector::AIDetector(
     ppp->input()
         .tensor()
         .set_element_type(ov::element::u8)
+        .set_shape(
+            ov::Shape{
+                1, static_cast<size_t>(IMAGE_HEIGHT), static_cast<size_t>(IMAGE_WIDTH), 3})
         .set_layout("NHWC")
-        .set_color_format(ov::preprocess::ColorFormat::BGR)
-        .set_spatial_dynamic_shape();  // 允许任意输入分辨率，交给预处理阶段 resize
+        .set_color_format(ov::preprocess::ColorFormat::BGR);
 
     // 指定预处理管道
     ppp->input()
         .preprocess()
         .convert_element_type(ov::element::f32)
         .convert_color(ov::preprocess::ColorFormat::RGB)
-        .scale({255.0f, 255.0f, 255.0f})
-        .resize(ov::preprocess::ResizeAlgorithm::RESIZE_LINEAR);  // 将resize下放到设备侧
+        .scale({255.0f, 255.0f, 255.0f});
 
     // 指定模型输入布局
     ppp->input().model().set_layout("NCHW");
@@ -56,85 +58,83 @@ AIDetector::AIDetector(
     model = ppp->build();
 
     // 编译模型
-    compiled_model = core.compile_model(model, device);
+    compiled_model = core.compile_model(
+        model, device, ov::hint::performance_mode(ov::hint::PerformanceMode::LATENCY));
 
     // 预先创建推理请求，避免每帧重复分配
     infer_request_ = compiled_model.create_infer_request();
+
+    resized_input_.create(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3);
+    input_tensor_ = ov::Tensor(
+        ov::element::u8,
+        ov::Shape{1, static_cast<size_t>(IMAGE_HEIGHT), static_cast<size_t>(IMAGE_WIDTH), 3},
+        resized_input_.data);
+    infer_request_.set_input_tensor(input_tensor_);
+
+    objects_.reserve(128);
+    tmp_objects_.reserve(16);
+    boxes_.reserve(128);
+    confidences_.reserve(128);
+    nms_indices_.reserve(32);
 }
 
 AIDetector::~AIDetector() = default;
 
 std::vector<Armor> AIDetector::detect(const cv::Mat & input, int detect_color)
 {
-    // 清空之前的结果
-    objects_.clear();
-    tmp_objects_.clear();
-    ious_.clear();
-    armors_.clear();
-    
     // 记录原始图像尺寸用于坐标缩放
     original_width_ = input.cols;
     original_height_ = input.rows;
 
-    // 执行推理
     infer(input, detect_color);
-
-    // 将检测对象转换为装甲板
-    armors_.reserve(tmp_objects_.size());
-
-    for (const auto & obj : tmp_objects_) {
-        Armor armor = objectToArmor(obj);
-        if (armor.type == ArmorType::INVALID) continue;
-        armors_.push_back(armor);
-    }
-
-    // 计算灯条倾斜角度和符号
-    for (auto & armor : armors_) {
-        armor.left_light.tilt_angle = std::atan2(
-                                            armor.left_light.bottom.x - armor.left_light.top.x,
-                                            armor.left_light.bottom.y - armor.left_light.top.y) *
-                                        180 / CV_PI;
-        armor.right_light.tilt_angle = std::atan2(
-                                            armor.right_light.bottom.x - armor.right_light.top.x,
-                                            armor.right_light.bottom.y - armor.right_light.top.y) *
-                                        180 / CV_PI;
-        double theta_1 = armor.left_light.tilt_angle, theta_2 = armor.right_light.tilt_angle;
-        armor.sign = (theta_1 + theta_2) / 2 <= 0;
-    }
-
     return armors_;
 }
 
 void AIDetector::infer(const cv::Mat & img, int detect_color)
 {
-    // 清空之前的结果
-    objects_.clear();
-    tmp_objects_.clear();
-    ious_.clear();
+    using Clock = std::chrono::steady_clock;
+    const auto total_start = Clock::now();
 
-    // 保证输入内存连续，避免多余拷贝
-    contiguous_input_ = img.isContinuous() ? img : img.clone();
-
-    // 创建输入张量（NHWC，原图尺寸）；预处理已设为动态尺寸，会在设备侧自动 resize
-    ov::Shape in_shape = {1, static_cast<size_t>(contiguous_input_.rows),
-                          static_cast<size_t>(contiguous_input_.cols), 3};
-    input_tensor_ = ov::Tensor(ov::element::u8, in_shape, contiguous_input_.data);
-    infer_request_.set_input_tensor(input_tensor_);
+    if (img.cols == IMAGE_WIDTH && img.rows == IMAGE_HEIGHT) {
+        img.copyTo(resized_input_);
+    } else {
+        cv::resize(img, resized_input_, cv::Size(IMAGE_WIDTH, IMAGE_HEIGHT), 0, 0, cv::INTER_LINEAR);
+    }
+    const auto resize_end = Clock::now();
 
     // 执行推理（推理请求已复用，减少CPU调度开销）
     infer_request_.infer();
+    const auto infer_end = Clock::now();
 
+    parseOutput(detect_color);
+
+    timing_stats_.resize_ms =
+        std::chrono::duration<double, std::milli>(resize_end - total_start).count();
+    timing_stats_.infer_ms =
+        std::chrono::duration<double, std::milli>(infer_end - resize_end).count();
+    timing_stats_.total_ms =
+        std::chrono::duration<double, std::milli>(Clock::now() - total_start).count();
+}
+
+void AIDetector::parseOutput(int detect_color)
+{
+    using Clock = std::chrono::steady_clock;
+    const auto postprocess_start = Clock::now();
+
+    objects_.clear();
+    tmp_objects_.clear();
+    ious_.clear();
+    armors_.clear();
+    boxes_.clear();
+    confidences_.clear();
+    nms_indices_.clear();
+    
     // 获取输出张量
     auto output = infer_request_.get_output_tensor(0);
     ov::Shape output_shape = output.get_shape();
 
     // 创建输出矩阵 (25200 x 22)
     cv::Mat output_buffer(output_shape[1], output_shape[2], CV_32F, output.data());
-
-    std::vector<cv::Rect> boxes;
-    std::vector<int> class_ids;
-    std::vector<float> class_scores;
-    std::vector<float> confidences;
 
     // 解析输出结果
     for (int i = 0; i < output_buffer.rows; i++) {
@@ -222,19 +222,47 @@ void AIDetector::infer(const cv::Mat & img, int detect_color)
         obj.rect = cv::Rect(min_x, min_y, max_x - min_x, max_y - min_y);
 
         objects_.push_back(obj);
-        boxes.push_back(obj.rect);
-        confidences.push_back(score_num);
+        boxes_.push_back(obj.rect);
+        confidences_.push_back(score_num);
     }
 
     // 非极大值抑制 (NMS)
-    std::vector<int> indices;
-    cv::dnn::NMSBoxes(boxes, confidences, conf_threshold_, nms_threshold_, indices);
+    cv::dnn::NMSBoxes(boxes_, confidences_, conf_threshold_, nms_threshold_, nms_indices_);
 
-    for (int valid_index : indices) {
+    for (int valid_index : nms_indices_) {
         if (valid_index < static_cast<int>(objects_.size())) {
             tmp_objects_.push_back(objects_[valid_index]);
         }
     }
+
+    // 将检测对象转换为装甲板
+    armors_.reserve(tmp_objects_.size());
+
+    for (const auto & obj : tmp_objects_) {
+        Armor armor = objectToArmor(obj);
+        if (armor.type == ArmorType::INVALID) continue;
+        armors_.push_back(armor);
+    }
+
+    // 计算灯条倾斜角度和符号
+    for (auto & armor : armors_) {
+        armor.left_light.tilt_angle = std::atan2(
+                                            armor.left_light.bottom.x - armor.left_light.top.x,
+                                            armor.left_light.bottom.y - armor.left_light.top.y) *
+                                        180 / CV_PI;
+        armor.right_light.tilt_angle = std::atan2(
+                                             armor.right_light.bottom.x - armor.right_light.top.x,
+                                             armor.right_light.bottom.y - armor.right_light.top.y) *
+                                         180 / CV_PI;
+        double theta_1 = armor.left_light.tilt_angle, theta_2 = armor.right_light.tilt_angle;
+        armor.sign = (theta_1 + theta_2) / 2 <= 0;
+    }
+
+    const auto postprocess_end = Clock::now();
+    timing_stats_.postprocess_ms =
+        std::chrono::duration<double, std::milli>(postprocess_end - postprocess_start).count();
+    timing_stats_.candidate_count = static_cast<int>(objects_.size());
+    timing_stats_.result_count = static_cast<int>(tmp_objects_.size());
 }
 
 Armor AIDetector::objectToArmor(const Object & obj)
@@ -270,8 +298,8 @@ Armor AIDetector::objectToArmor(const Object & obj)
     Armor armor(left_light, right_light);
 
     // 设置数字识别结果
-    std::vector<std::string> classes = {"outpost", "1",     "2",    "3",   "4",
-                                        "5",       "guard", "base", "base"};
+    std::vector<std::string> classes = {"guard", "1",     "2",    "3",   "4",
+                                        "5",       "outpost", "base", "base"};
     armor.number = classes[obj.label];
     armor.confidence = obj.prob;
     std::stringstream result_ss;

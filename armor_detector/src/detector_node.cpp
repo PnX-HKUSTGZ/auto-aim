@@ -196,12 +196,6 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     }
     
     auto start_time = this->now();
-    // 避免在 AI 模式下复制整帧图像以减少拷贝开销
-    if (debug_ && !use_ai_detector_) {
-        armors_msg_.image = *img_msg;
-    } else {
-        armors_msg_.image = sensor_msgs::msg::Image();
-    }
 
     // 检测装甲板
     cv::Mat img;
@@ -211,11 +205,16 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
     } else {
         armors = detectArmors(img_msg, img);
     }
+    const auto after_detect_time = this->now();
+    
+    if (debug_) armors_msg_.image = *img_msg;
+    else armors_msg_.image = sensor_msgs::msg::Image();
 
     // 提取from odom_aim to gimbal的坐标系变换
     if (!updateTransform(img_msg->header.frame_id, "odom_aim", img_msg->header.stamp)) {
         return;
     }
+    const auto after_tf_time = this->now();
 
     if (pnp_solver_ == nullptr) return;  //如果pnp解算未初始化
 
@@ -260,13 +259,13 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         }
     }
     for (auto & armor_num : armor_num_map) {
-        if (use_ai_detector_) {
-            if (armor_num.second.first != -1) {
-                valid_armors.insert(
-                    valid_armors.end(), armor_num.second.second.begin(), armor_num.second.second.end());
-            }
-            continue; 
-        }
+        // if (use_ai_detector_) {
+        //     if (armor_num.second.first != -1) {
+        //         valid_armors.insert(
+        //             valid_armors.end(), armor_num.second.second.begin(), armor_num.second.second.end());
+        //     }
+        //     continue; 
+        // }
         if (armor_num.second.first == 2) {
             //利用同一台车上的两块装甲板关系的先验提高解算正确程度
             bool success = ba_solver_->fixTwoArmors(
@@ -331,6 +330,7 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
         dmsg.data = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         distance_pub_->publish(dmsg);
     }
+    const auto after_publish_time = this->now();
 
     // ...existing code...
     if (debug_) {
@@ -344,6 +344,23 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
             std::cerr << "[ArmorDetectorNode] drawResults/publishMarkers std::exception: "
                       << e.what() << std::endl;
         }
+    }
+    const auto finish_time = this->now();
+
+    if (use_ai_detector_ && ai_detector_) {
+        const auto & stats = ai_detector_->timingStats();
+        RCLCPP_INFO_THROTTLE(
+            this->get_logger(), *this->get_clock(), 2000,
+            "AI timing ms: resize=%.2f infer=%.2f post=%.2f ai_total=%.2f "
+            "detect_cb=%.2f tf=%.2f solve_publish=%.2f debug=%.2f total_cb=%.2f "
+            "candidates=%d nms=%d valid=%d",
+            stats.resize_ms, stats.infer_ms, stats.postprocess_ms, stats.total_ms,
+            (after_detect_time - start_time).seconds() * 1000.0,
+            (after_tf_time - after_detect_time).seconds() * 1000.0,
+            (after_publish_time - after_tf_time).seconds() * 1000.0,
+            (finish_time - after_publish_time).seconds() * 1000.0,
+            (finish_time - start_time).seconds() * 1000.0, stats.candidate_count,
+            stats.result_count, static_cast<int>(valid_armors.size()));
     }
 }
 
@@ -587,29 +604,29 @@ void ArmorDetectorNode::chooseBestPose(Armor & armor, const cv::Mat & rvec, cons
         (Eigen::Vector3d(tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2)) -
          t_odom_to_camera);
     armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
-    if (use_ai_detector_){
-        Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2);  //提取欧拉角
-        if (abs(rpy(1)) > M_PI / 2) {
-            rpy(0) = std::atan2(std::sin(M_PI + rpy(0)), std::cos(M_PI + rpy(0)));  // 旋转roll 180度
-            rpy(1) = std::atan2(std::sin(M_PI - rpy(1)), std::cos(M_PI - rpy(1)));  // pitch, 使用补角
-            rpy(2) = std::atan2(std::sin(M_PI + rpy(2)), std::cos(M_PI + rpy(2)));  // 旋转yaw 180度
-        }
-        rpy(0) = 0.0; 
-        rpy(1) = armor.number == "outpost" ? -0.26 : 0.26; 
-        armor.r_odom_armor =
-             Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()) * 
-             Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY()) *
-            (Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX()))
-                .toRotationMatrix();
-        armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
-        return; 
-    }
-    if (abs(rpy(0)) < 0.26) {
+    // if (use_ai_detector_){
+    //     Eigen::Vector3d rpy = armor.r_odom_armor.eulerAngles(0, 1, 2);  //提取欧拉角
+    //     if (abs(rpy(1)) > M_PI / 2) {
+    //         rpy(0) = std::atan2(std::sin(M_PI + rpy(0)), std::cos(M_PI + rpy(0)));  // 旋转roll 180度
+    //         rpy(1) = std::atan2(std::sin(M_PI - rpy(1)), std::cos(M_PI - rpy(1)));  // pitch, 使用补角
+    //         rpy(2) = std::atan2(std::sin(M_PI + rpy(2)), std::cos(M_PI + rpy(2)));  // 旋转yaw 180度
+    //     }
+    //     rpy(0) = 0.0; 
+    //     rpy(1) = armor.number == "outpost" ? -0.26 : 0.26; 
+    //     armor.r_odom_armor =
+    //          Eigen::AngleAxisd(rpy(2), Eigen::Vector3d::UnitZ()) * 
+    //          Eigen::AngleAxisd(rpy(1), Eigen::Vector3d::UnitY()) *
+    //         (Eigen::AngleAxisd(rpy(0), Eigen::Vector3d::UnitX()))
+    //             .toRotationMatrix();
+    //     armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
+    //     return; 
+    // }
+    // if (abs(rpy(0)) < 0.26) {
         ba_solver_->solveBa(armor, r_odom_to_camera, t_odom_to_camera);
         armor.setCameraArmor(r_odom_to_camera, t_odom_to_camera);
-    } else {
-        RCLCPP_WARN(this->get_logger(), "The car is on the slope");
-    }
+    // } else {
+    //     RCLCPP_WARN(this->get_logger(), "The car is on the slope");
+    // }
 }
 
 // ==================== 可视化和调试功能 ====================
